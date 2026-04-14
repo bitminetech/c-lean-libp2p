@@ -1,3 +1,4 @@
+#include <assert.h>
 #include <stddef.h>
 #include <stdint.h>
 #include <stdio.h>
@@ -7,31 +8,51 @@
 
 typedef struct
 {
-    const char *path;
+    const char *relative_path;
     size_t total_rows;
     size_t supported_rows;
     size_t unsupported_rows;
 } multibase_spec_file_stats_t;
 
-static int multibase_spec_fail(const char *context, size_t line, const char *message)
+static int multibase_spec_join_path(
+    const char *root,
+    const char *relative_path,
+    char *out,
+    size_t out_len)
 {
-    (void)fprintf(
-        stderr,
-        "multibase spec failure in %s at line %lu: %s\n",
-        context,
-        (unsigned long)line,
-        message);
+    size_t root_len = 0U;
+    size_t relative_len = 0U;
+    size_t total_len = 0U;
+
+    if ((root == NULL) || (relative_path == NULL) || (out == NULL) || (out_len == 0U))
+    {
+        return 0;
+    }
+
+    root_len = strlen(root);
+    relative_len = strlen(relative_path);
+    total_len = root_len;
+    if ((root_len != 0U) && (root[root_len - 1U] != '/'))
+    {
+        total_len += 1U;
+    }
+    total_len += relative_len;
+    if ((total_len + 1U) > out_len)
+    {
+        return 0;
+    }
+
+    (void)memcpy(out, root, root_len);
+    if ((root_len != 0U) && (root[root_len - 1U] != '/'))
+    {
+        out[root_len] = '/';
+        root_len++;
+    }
+
+    (void)memcpy(out + root_len, relative_path, relative_len);
+    out[root_len + relative_len] = '\0';
     return 1;
 }
-
-#define MULTIBASE_SPEC_CHECK(context, expr, message)                            \
-    do                                                                          \
-    {                                                                           \
-        if (!(expr))                                                            \
-        {                                                                       \
-            return multibase_spec_fail((context), (size_t)__LINE__, (message)); \
-        }                                                                       \
-    } while (0)
 
 static int multibase_spec_parse_quoted_field(
     const char *line,
@@ -189,9 +210,10 @@ static int multibase_spec_encoding_to_base(
     return 0;
 }
 
-static int multibase_spec_run_file(multibase_spec_file_stats_t *stats)
+static void multibase_spec_run_file(multibase_spec_file_stats_t *stats, const char *repo_root)
 {
     FILE *file = NULL;
+    char path[512];
     char line[1024];
     char encoding[64];
     char value[512];
@@ -200,15 +222,13 @@ static int multibase_spec_run_file(multibase_spec_file_stats_t *stats)
     size_t encoding_len = 0U;
     size_t value_len = 0U;
 
-    file = fopen(stats->path, "r");
-    MULTIBASE_SPEC_CHECK(stats->path, file != NULL, "unable to open CSV fixture");
+    assert(multibase_spec_join_path(repo_root, stats->relative_path, path, sizeof(path)) != 0);
 
-    MULTIBASE_SPEC_CHECK(
-        stats->path,
-        fgets(line, (int)sizeof(line), file) != NULL,
-        "unable to read CSV header");
-    MULTIBASE_SPEC_CHECK(
-        stats->path,
+    file = fopen(path, "r");
+    assert(file != NULL);
+
+    assert(fgets(line, (int)sizeof(line), file) != NULL);
+    assert(
         multibase_spec_parse_csv_row(
             line,
             encoding,
@@ -216,8 +236,7 @@ static int multibase_spec_run_file(multibase_spec_file_stats_t *stats)
             &encoding_len,
             input_bytes,
             sizeof(input_bytes),
-            &input_len) != 0,
-        "unable to parse CSV header");
+            &input_len) != 0);
 
     while (fgets(line, (int)sizeof(line), file) != NULL)
     {
@@ -233,8 +252,7 @@ static int multibase_spec_run_file(multibase_spec_file_stats_t *stats)
             continue;
         }
 
-        MULTIBASE_SPEC_CHECK(
-            stats->path,
+        assert(
             multibase_spec_parse_csv_row(
                 line,
                 encoding,
@@ -242,8 +260,7 @@ static int multibase_spec_run_file(multibase_spec_file_stats_t *stats)
                 &encoding_len,
                 value,
                 sizeof(value),
-                &value_len) != 0,
-            "unable to parse CSV row");
+                &value_len) != 0);
 
         stats->total_rows++;
         is_supported = multibase_spec_encoding_to_base(encoding, encoding_len, &base);
@@ -251,94 +268,74 @@ static int multibase_spec_run_file(multibase_spec_file_stats_t *stats)
         {
             stats->supported_rows++;
 
-            MULTIBASE_SPEC_CHECK(
-                stats->path,
+            assert(
                 libp2p_multibase_encode(
                     base,
                     (const uint8_t *)input_bytes,
                     input_len,
                     encoded,
                     sizeof(encoded),
-                    &encoded_len) == LIBP2P_MULTIBASE_OK,
-                "supported vector encode should succeed");
-            MULTIBASE_SPEC_CHECK(
-                stats->path,
-                encoded_len == value_len,
-                "supported vector encoded size mismatch");
-            MULTIBASE_SPEC_CHECK(
-                stats->path,
-                memcmp(encoded, value, value_len) == 0,
-                "supported vector encoded text mismatch");
+                    &encoded_len) == LIBP2P_MULTIBASE_OK);
+            assert(encoded_len == value_len);
+            assert(memcmp(encoded, value, value_len) == 0);
 
-            MULTIBASE_SPEC_CHECK(
-                stats->path,
+            assert(
                 libp2p_multibase_decode(
                     value,
                     value_len,
                     &base,
                     decoded,
                     sizeof(decoded),
-                    &decoded_len) == LIBP2P_MULTIBASE_OK,
-                "supported vector decode should succeed");
-            MULTIBASE_SPEC_CHECK(
-                stats->path,
-                decoded_len == input_len,
-                "supported vector decoded size mismatch");
-            MULTIBASE_SPEC_CHECK(
-                stats->path,
-                memcmp(decoded, input_bytes, input_len) == 0,
-                "supported vector decoded bytes mismatch");
+                    &decoded_len) == LIBP2P_MULTIBASE_OK);
+            assert(decoded_len == input_len);
+            assert(memcmp(decoded, input_bytes, input_len) == 0);
         }
         else
         {
             stats->unsupported_rows++;
 
-            MULTIBASE_SPEC_CHECK(
-                stats->path,
+            assert(
                 libp2p_multibase_decode(
                     value,
                     value_len,
                     &base,
                     decoded,
                     sizeof(decoded),
-                    &decoded_len) == LIBP2P_MULTIBASE_ERR_UNSUPPORTED_BASE,
-                "unsupported vector should report unsupported base");
+                    &decoded_len) == LIBP2P_MULTIBASE_ERR_UNSUPPORTED_BASE);
         }
     }
 
-    (void)fclose(file);
-    return 0;
+    assert(fclose(file) == 0);
 }
 
-int main(void)
+int main(int argc, char **argv)
 {
     multibase_spec_file_stats_t files[] =
         {{"docs/multiformats-specs/multibase/tests/basic.csv", 0U, 0U, 0U},
          {"docs/multiformats-specs/multibase/tests/case_insensitivity.csv", 0U, 0U, 0U},
          {"docs/multiformats-specs/multibase/tests/leading_zero.csv", 0U, 0U, 0U},
          {"docs/multiformats-specs/multibase/tests/two_leading_zeros.csv", 0U, 0U, 0U}};
+    const char *repo_root = ".";
     size_t index = 0U;
     size_t total_rows = 0U;
     size_t total_supported = 0U;
     size_t total_unsupported = 0U;
 
+    if (argc > 1)
+    {
+        repo_root = argv[1];
+    }
+
     for (index = 0U; index < (sizeof(files) / sizeof(files[0])); index++)
     {
-        if (multibase_spec_run_file(&files[index]) != 0)
-        {
-            return 1;
-        }
-
+        multibase_spec_run_file(&files[index], repo_root);
         total_rows += files[index].total_rows;
         total_supported += files[index].supported_rows;
         total_unsupported += files[index].unsupported_rows;
     }
 
-    (void)printf(
-        "multibase spec: %lu rows passed (%lu supported, %lu unsupported)\n",
-        (unsigned long)total_rows,
-        (unsigned long)total_supported,
-        (unsigned long)total_unsupported);
-
+    (void)total_rows;
+    (void)total_supported;
+    (void)total_unsupported;
     return 0;
 }

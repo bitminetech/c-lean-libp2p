@@ -1,11 +1,11 @@
+#include <assert.h>
 #include <stddef.h>
 #include <stdint.h>
 #include <string.h>
 
-#include "../../../common/multiformats_test_utils.h"
 #include "multiformats/multicodec/multicodec.h"
 
-static int multicodec_unit_test_lookup_supported_entries(void)
+static void multicodec_unit_test_lookup_supported_entries(void)
 {
     static const struct
     {
@@ -29,31 +29,25 @@ static int multicodec_unit_test_lookup_supported_entries(void)
         const char *name = NULL;
         libp2p_multicodec_tag_t tag = LIBP2P_MULTICODEC_TAG_HASH;
 
-        LIBP2P_TEST_ASSERT_EQ_INT(
-            LIBP2P_MULTICODEC_OK,
-            libp2p_multicodec_lookup(cases[index].code, &name, &tag));
-        LIBP2P_TEST_ASSERT(name != NULL);
-        LIBP2P_TEST_ASSERT_STR_EQ(cases[index].name, name);
-        LIBP2P_TEST_ASSERT_EQ_INT(cases[index].tag, tag);
+        assert(libp2p_multicodec_lookup(cases[index].code, &name, &tag) == LIBP2P_MULTICODEC_OK);
+        assert(name != NULL);
+        assert(strcmp(name, cases[index].name) == 0);
+        assert(tag == cases[index].tag);
     }
-
-    return 0;
 }
 
-static int multicodec_unit_test_lookup_unsupported(void)
+static void multicodec_unit_test_lookup_unsupported(void)
 {
     const char *name = "sentinel";
     libp2p_multicodec_tag_t tag = LIBP2P_MULTICODEC_TAG_HASH;
 
-    LIBP2P_TEST_ASSERT_EQ_INT(
-        LIBP2P_MULTICODEC_ERR_UNSUPPORTED,
-        libp2p_multicodec_lookup(UINT64_C(0x06), &name, &tag));
-    LIBP2P_TEST_ASSERT_STR_EQ("sentinel", name);
-    LIBP2P_TEST_ASSERT_EQ_INT(LIBP2P_MULTICODEC_TAG_HASH, tag);
-    return 0;
+    assert(
+        libp2p_multicodec_lookup(UINT64_C(0x06), &name, &tag) == LIBP2P_MULTICODEC_ERR_UNSUPPORTED);
+    assert(strcmp(name, "sentinel") == 0);
+    assert(tag == LIBP2P_MULTICODEC_TAG_HASH);
 }
 
-static int multicodec_unit_test_from_name_supported_entries(void)
+static void multicodec_unit_test_from_name_supported_entries(void)
 {
     static const struct
     {
@@ -79,73 +73,32 @@ static int multicodec_unit_test_from_name_supported_entries(void)
         (void)memset(buffer, 0, sizeof(buffer));
         (void)memcpy(buffer + 2U, cases[index].name, strlen(cases[index].name));
 
-        LIBP2P_TEST_ASSERT_EQ_INT(
-            LIBP2P_MULTICODEC_OK,
-            libp2p_multicodec_from_name(buffer + 2U, strlen(cases[index].name), &code));
-        LIBP2P_TEST_ASSERT_EQ_U64(cases[index].code, code);
+        assert(
+            libp2p_multicodec_from_name(buffer + 2U, strlen(cases[index].name), &code) ==
+            LIBP2P_MULTICODEC_OK);
+        assert(code == cases[index].code);
     }
-
-    return 0;
 }
 
-static int multicodec_unit_test_from_name_errors(void)
+static void multicodec_unit_test_from_name_errors(void)
 {
     uint64_t code = UINT64_C(0xFF);
 
-    LIBP2P_TEST_ASSERT_EQ_INT(
-        LIBP2P_MULTICODEC_ERR_UNKNOWN_NAME,
-        libp2p_multicodec_from_name(NULL, 1U, &code));
-    LIBP2P_TEST_ASSERT_EQ_U64(UINT64_C(0xFF), code);
+    assert(libp2p_multicodec_from_name(NULL, 1U, &code) == LIBP2P_MULTICODEC_ERR_UNKNOWN_NAME);
+    assert(code == UINT64_C(0xFF));
 
-    LIBP2P_TEST_ASSERT_EQ_INT(
-        LIBP2P_MULTICODEC_ERR_UNKNOWN_NAME,
-        libp2p_multicodec_from_name("", 0U, &code));
-    LIBP2P_TEST_ASSERT_EQ_U64(UINT64_C(0xFF), code);
+    assert(libp2p_multicodec_from_name("", 0U, &code) == LIBP2P_MULTICODEC_ERR_UNKNOWN_NAME);
+    assert(code == UINT64_C(0xFF));
 
-    LIBP2P_TEST_ASSERT_EQ_INT(
-        LIBP2P_MULTICODEC_ERR_UNKNOWN_NAME,
-        libp2p_multicodec_from_name("tcp", 3U, &code));
-    LIBP2P_TEST_ASSERT_EQ_U64(UINT64_C(0xFF), code);
-    return 0;
+    assert(libp2p_multicodec_from_name("tcp", 3U, &code) == LIBP2P_MULTICODEC_ERR_UNKNOWN_NAME);
+    assert(code == UINT64_C(0xFF));
 }
 
 int main(void)
 {
-    size_t case_count = 0U;
-
-    if (libp2p_test_run_case(
-            "multicodec_unit",
-            "lookup_supported_entries",
-            multicodec_unit_test_lookup_supported_entries,
-            &case_count) != 0)
-    {
-        return 1;
-    }
-    if (libp2p_test_run_case(
-            "multicodec_unit",
-            "lookup_unsupported",
-            multicodec_unit_test_lookup_unsupported,
-            &case_count) != 0)
-    {
-        return 1;
-    }
-    if (libp2p_test_run_case(
-            "multicodec_unit",
-            "from_name_supported_entries",
-            multicodec_unit_test_from_name_supported_entries,
-            &case_count) != 0)
-    {
-        return 1;
-    }
-    if (libp2p_test_run_case(
-            "multicodec_unit",
-            "from_name_errors",
-            multicodec_unit_test_from_name_errors,
-            &case_count) != 0)
-    {
-        return 1;
-    }
-
-    (void)fprintf(stderr, "multicodec_unit: %zu cases passed\n", case_count);
+    multicodec_unit_test_lookup_supported_entries();
+    multicodec_unit_test_lookup_unsupported();
+    multicodec_unit_test_from_name_supported_entries();
+    multicodec_unit_test_from_name_errors();
     return 0;
 }
