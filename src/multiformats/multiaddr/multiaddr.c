@@ -34,14 +34,14 @@ typedef struct
     size_t fixed_size;
 } libp2p_multiaddr_protocol_entry_t;
 
-static const libp2p_multiaddr_protocol_entry_t libp2p_multiaddr_protocol_table[] =
+static const libp2p_multiaddr_protocol_entry_t multiaddr_protocol_table[] =
     {{LIBP2P_MULTIADDR_CODE_IP4, "ip4", LIBP2P_MULTIADDR_VALUE_FIXED, 4U},
      {LIBP2P_MULTIADDR_CODE_IP6, "ip6", LIBP2P_MULTIADDR_VALUE_FIXED, 16U},
      {LIBP2P_MULTIADDR_CODE_UDP, "udp", LIBP2P_MULTIADDR_VALUE_FIXED, 2U},
      {LIBP2P_MULTIADDR_CODE_QUIC_V1, "quic-v1", LIBP2P_MULTIADDR_VALUE_NONE, 0U},
      {LIBP2P_MULTIADDR_CODE_P2P, "p2p", LIBP2P_MULTIADDR_VALUE_VARIABLE, 0U}};
 
-static int libp2p_multiaddr_add_overflow(size_t a, size_t b, size_t *out)
+static int multiaddr_add_overflow(size_t a, size_t b, size_t *out)
 {
     if (SIZE_MAX - a < b)
     {
@@ -53,48 +53,48 @@ static int libp2p_multiaddr_add_overflow(size_t a, size_t b, size_t *out)
     return 0;
 }
 
-static size_t libp2p_multiaddr_protocol_table_len(void)
+static size_t multiaddr_protocol_table_len(void)
 {
-    return sizeof(libp2p_multiaddr_protocol_table) / sizeof(libp2p_multiaddr_protocol_table[0]);
+    return sizeof(multiaddr_protocol_table) / sizeof(multiaddr_protocol_table[0]);
 }
 
-static const libp2p_multiaddr_protocol_entry_t *libp2p_multiaddr_find_protocol_by_code(
+static const libp2p_multiaddr_protocol_entry_t *multiaddr_find_protocol_by_code(
     uint64_t code)
 {
     size_t index = 0U;
 
-    for (index = 0U; index < libp2p_multiaddr_protocol_table_len(); index++)
+    for (index = 0U; index < multiaddr_protocol_table_len(); index++)
     {
-        if (libp2p_multiaddr_protocol_table[index].code == code)
+        if (multiaddr_protocol_table[index].code == code)
         {
-            return &libp2p_multiaddr_protocol_table[index];
+            return &multiaddr_protocol_table[index];
         }
     }
 
     return NULL;
 }
 
-static const libp2p_multiaddr_protocol_entry_t *libp2p_multiaddr_find_protocol_by_name(
+static const libp2p_multiaddr_protocol_entry_t *multiaddr_find_protocol_by_name(
     const char *name,
     size_t name_len)
 {
     size_t index = 0U;
 
-    for (index = 0U; index < libp2p_multiaddr_protocol_table_len(); index++)
+    for (index = 0U; index < multiaddr_protocol_table_len(); index++)
     {
-        const char *const entry_name = libp2p_multiaddr_protocol_table[index].name;
+        const char *const entry_name = multiaddr_protocol_table[index].name;
         const size_t entry_name_len = strlen(entry_name);
 
         if ((entry_name_len == name_len) && (memcmp(entry_name, name, name_len) == 0))
         {
-            return &libp2p_multiaddr_protocol_table[index];
+            return &multiaddr_protocol_table[index];
         }
     }
 
     return NULL;
 }
 
-static int libp2p_multiaddr_is_ipfs_alias(const char *name, size_t name_len)
+static int multiaddr_is_ipfs_alias(const char *name, size_t name_len)
 {
     static const char alias[] = "ipfs";
 
@@ -103,7 +103,7 @@ static int libp2p_multiaddr_is_ipfs_alias(const char *name, size_t name_len)
                : 0;
 }
 
-static libp2p_multiaddr_err_t libp2p_multiaddr_map_varint_err(libp2p_uvarint_err_t err)
+static libp2p_multiaddr_err_t multiaddr_map_varint_err(libp2p_uvarint_err_t err)
 {
     switch (err)
     {
@@ -121,7 +121,7 @@ static libp2p_multiaddr_err_t libp2p_multiaddr_map_varint_err(libp2p_uvarint_err
     }
 }
 
-static int libp2p_multiaddr_parse_decimal(
+static int multiaddr_parse_decimal(
     const char *text,
     size_t text_len,
     uint32_t max_value,
@@ -157,7 +157,7 @@ static int libp2p_multiaddr_parse_decimal(
     return 1;
 }
 
-static int libp2p_multiaddr_hex_value(char character, uint8_t *value)
+static int multiaddr_hex_value(char character, uint8_t *value)
 {
     if ((character >= '0') && (character <= '9'))
     {
@@ -179,7 +179,7 @@ static int libp2p_multiaddr_hex_value(char character, uint8_t *value)
     return 0;
 }
 
-static int libp2p_multiaddr_parse_ipv4(const char *text, size_t text_len, uint8_t out[4])
+static int multiaddr_parse_ipv4(const char *text, size_t text_len, uint8_t out[4])
 {
     size_t part = 0U;
     size_t start = 0U;
@@ -201,7 +201,7 @@ static int libp2p_multiaddr_parse_ipv4(const char *text, size_t text_len, uint8_
         }
 
         part_len = pos - start;
-        if (libp2p_multiaddr_parse_decimal(text + start, part_len, 255U, &parsed_value) == 0)
+        if (multiaddr_parse_decimal(text + start, part_len, 255U, &parsed_value) == 0)
         {
             return 0;
         }
@@ -225,7 +225,7 @@ static int libp2p_multiaddr_parse_ipv4(const char *text, size_t text_len, uint8_
     return 0;
 }
 
-static int libp2p_multiaddr_parse_ipv6(const char *text, size_t text_len, uint8_t out[16])
+static int multiaddr_parse_ipv6(const char *text, size_t text_len, uint8_t out[16])
 {
     uint16_t groups[8] = {0U, 0U, 0U, 0U, 0U, 0U, 0U, 0U};
     size_t group_count = 0U;
@@ -276,7 +276,7 @@ static int libp2p_multiaddr_parse_ipv6(const char *text, size_t text_len, uint8_
                     return 0;
                 }
 
-                if (libp2p_multiaddr_parse_ipv4(
+                if (multiaddr_parse_ipv4(
                         text + segment_start,
                         text_len - segment_start,
                         ipv4_bytes) == 0)
@@ -315,7 +315,7 @@ static int libp2p_multiaddr_parse_ipv6(const char *text, size_t text_len, uint8_
                 return 0;
             }
 
-            if (libp2p_multiaddr_hex_value(text[segment_start], &hex_value) == 0)
+            if (multiaddr_hex_value(text[segment_start], &hex_value) == 0)
             {
                 return 0;
             }
@@ -390,7 +390,7 @@ static int libp2p_multiaddr_parse_ipv6(const char *text, size_t text_len, uint8_
     return 1;
 }
 
-static void libp2p_multiaddr_write_char(char *out, size_t out_len, size_t *pos, char value)
+static void multiaddr_write_char(char *out, size_t out_len, size_t *pos, char value)
 {
     if ((out != NULL) && (*pos < out_len))
     {
@@ -400,7 +400,7 @@ static void libp2p_multiaddr_write_char(char *out, size_t out_len, size_t *pos, 
     *pos += 1U;
 }
 
-static void libp2p_multiaddr_write_bytes(
+static void multiaddr_write_bytes(
     char *out,
     size_t out_len,
     size_t *pos,
@@ -411,11 +411,11 @@ static void libp2p_multiaddr_write_bytes(
 
     for (index = 0U; index < bytes_len; index++)
     {
-        libp2p_multiaddr_write_char(out, out_len, pos, bytes[index]);
+        multiaddr_write_char(out, out_len, pos, bytes[index]);
     }
 }
 
-static void libp2p_multiaddr_write_decimal_u32(
+static void multiaddr_write_decimal_u32(
     char *out,
     size_t out_len,
     size_t *pos,
@@ -434,11 +434,11 @@ static void libp2p_multiaddr_write_decimal_u32(
     while (digit_count != 0U)
     {
         digit_count--;
-        libp2p_multiaddr_write_char(out, out_len, pos, digits[digit_count]);
+        multiaddr_write_char(out, out_len, pos, digits[digit_count]);
     }
 }
 
-static void libp2p_multiaddr_write_hex_group(char *out, size_t out_len, size_t *pos, uint16_t value)
+static void multiaddr_write_hex_group(char *out, size_t out_len, size_t *pos, uint16_t value)
 {
     char digits[4];
     size_t digit_count = 0U;
@@ -456,11 +456,11 @@ static void libp2p_multiaddr_write_hex_group(char *out, size_t out_len, size_t *
     while (digit_count != 0U)
     {
         digit_count--;
-        libp2p_multiaddr_write_char(out, out_len, pos, digits[digit_count]);
+        multiaddr_write_char(out, out_len, pos, digits[digit_count]);
     }
 }
 
-static void libp2p_multiaddr_write_ipv4(
+static void multiaddr_write_ipv4(
     const uint8_t value[4],
     char *out,
     size_t out_len,
@@ -472,13 +472,13 @@ static void libp2p_multiaddr_write_ipv4(
     {
         if (index != 0U)
         {
-            libp2p_multiaddr_write_char(out, out_len, pos, '.');
+            multiaddr_write_char(out, out_len, pos, '.');
         }
-        libp2p_multiaddr_write_decimal_u32(out, out_len, pos, (uint32_t)value[index]);
+        multiaddr_write_decimal_u32(out, out_len, pos, (uint32_t)value[index]);
     }
 }
 
-static void libp2p_multiaddr_write_ipv6(
+static void multiaddr_write_ipv6(
     const uint8_t value[16],
     char *out,
     size_t out_len,
@@ -536,8 +536,8 @@ static void libp2p_multiaddr_write_ipv6(
     {
         if ((best_len != 0U) && (index == best_start))
         {
-            libp2p_multiaddr_write_char(out, out_len, pos, ':');
-            libp2p_multiaddr_write_char(out, out_len, pos, ':');
+            multiaddr_write_char(out, out_len, pos, ':');
+            multiaddr_write_char(out, out_len, pos, ':');
             need_separator = 0;
             index += best_len;
             continue;
@@ -545,16 +545,16 @@ static void libp2p_multiaddr_write_ipv6(
 
         if (need_separator != 0)
         {
-            libp2p_multiaddr_write_char(out, out_len, pos, ':');
+            multiaddr_write_char(out, out_len, pos, ':');
         }
 
-        libp2p_multiaddr_write_hex_group(out, out_len, pos, groups[index]);
+        multiaddr_write_hex_group(out, out_len, pos, groups[index]);
         need_separator = 1;
         index++;
     }
 }
 
-static int libp2p_multiaddr_validate_p2p_value(const uint8_t *value, size_t value_len)
+static int multiaddr_validate_p2p_value(const uint8_t *value, size_t value_len)
 {
     uint64_t code = UINT64_C(0);
     const uint8_t *digest = NULL;
@@ -573,7 +573,7 @@ static int libp2p_multiaddr_validate_p2p_value(const uint8_t *value, size_t valu
     return (read == value_len) ? 1 : 0;
 }
 
-static int libp2p_multiaddr_is_legacy_peer_id(const char *text, size_t text_len)
+static int multiaddr_is_legacy_peer_id(const char *text, size_t text_len)
 {
     if ((text_len >= 1U) && (text[0] == '1'))
     {
@@ -587,7 +587,7 @@ static int libp2p_multiaddr_is_legacy_peer_id(const char *text, size_t text_len)
     return 0;
 }
 
-static int libp2p_multiaddr_parse_legacy_peer_id(
+static int multiaddr_parse_legacy_peer_id(
     const char *text,
     size_t text_len,
     uint8_t *peer_id,
@@ -637,7 +637,7 @@ static int libp2p_multiaddr_parse_legacy_peer_id(
     return 1;
 }
 
-static int libp2p_multiaddr_parse_cid_peer_id(
+static int multiaddr_parse_cid_peer_id(
     const char *text,
     size_t text_len,
     uint8_t *peer_id,
@@ -721,16 +721,16 @@ static int libp2p_multiaddr_parse_cid_peer_id(
     return 1;
 }
 
-static int libp2p_multiaddr_parse_peer_id(
+static int multiaddr_parse_peer_id(
     const char *text,
     size_t text_len,
     uint8_t *peer_id,
     size_t peer_id_capacity,
     size_t *peer_id_len)
 {
-    if (libp2p_multiaddr_is_legacy_peer_id(text, text_len) != 0)
+    if (multiaddr_is_legacy_peer_id(text, text_len) != 0)
     {
-        return libp2p_multiaddr_parse_legacy_peer_id(
+        return multiaddr_parse_legacy_peer_id(
             text,
             text_len,
             peer_id,
@@ -738,7 +738,7 @@ static int libp2p_multiaddr_parse_peer_id(
             peer_id_len);
     }
 
-    return libp2p_multiaddr_parse_cid_peer_id(
+    return multiaddr_parse_cid_peer_id(
         text,
         text_len,
         peer_id,
@@ -746,7 +746,7 @@ static int libp2p_multiaddr_parse_peer_id(
         peer_id_len);
 }
 
-static int libp2p_multiaddr_format_peer_id(
+static int multiaddr_format_peer_id(
     const uint8_t *peer_id,
     size_t peer_id_len,
     char *text,
@@ -808,7 +808,7 @@ libp2p_multiaddr_err_t libp2p_multiaddr_validate(const uint8_t *buf, size_t buf_
         }
 
         if ((code == LIBP2P_MULTIADDR_CODE_P2P) &&
-            (libp2p_multiaddr_validate_p2p_value(value, value_len) == 0))
+            (multiaddr_validate_p2p_value(value, value_len) == 0))
         {
             return LIBP2P_MULTIADDR_ERR_MALFORMED;
         }
@@ -858,7 +858,7 @@ libp2p_multiaddr_err_t libp2p_multiaddr_next_component(
 
     offset = cursor->offset;
     {
-        const libp2p_multiaddr_err_t err = libp2p_multiaddr_map_varint_err(libp2p_uvarint_decode(
+        const libp2p_multiaddr_err_t err = multiaddr_map_varint_err(libp2p_uvarint_decode(
             cursor->buf + offset,
             cursor->buf_len - offset,
             &parsed_code,
@@ -871,7 +871,7 @@ libp2p_multiaddr_err_t libp2p_multiaddr_next_component(
     }
 
     offset += code_read;
-    protocol = libp2p_multiaddr_find_protocol_by_code(parsed_code);
+    protocol = multiaddr_find_protocol_by_code(parsed_code);
     if (protocol == NULL)
     {
         return LIBP2P_MULTIADDR_ERR_UNSUPPORTED_PROTOCOL;
@@ -904,7 +904,7 @@ libp2p_multiaddr_err_t libp2p_multiaddr_next_component(
     {
         uint64_t declared_len = UINT64_C(0);
         size_t length_read = 0U;
-        libp2p_multiaddr_err_t err = libp2p_multiaddr_map_varint_err(libp2p_uvarint_decode(
+        libp2p_multiaddr_err_t err = multiaddr_map_varint_err(libp2p_uvarint_decode(
             cursor->buf + offset,
             cursor->buf_len - offset,
             &declared_len,
@@ -961,7 +961,7 @@ libp2p_multiaddr_err_t libp2p_multiaddr_append_component(
     size_t *pos)
 {
     const libp2p_multiaddr_protocol_entry_t *protocol =
-        libp2p_multiaddr_find_protocol_by_code(code);
+        multiaddr_find_protocol_by_code(code);
     size_t start = 0U;
     size_t total_size = 0U;
     size_t code_size = 0U;
@@ -1001,8 +1001,10 @@ libp2p_multiaddr_err_t libp2p_multiaddr_append_component(
 
     case LIBP2P_MULTIADDR_VALUE_VARIABLE:
         if (((value == NULL) && (value_len != 0U)) ||
+#if SIZE_MAX > LIBP2P_MULTIADDR_MAX_VARINT_VALUE
             ((uint64_t)value_len > LIBP2P_MULTIADDR_MAX_VARINT_VALUE) ||
-            (libp2p_multiaddr_validate_p2p_value(value, value_len) == 0))
+#endif
+            (multiaddr_validate_p2p_value(value, value_len) == 0))
         {
             return LIBP2P_MULTIADDR_ERR_INVALID_VALUE;
         }
@@ -1018,19 +1020,19 @@ libp2p_multiaddr_err_t libp2p_multiaddr_append_component(
     if (protocol->value_class == LIBP2P_MULTIADDR_VALUE_VARIABLE)
     {
         length_size = (size_t)libp2p_uvarint_size((uint64_t)value_len);
-        if (libp2p_multiaddr_add_overflow(total_size, length_size, &total_size) != 0)
+        if (multiaddr_add_overflow(total_size, length_size, &total_size) != 0)
         {
             *pos = SIZE_MAX;
             return LIBP2P_MULTIADDR_ERR_BUF_TOO_SMALL;
         }
     }
 
-    if (libp2p_multiaddr_add_overflow(total_size, value_len, &total_size) != 0)
+    if (multiaddr_add_overflow(total_size, value_len, &total_size) != 0)
     {
         *pos = SIZE_MAX;
         return LIBP2P_MULTIADDR_ERR_BUF_TOO_SMALL;
     }
-    if (libp2p_multiaddr_add_overflow(start, total_size, &total_size) != 0)
+    if (multiaddr_add_overflow(start, total_size, &total_size) != 0)
     {
         *pos = SIZE_MAX;
         return LIBP2P_MULTIADDR_ERR_BUF_TOO_SMALL;
@@ -1102,7 +1104,7 @@ libp2p_multiaddr_err_t libp2p_multiaddr_encapsulate(
         return err;
     }
 
-    if (libp2p_multiaddr_add_overflow(a_len, b_len, &total) != 0)
+    if (multiaddr_add_overflow(a_len, b_len, &total) != 0)
     {
         total = SIZE_MAX;
     }
@@ -1233,7 +1235,7 @@ libp2p_multiaddr_err_t libp2p_multiaddr_protocol_info(
     size_t *fixed_size)
 {
     const libp2p_multiaddr_protocol_entry_t *protocol =
-        libp2p_multiaddr_find_protocol_by_code(code);
+        multiaddr_find_protocol_by_code(code);
 
     if (protocol == NULL)
     {
@@ -1308,13 +1310,13 @@ libp2p_multiaddr_err_t libp2p_multiaddr_from_string(
             return LIBP2P_MULTIADDR_ERR_MALFORMED;
         }
 
-        if (libp2p_multiaddr_is_ipfs_alias(protocol_text, protocol_len) != 0)
+        if (multiaddr_is_ipfs_alias(protocol_text, protocol_len) != 0)
         {
-            protocol = libp2p_multiaddr_find_protocol_by_code(LIBP2P_MULTIADDR_CODE_P2P);
+            protocol = multiaddr_find_protocol_by_code(LIBP2P_MULTIADDR_CODE_P2P);
         }
         else
         {
-            protocol = libp2p_multiaddr_find_protocol_by_name(protocol_text, protocol_len);
+            protocol = multiaddr_find_protocol_by_name(protocol_text, protocol_len);
         }
 
         if (protocol == NULL)
@@ -1358,7 +1360,7 @@ libp2p_multiaddr_err_t libp2p_multiaddr_from_string(
 
             if (code == LIBP2P_MULTIADDR_CODE_IP4)
             {
-                if (libp2p_multiaddr_parse_ipv4(value_text, value_len, fixed_value) == 0)
+                if (multiaddr_parse_ipv4(value_text, value_len, fixed_value) == 0)
                 {
                     return LIBP2P_MULTIADDR_ERR_INVALID_VALUE;
                 }
@@ -1367,7 +1369,7 @@ libp2p_multiaddr_err_t libp2p_multiaddr_from_string(
             }
             else if (code == LIBP2P_MULTIADDR_CODE_IP6)
             {
-                if (libp2p_multiaddr_parse_ipv6(value_text, value_len, fixed_value) == 0)
+                if (multiaddr_parse_ipv6(value_text, value_len, fixed_value) == 0)
                 {
                     return LIBP2P_MULTIADDR_ERR_INVALID_VALUE;
                 }
@@ -1376,7 +1378,7 @@ libp2p_multiaddr_err_t libp2p_multiaddr_from_string(
             }
             else if (code == LIBP2P_MULTIADDR_CODE_UDP)
             {
-                if (libp2p_multiaddr_parse_decimal(value_text, value_len, 65535U, &parsed_number) ==
+                if (multiaddr_parse_decimal(value_text, value_len, 65535U, &parsed_number) ==
                     0)
                 {
                     return LIBP2P_MULTIADDR_ERR_INVALID_VALUE;
@@ -1389,7 +1391,7 @@ libp2p_multiaddr_err_t libp2p_multiaddr_from_string(
             }
             else
             {
-                if (libp2p_multiaddr_parse_peer_id(
+                if (multiaddr_parse_peer_id(
                         value_text,
                         value_len,
                         peer_id,
@@ -1478,8 +1480,8 @@ libp2p_multiaddr_err_t libp2p_multiaddr_to_string(
             return LIBP2P_MULTIADDR_ERR_UNSUPPORTED_PROTOCOL;
         }
 
-        libp2p_multiaddr_write_char(out, out_len, &pos, '/');
-        libp2p_multiaddr_write_bytes(out, out_len, &pos, name, strlen(name));
+        multiaddr_write_char(out, out_len, &pos, '/');
+        multiaddr_write_bytes(out, out_len, &pos, name, strlen(name));
 
         switch (code)
         {
@@ -1491,8 +1493,8 @@ libp2p_multiaddr_err_t libp2p_multiaddr_to_string(
             {
                 return LIBP2P_MULTIADDR_ERR_MALFORMED;
             }
-            libp2p_multiaddr_write_char(out, out_len, &pos, '/');
-            libp2p_multiaddr_write_ipv4(value, out, out_len, &pos);
+            multiaddr_write_char(out, out_len, &pos, '/');
+            multiaddr_write_ipv4(value, out, out_len, &pos);
             break;
 
         case LIBP2P_MULTIADDR_CODE_IP6:
@@ -1500,8 +1502,8 @@ libp2p_multiaddr_err_t libp2p_multiaddr_to_string(
             {
                 return LIBP2P_MULTIADDR_ERR_MALFORMED;
             }
-            libp2p_multiaddr_write_char(out, out_len, &pos, '/');
-            libp2p_multiaddr_write_ipv6(value, out, out_len, &pos);
+            multiaddr_write_char(out, out_len, &pos, '/');
+            multiaddr_write_ipv6(value, out, out_len, &pos);
             break;
 
         case LIBP2P_MULTIADDR_CODE_UDP:
@@ -1509,8 +1511,8 @@ libp2p_multiaddr_err_t libp2p_multiaddr_to_string(
             {
                 return LIBP2P_MULTIADDR_ERR_MALFORMED;
             }
-            libp2p_multiaddr_write_char(out, out_len, &pos, '/');
-            libp2p_multiaddr_write_decimal_u32(
+            multiaddr_write_char(out, out_len, &pos, '/');
+            multiaddr_write_decimal_u32(
                 out,
                 out_len,
                 &pos,
@@ -1522,7 +1524,7 @@ libp2p_multiaddr_err_t libp2p_multiaddr_to_string(
             {
                 return LIBP2P_MULTIADDR_ERR_MALFORMED;
             }
-            if (libp2p_multiaddr_format_peer_id(
+            if (multiaddr_format_peer_id(
                     value,
                     value_len,
                     peer_id_text,
@@ -1532,8 +1534,8 @@ libp2p_multiaddr_err_t libp2p_multiaddr_to_string(
                 return LIBP2P_MULTIADDR_ERR_MALFORMED;
             }
 
-            libp2p_multiaddr_write_char(out, out_len, &pos, '/');
-            libp2p_multiaddr_write_bytes(out, out_len, &pos, peer_id_text, peer_id_len);
+            multiaddr_write_char(out, out_len, &pos, '/');
+            multiaddr_write_bytes(out, out_len, &pos, peer_id_text, peer_id_len);
             break;
 
         default:

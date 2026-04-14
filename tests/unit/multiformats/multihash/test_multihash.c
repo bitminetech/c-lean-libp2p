@@ -5,7 +5,7 @@
 
 #include "multiformats/multihash/multihash.h"
 
-static void libp2p_multihash_unit_test_identity_empty_round_trip(void)
+static void multihash_unit_test_identity_empty_round_trip(void)
 {
     uint8_t encoded[2] = {0xffU, 0xffU};
     uint64_t code = UINT64_C(1);
@@ -38,7 +38,7 @@ static void libp2p_multihash_unit_test_identity_empty_round_trip(void)
     assert(digest == (encoded + 2U));
 }
 
-static void libp2p_multihash_unit_test_measure_then_write_identity(void)
+static void multihash_unit_test_measure_then_write_identity(void)
 {
     const uint8_t digest[] = {0xaaU, 0xbbU, 0xccU};
     uint8_t encoded[5] = {0U, 0U, 0U, 0U, 0U};
@@ -67,7 +67,7 @@ static void libp2p_multihash_unit_test_measure_then_write_identity(void)
     assert(memcmp(encoded + 2U, digest, sizeof(digest)) == 0);
 }
 
-static void libp2p_multihash_unit_fill_sha2_digest(uint8_t digest[32])
+static void multihash_unit_fill_sha2_digest(uint8_t digest[32])
 {
     size_t index = 0U;
 
@@ -77,7 +77,7 @@ static void libp2p_multihash_unit_fill_sha2_digest(uint8_t digest[32])
     }
 }
 
-static void libp2p_multihash_unit_test_sha2_256_round_trip(void)
+static void multihash_unit_test_sha2_256_round_trip(void)
 {
     uint8_t digest_bytes[32];
     uint8_t encoded[34];
@@ -88,7 +88,7 @@ static void libp2p_multihash_unit_test_sha2_256_round_trip(void)
     size_t written = 0U;
     size_t size = 0U;
 
-    libp2p_multihash_unit_fill_sha2_digest(digest_bytes);
+    multihash_unit_fill_sha2_digest(digest_bytes);
 
     assert(
         libp2p_multihash_size(LIBP2P_MULTIHASH_CODE_SHA2_256, sizeof(digest_bytes), &size) ==
@@ -117,7 +117,7 @@ static void libp2p_multihash_unit_test_sha2_256_round_trip(void)
     assert(memcmp(digest, digest_bytes, sizeof(digest_bytes)) == 0);
 }
 
-static void libp2p_multihash_unit_test_encode_off_by_one_buffer(void)
+static void multihash_unit_test_encode_off_by_one_buffer(void)
 {
     const uint8_t digest[] = {0xffU};
     uint8_t encoded[2] = {0U, 0U};
@@ -134,7 +134,7 @@ static void libp2p_multihash_unit_test_encode_off_by_one_buffer(void)
     assert(written == 3U);
 }
 
-static void libp2p_multihash_unit_test_encode_unsupported_code(void)
+static void multihash_unit_test_encode_unsupported_code(void)
 {
     const uint8_t digest[20] = {0U};
     uint8_t encoded[32] = {0U};
@@ -157,7 +157,7 @@ static void libp2p_multihash_unit_test_encode_unsupported_code(void)
     assert(written == 0U);
 }
 
-static void libp2p_multihash_unit_test_digest_size_mismatch(void)
+static void multihash_unit_test_digest_size_mismatch(void)
 {
     uint8_t digest[31];
     uint8_t encoded[64] = {0U};
@@ -182,7 +182,7 @@ static void libp2p_multihash_unit_test_digest_size_mismatch(void)
     assert(written == 0U);
 }
 
-static void libp2p_multihash_unit_test_null_digest_with_nonzero_length(void)
+static void multihash_unit_test_null_digest_with_nonzero_length(void)
 {
     uint8_t encoded[8] = {0U};
     size_t written = 99U;
@@ -198,7 +198,7 @@ static void libp2p_multihash_unit_test_null_digest_with_nonzero_length(void)
     assert(written == 0U);
 }
 
-static void libp2p_multihash_unit_test_decode_unsupported_code(void)
+static void multihash_unit_test_decode_unsupported_code(void)
 {
     uint8_t encoded[22];
     uint64_t code = UINT64_C(7);
@@ -219,7 +219,7 @@ static void libp2p_multihash_unit_test_decode_unsupported_code(void)
     assert(read == 0U);
 }
 
-static void libp2p_multihash_unit_test_invalid_varint_non_minimal(void)
+static void multihash_unit_test_invalid_varint_non_minimal(void)
 {
     const uint8_t encoded[] = {0x81U, 0x00U, 0x00U};
     uint64_t code = UINT64_C(99);
@@ -244,7 +244,7 @@ static void libp2p_multihash_unit_test_invalid_varint_non_minimal(void)
         LIBP2P_MULTIHASH_ERR_INVALID_VARINT);
 }
 
-static void libp2p_multihash_unit_test_invalid_varint_overflow(void)
+static void multihash_unit_test_invalid_varint_overflow(void)
 {
     const uint8_t encoded[] =
         {0x00U, 0x80U, 0x80U, 0x80U, 0x80U, 0x80U, 0x80U, 0x80U, 0x80U, 0x80U};
@@ -258,7 +258,7 @@ static void libp2p_multihash_unit_test_invalid_varint_overflow(void)
     assert(digest_offset == 0U);
 }
 
-static void libp2p_multihash_unit_test_truncated_header(void)
+static void multihash_unit_test_truncated_header(void)
 {
     const uint8_t encoded[] = {0x00U};
     uint64_t code = UINT64_C(99);
@@ -278,7 +278,7 @@ static void libp2p_multihash_unit_test_truncated_header(void)
         LIBP2P_MULTIHASH_ERR_TRUNCATED);
 }
 
-static void libp2p_multihash_unit_test_truncated_digest(void)
+static void multihash_unit_test_truncated_digest(void)
 {
     const uint8_t encoded[] = {0x00U, 0x03U, 0xaaU, 0xbbU};
 
@@ -287,7 +287,7 @@ static void libp2p_multihash_unit_test_truncated_digest(void)
         LIBP2P_MULTIHASH_ERR_TRUNCATED);
 }
 
-static void libp2p_multihash_unit_test_decode_digest_size_mismatch(void)
+static void multihash_unit_test_decode_digest_size_mismatch(void)
 {
     uint8_t encoded[33];
 
@@ -300,7 +300,7 @@ static void libp2p_multihash_unit_test_decode_digest_size_mismatch(void)
         LIBP2P_MULTIHASH_ERR_DIGEST_SIZE_MISMATCH);
 }
 
-static void libp2p_multihash_unit_test_read_header_success(void)
+static void multihash_unit_test_read_header_success(void)
 {
     const uint8_t encoded[] = {0x00U, 0x03U, 0xaaU, 0xbbU, 0xccU};
     uint64_t code = UINT64_C(0);
@@ -319,27 +319,27 @@ static void libp2p_multihash_unit_test_read_header_success(void)
     assert(digest_offset == 2U);
 }
 
-static void libp2p_multihash_unit_test_size_with_null_output(void)
+static void multihash_unit_test_size_with_null_output(void)
 {
     assert(libp2p_multihash_size(LIBP2P_MULTIHASH_CODE_IDENTITY, 0U, NULL) == LIBP2P_MULTIHASH_OK);
 }
 
 int main(void)
 {
-    libp2p_multihash_unit_test_identity_empty_round_trip();
-    libp2p_multihash_unit_test_measure_then_write_identity();
-    libp2p_multihash_unit_test_sha2_256_round_trip();
-    libp2p_multihash_unit_test_encode_off_by_one_buffer();
-    libp2p_multihash_unit_test_encode_unsupported_code();
-    libp2p_multihash_unit_test_digest_size_mismatch();
-    libp2p_multihash_unit_test_null_digest_with_nonzero_length();
-    libp2p_multihash_unit_test_decode_unsupported_code();
-    libp2p_multihash_unit_test_invalid_varint_non_minimal();
-    libp2p_multihash_unit_test_invalid_varint_overflow();
-    libp2p_multihash_unit_test_truncated_header();
-    libp2p_multihash_unit_test_truncated_digest();
-    libp2p_multihash_unit_test_decode_digest_size_mismatch();
-    libp2p_multihash_unit_test_read_header_success();
-    libp2p_multihash_unit_test_size_with_null_output();
+    multihash_unit_test_identity_empty_round_trip();
+    multihash_unit_test_measure_then_write_identity();
+    multihash_unit_test_sha2_256_round_trip();
+    multihash_unit_test_encode_off_by_one_buffer();
+    multihash_unit_test_encode_unsupported_code();
+    multihash_unit_test_digest_size_mismatch();
+    multihash_unit_test_null_digest_with_nonzero_length();
+    multihash_unit_test_decode_unsupported_code();
+    multihash_unit_test_invalid_varint_non_minimal();
+    multihash_unit_test_invalid_varint_overflow();
+    multihash_unit_test_truncated_header();
+    multihash_unit_test_truncated_digest();
+    multihash_unit_test_decode_digest_size_mismatch();
+    multihash_unit_test_read_header_success();
+    multihash_unit_test_size_with_null_output();
     return 0;
 }

@@ -11,7 +11,7 @@
 
 #define LIBP2P_UVARINT_MAX_VALUE UINT64_C(0x7FFFFFFFFFFFFFFF)
 
-static uint8_t libp2p_uvarint_measure_unchecked(uint64_t value)
+static uint8_t uvarint_measure_unchecked(uint64_t value)
 {
     uint8_t size = 1U;
 
@@ -38,7 +38,7 @@ libp2p_uvarint_err_t libp2p_uvarint_encode(
         *written = 0U;
     }
 
-    required = (size_t)libp2p_uvarint_measure_unchecked(value);
+    required = (size_t)uvarint_measure_unchecked(value);
 
     if (written != NULL)
     {
@@ -139,5 +139,5 @@ libp2p_uvarint_err_t libp2p_uvarint_decode(
 
 uint8_t libp2p_uvarint_size(uint64_t value)
 {
-    return libp2p_uvarint_measure_unchecked(value);
+    return uvarint_measure_unchecked(value);
 }

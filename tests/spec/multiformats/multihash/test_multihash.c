@@ -6,12 +6,12 @@
 
 #include "multiformats/multihash/multihash.h"
 
-#define LIBP2P_MULTIHASH_TEST_CASES_PATH \
+#define MULTIHASH_SPEC_TEST_CASES_PATH \
     "docs/multiformats-specs/multihash/tests/values/test_cases.csv"
-#define LIBP2P_MULTIHASH_RANDOM_VALS_PATH \
+#define MULTIHASH_SPEC_RANDOM_VALS_PATH \
     "docs/multiformats-specs/multihash/tests/values/random_vals.csv"
 
-static int libp2p_multihash_spec_join_path(
+static int multihash_spec_join_path(
     const char *root,
     const char *relative_path,
     char *out,
@@ -51,7 +51,7 @@ static int libp2p_multihash_spec_join_path(
     return 1;
 }
 
-static void libp2p_multihash_spec_trim_newline(char *text)
+static void multihash_spec_trim_newline(char *text)
 {
     const size_t length = strlen(text);
 
@@ -61,7 +61,7 @@ static void libp2p_multihash_spec_trim_newline(char *text)
     }
 }
 
-static int libp2p_multihash_spec_hex_value(char character, uint8_t *value)
+static int multihash_spec_hex_value(char character, uint8_t *value)
 {
     if ((character >= '0') && (character <= '9'))
     {
@@ -83,7 +83,7 @@ static int libp2p_multihash_spec_hex_value(char character, uint8_t *value)
     return 0;
 }
 
-static int libp2p_multihash_spec_parse_hex(
+static int multihash_spec_parse_hex(
     const char *text,
     uint8_t *out,
     size_t out_capacity,
@@ -108,8 +108,8 @@ static int libp2p_multihash_spec_parse_hex(
         uint8_t high = 0U;
         uint8_t low = 0U;
 
-        if ((libp2p_multihash_spec_hex_value(text[index], &high) == 0) ||
-            (libp2p_multihash_spec_hex_value(text[index + 1U], &low) == 0))
+        if ((multihash_spec_hex_value(text[index], &high) == 0) ||
+            (multihash_spec_hex_value(text[index + 1U], &low) == 0))
         {
             return 0;
         }
@@ -121,7 +121,7 @@ static int libp2p_multihash_spec_parse_hex(
     return 1;
 }
 
-static int libp2p_multihash_spec_split_csv_line(char *line, char **fields, size_t field_count)
+static int multihash_spec_split_csv_line(char *line, char **fields, size_t field_count)
 {
     size_t index = 0U;
     char *cursor = line;
@@ -143,7 +143,7 @@ static int libp2p_multihash_spec_split_csv_line(char *line, char **fields, size_
     return 1;
 }
 
-static int libp2p_multihash_spec_algorithm_code(const char *algorithm, uint64_t *code)
+static int multihash_spec_algorithm_code(const char *algorithm, uint64_t *code)
 {
     if (strcmp(algorithm, "sha1") == 0)
     {
@@ -170,7 +170,7 @@ static int libp2p_multihash_spec_algorithm_code(const char *algorithm, uint64_t 
     return 0;
 }
 
-static int libp2p_multihash_spec_parse_decimal_bits(const char *text, size_t *value)
+static int multihash_spec_parse_decimal_bits(const char *text, size_t *value)
 {
     size_t result = 0U;
     size_t index = 0U;
@@ -196,7 +196,7 @@ static int libp2p_multihash_spec_parse_decimal_bits(const char *text, size_t *va
     return 1;
 }
 
-static void libp2p_multihash_spec_test_case_row(
+static void multihash_spec_test_case_row(
     const char *algorithm,
     const char *bits_text,
     const char *multihash_hex)
@@ -212,11 +212,11 @@ static void libp2p_multihash_spec_test_case_row(
     size_t bits = 0U;
     libp2p_multihash_err_t expected_err = LIBP2P_MULTIHASH_OK;
 
-    assert(libp2p_multihash_spec_algorithm_code(algorithm, &expected_code) != 0);
-    assert(libp2p_multihash_spec_parse_decimal_bits(bits_text, &bits) != 0);
+    assert(multihash_spec_algorithm_code(algorithm, &expected_code) != 0);
+    assert(multihash_spec_parse_decimal_bits(bits_text, &bits) != 0);
     assert((bits % 8U) == 0U);
     assert(
-        libp2p_multihash_spec_parse_hex(
+        multihash_spec_parse_hex(
             multihash_hex,
             multihash_bytes,
             sizeof(multihash_bytes),
@@ -302,16 +302,16 @@ static void libp2p_multihash_spec_test_case_row(
     }
 }
 
-static void libp2p_multihash_spec_test_case_vectors(const char *repo_root, size_t *case_count)
+static void multihash_spec_test_case_vectors(const char *repo_root, size_t *case_count)
 {
     FILE *file = NULL;
     char path[512];
     char line[512];
 
     assert(
-        libp2p_multihash_spec_join_path(
+        multihash_spec_join_path(
             repo_root,
-            LIBP2P_MULTIHASH_TEST_CASES_PATH,
+            MULTIHASH_SPEC_TEST_CASES_PATH,
             path,
             sizeof(path)) != 0);
 
@@ -323,21 +323,21 @@ static void libp2p_multihash_spec_test_case_vectors(const char *repo_root, size_
     {
         char *fields[4] = {NULL, NULL, NULL, NULL};
 
-        libp2p_multihash_spec_trim_newline(line);
+        multihash_spec_trim_newline(line);
         if (line[0] == '\0')
         {
             continue;
         }
 
-        assert(libp2p_multihash_spec_split_csv_line(line, fields, 4U) != 0);
-        libp2p_multihash_spec_test_case_row(fields[0], fields[1], fields[3]);
+        assert(multihash_spec_split_csv_line(line, fields, 4U) != 0);
+        multihash_spec_test_case_row(fields[0], fields[1], fields[3]);
         *case_count += 1U;
     }
 
     assert(fclose(file) == 0);
 }
 
-static void libp2p_multihash_spec_identity_row(const char *hex_text)
+static void multihash_spec_identity_row(const char *hex_text)
 {
     uint8_t input[64];
     uint8_t encoded[66];
@@ -349,7 +349,7 @@ static void libp2p_multihash_spec_identity_row(const char *hex_text)
     size_t size = 0U;
     size_t written = 0U;
 
-    assert(libp2p_multihash_spec_parse_hex(hex_text, input, sizeof(input), &input_len) != 0);
+    assert(multihash_spec_parse_hex(hex_text, input, sizeof(input), &input_len) != 0);
     assert((input_len != 0U) && (input_len < sizeof(input)));
 
     assert(
@@ -380,16 +380,16 @@ static void libp2p_multihash_spec_identity_row(const char *hex_text)
     assert(memcmp(digest, input, input_len) == 0);
 }
 
-static void libp2p_multihash_spec_random_identity_vectors(const char *repo_root, size_t *case_count)
+static void multihash_spec_random_identity_vectors(const char *repo_root, size_t *case_count)
 {
     FILE *file = NULL;
     char path[512];
     char line[256];
 
     assert(
-        libp2p_multihash_spec_join_path(
+        multihash_spec_join_path(
             repo_root,
-            LIBP2P_MULTIHASH_RANDOM_VALS_PATH,
+            MULTIHASH_SPEC_RANDOM_VALS_PATH,
             path,
             sizeof(path)) != 0);
 
@@ -398,13 +398,13 @@ static void libp2p_multihash_spec_random_identity_vectors(const char *repo_root,
 
     while (fgets(line, sizeof(line), file) != NULL)
     {
-        libp2p_multihash_spec_trim_newline(line);
+        multihash_spec_trim_newline(line);
         if (line[0] == '\0')
         {
             continue;
         }
 
-        libp2p_multihash_spec_identity_row(line);
+        multihash_spec_identity_row(line);
         *case_count += 1U;
     }
 
@@ -421,8 +421,8 @@ int main(int argc, char **argv)
         repo_root = argv[1];
     }
 
-    libp2p_multihash_spec_test_case_vectors(repo_root, &case_count);
-    libp2p_multihash_spec_random_identity_vectors(repo_root, &case_count);
+    multihash_spec_test_case_vectors(repo_root, &case_count);
+    multihash_spec_random_identity_vectors(repo_root, &case_count);
     assert(case_count > 0U);
     return 0;
 }

@@ -14,7 +14,7 @@ typedef struct
     libp2p_multicodec_tag_t tag;
 } libp2p_multicodec_entry_t;
 
-static const libp2p_multicodec_entry_t libp2p_multicodec_table[] =
+static const libp2p_multicodec_entry_t multicodec_table[] =
     {{UINT64_C(0x00), "identity", LIBP2P_MULTICODEC_TAG_MULTIHASH},
      {UINT64_C(0x04), "ip4", LIBP2P_MULTICODEC_TAG_MULTIADDR},
      {UINT64_C(0x12), "sha2-256", LIBP2P_MULTICODEC_TAG_MULTIHASH},
@@ -25,9 +25,9 @@ static const libp2p_multicodec_entry_t libp2p_multicodec_table[] =
      {UINT64_C(0x01cc), "quic", LIBP2P_MULTICODEC_TAG_MULTIADDR},
      {UINT64_C(0x01cd), "quic-v1", LIBP2P_MULTICODEC_TAG_MULTIADDR}};
 
-static size_t libp2p_multicodec_table_len(void)
+static size_t multicodec_table_len(void)
 {
-    return sizeof(libp2p_multicodec_table) / sizeof(libp2p_multicodec_table[0]);
+    return sizeof(multicodec_table) / sizeof(multicodec_table[0]);
 }
 
 libp2p_multicodec_err_t libp2p_multicodec_lookup(
@@ -37,9 +37,9 @@ libp2p_multicodec_err_t libp2p_multicodec_lookup(
 {
     size_t index = 0U;
 
-    for (index = 0U; index < libp2p_multicodec_table_len(); index++)
+    for (index = 0U; index < multicodec_table_len(); index++)
     {
-        const libp2p_multicodec_entry_t *const entry = &libp2p_multicodec_table[index];
+        const libp2p_multicodec_entry_t *const entry = &multicodec_table[index];
 
         if (entry->code == code)
         {
@@ -71,9 +71,9 @@ libp2p_multicodec_err_t libp2p_multicodec_from_name(
         return LIBP2P_MULTICODEC_ERR_UNKNOWN_NAME;
     }
 
-    for (index = 0U; index < libp2p_multicodec_table_len(); index++)
+    for (index = 0U; index < multicodec_table_len(); index++)
     {
-        const libp2p_multicodec_entry_t *const entry = &libp2p_multicodec_table[index];
+        const libp2p_multicodec_entry_t *const entry = &multicodec_table[index];
         const size_t entry_name_len = strlen(entry->name);
 
         if ((entry_name_len == name_len) && (memcmp(entry->name, name, name_len) == 0))

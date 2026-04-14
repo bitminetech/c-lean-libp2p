@@ -12,21 +12,25 @@
 #define LIBP2P_MULTIHASH_MAX_VARINT_VALUE      UINT64_C(0x7FFFFFFFFFFFFFFF)
 #define LIBP2P_MULTIHASH_SHA2_256_DIGEST_BYTES 32U
 
-static libp2p_multihash_err_t libp2p_multihash_validate_size_input(size_t digest_len)
+static libp2p_multihash_err_t multihash_validate_size_input(size_t digest_len)
 {
+#if SIZE_MAX > LIBP2P_MULTIHASH_MAX_VARINT_VALUE
     if ((uint64_t)digest_len > LIBP2P_MULTIHASH_MAX_VARINT_VALUE)
     {
         return LIBP2P_MULTIHASH_ERR_DIGEST_SIZE_MISMATCH;
     }
+#else
+    (void)digest_len;
+#endif
 
     return LIBP2P_MULTIHASH_OK;
 }
 
-static libp2p_multihash_err_t libp2p_multihash_validate_code_and_length(
+static libp2p_multihash_err_t multihash_validate_code_and_length(
     uint64_t code,
     size_t digest_len)
 {
-    libp2p_multihash_err_t err = libp2p_multihash_validate_size_input(digest_len);
+    libp2p_multihash_err_t err = multihash_validate_size_input(digest_len);
 
     if (err != LIBP2P_MULTIHASH_OK)
     {
@@ -51,7 +55,7 @@ static libp2p_multihash_err_t libp2p_multihash_validate_code_and_length(
     }
 }
 
-static libp2p_multihash_err_t libp2p_multihash_map_header_varint_err(libp2p_uvarint_err_t err)
+static libp2p_multihash_err_t multihash_map_header_varint_err(libp2p_uvarint_err_t err)
 {
     switch (err)
     {
@@ -170,7 +174,7 @@ libp2p_multihash_err_t libp2p_multihash_decode(
         return err;
     }
 
-    err = libp2p_multihash_validate_code_and_length(parsed_code, parsed_digest_len);
+    err = multihash_validate_code_and_length(parsed_code, parsed_digest_len);
     if (err != LIBP2P_MULTIHASH_OK)
     {
         return err;
@@ -227,7 +231,7 @@ libp2p_multihash_err_t libp2p_multihash_read_header(
         *digest_offset = 0U;
     }
 
-    err = libp2p_multihash_map_header_varint_err(
+    err = multihash_map_header_varint_err(
         libp2p_uvarint_decode(in, in_len, &parsed_code, &code_read));
     if (err != LIBP2P_MULTIHASH_OK)
     {
@@ -239,7 +243,7 @@ libp2p_multihash_err_t libp2p_multihash_read_header(
         return LIBP2P_MULTIHASH_ERR_TRUNCATED;
     }
 
-    err = libp2p_multihash_map_header_varint_err(libp2p_uvarint_decode(
+    err = multihash_map_header_varint_err(libp2p_uvarint_decode(
         in + code_read,
         in_len - code_read,
         &parsed_digest_len_u64,
@@ -273,7 +277,7 @@ libp2p_multihash_err_t libp2p_multihash_read_header(
 libp2p_multihash_err_t libp2p_multihash_size(uint64_t code, size_t digest_len, size_t *out_len)
 {
     size_t total = 0U;
-    libp2p_multihash_err_t err = libp2p_multihash_validate_code_and_length(code, digest_len);
+    libp2p_multihash_err_t err = multihash_validate_code_and_length(code, digest_len);
 
     if (out_len != NULL)
     {
