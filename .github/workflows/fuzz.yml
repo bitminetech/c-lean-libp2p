@@ -1,0 +1,460 @@
+name: Fuzz
+
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  fuzzer:
+    name: fuzzer
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          path: c-lean-libp2p
+          submodules: recursive
+
+      - name: Discover fuzz harnesses
+        id: discover
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          mkdir -p c-lean-libp2p/build
+          mapfile -t harnesses < <(find c-lean-libp2p/fuzz -type f -name '*.c' | sort)
+          if [ ${#harnesses[@]} -eq 0 ]; then
+            echo "No fuzz harness sources found under c-lean-libp2p/fuzz."
+            echo "present=false" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
+          printf '%s\n' "${harnesses[@]}" > c-lean-libp2p/build/fuzz-harnesses.txt
+          echo "present=true" >> "$GITHUB_OUTPUT"
+
+      - name: Install clang
+        if: steps.discover.outputs.present == 'true'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y clang llvm
+
+      - name: Configure
+        if: steps.discover.outputs.present == 'true'
+        env:
+          CC: clang
+        run: cmake -S c-lean-libp2p -B c-lean-libp2p/build -DBUILD_TESTING=OFF
+
+      - name: Build core library
+        if: steps.discover.outputs.present == 'true'
+        run: cmake --build c-lean-libp2p/build --parallel
+
+      - name: Build fuzzers
+        if: steps.discover.outputs.present == 'true'
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          mkdir -p c-lean-libp2p/build/fuzz/bin
+          while IFS= read -r harness; do
+            name="$(printf '%s' "${harness#c-lean-libp2p/fuzz/}" | sed 's#/#_#g; s#\.c$##')"
+            clang \
+              -std=c11 \
+              -Wall \
+              -Wextra \
+              -Werror \
+              -O1 \
+              -g \
+              -fno-omit-frame-pointer \
+              -fsanitize=fuzzer,address \
+              -I c-lean-libp2p/include \
+              "$harness" c-lean-libp2p/build/lib/libc_lean_libp2p.a \
+              -lm \
+              -o "c-lean-libp2p/build/fuzz/bin/${name}"
+          done < c-lean-libp2p/build/fuzz-harnesses.txt
+
+      - name: Run fuzzers
+        if: steps.discover.outputs.present == 'true'
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          mkdir -p c-lean-libp2p/build/fuzz-artifacts
+          mapfile -t fuzzers < <(find c-lean-libp2p/build/fuzz/bin -maxdepth 1 -type f -perm -u+x | sort)
+          if [ ${#fuzzers[@]} -eq 0 ]; then
+            echo "No fuzz executables found in c-lean-libp2p/build/fuzz/bin."
+            exit 1
+          fi
+
+          for fuzzer in "${fuzzers[@]}"; do
+            name="$(basename "$fuzzer")"
+            echo "--- Running ${name} ---"
+            "$fuzzer" -max_total_time=60 -artifact_prefix=c-lean-libp2p/build/fuzz-artifacts/
+          done
+
+      - name: Configure coverage-instrumented build
+        if: steps.discover.outputs.present == 'true'
+        env:
+          CC: clang
+        run: |
+          cmake -S c-lean-libp2p -B c-lean-libp2p/build/fuzz-coverage \
+            -DBUILD_TESTING=OFF \
+            -DCMAKE_C_FLAGS='-fprofile-instr-generate -fcoverage-mapping' \
+            -DCMAKE_EXE_LINKER_FLAGS='-fprofile-instr-generate -fcoverage-mapping'
+
+      - name: Build coverage-instrumented library
+        if: steps.discover.outputs.present == 'true'
+        run: cmake --build c-lean-libp2p/build/fuzz-coverage --parallel
+
+      - name: Build coverage-instrumented fuzzers
+        if: steps.discover.outputs.present == 'true'
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          mkdir -p c-lean-libp2p/build/fuzz-coverage/bin
+          while IFS= read -r harness; do
+            name="$(printf '%s' "${harness#c-lean-libp2p/fuzz/}" | sed 's#/#_#g; s#\.c$##')"
+            clang \
+              -std=c11 \
+              -Wall \
+              -Wextra \
+              -Werror \
+              -O1 \
+              -g \
+              -fno-omit-frame-pointer \
+              -fsanitize=fuzzer,address \
+              -fprofile-instr-generate \
+              -fcoverage-mapping \
+              -I c-lean-libp2p/include \
+              "$harness" c-lean-libp2p/build/fuzz-coverage/lib/libc_lean_libp2p.a \
+              -lm \
+              -o "c-lean-libp2p/build/fuzz-coverage/bin/${name}"
+          done < c-lean-libp2p/build/fuzz-harnesses.txt
+
+      - name: Run coverage-instrumented fuzzers
+        if: steps.discover.outputs.present == 'true'
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          mkdir -p c-lean-libp2p/build/fuzz-coverage/profiles c-lean-libp2p/build/fuzz-coverage/artifacts
+          mapfile -t fuzzers < <(find c-lean-libp2p/build/fuzz-coverage/bin -maxdepth 1 -type f -perm -u+x | sort)
+          if [ ${#fuzzers[@]} -eq 0 ]; then
+            echo "No coverage fuzz executables found in c-lean-libp2p/build/fuzz-coverage/bin."
+            exit 1
+          fi
+
+          for fuzzer in "${fuzzers[@]}"; do
+            name="$(basename "$fuzzer")"
+            echo "--- Running ${name} for coverage ---"
+            LLVM_PROFILE_FILE="c-lean-libp2p/build/fuzz-coverage/profiles/${name}.profraw" \
+              "$fuzzer" -max_total_time=60 -artifact_prefix=c-lean-libp2p/build/fuzz-coverage/artifacts/
+          done
+
+      - name: Generate fuzz coverage report
+        if: steps.discover.outputs.present == 'true'
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          mkdir -p c-lean-libp2p/build/fuzz-coverage/html
+
+          mapfile -t profraws < <(find c-lean-libp2p/build/fuzz-coverage/profiles -maxdepth 1 -type f -name '*.profraw' | sort)
+          if [ ${#profraws[@]} -eq 0 ]; then
+            echo "No .profraw files found in c-lean-libp2p/build/fuzz-coverage/profiles."
+            exit 1
+          fi
+
+          llvm-profdata merge -sparse "${profraws[@]}" -o c-lean-libp2p/build/fuzz-coverage/fuzz.profdata
+
+          mapfile -t bins < <(find c-lean-libp2p/build/fuzz-coverage/bin -maxdepth 1 -type f -perm -u+x | sort)
+          if [ ${#bins[@]} -eq 0 ]; then
+            echo "No coverage binaries found in c-lean-libp2p/build/fuzz-coverage/bin."
+            exit 1
+          fi
+
+          mapfile -t src_files < <(find c-lean-libp2p/src -type f -name '*.c' | sort)
+          if [ ${#src_files[@]} -eq 0 ]; then
+            echo "No production C sources found under c-lean-libp2p/src."
+            exit 1
+          fi
+
+          object_args=()
+          for ((i = 1; i < ${#bins[@]}; i++)); do
+            object_args+=(-object "${bins[i]}")
+          done
+
+          llvm-cov show "${bins[0]}" "${object_args[@]}" \
+            -instr-profile=c-lean-libp2p/build/fuzz-coverage/fuzz.profdata \
+            --format=html \
+            --output-dir=c-lean-libp2p/build/fuzz-coverage/html \
+            "${src_files[@]}"
+
+          llvm-cov report "${bins[0]}" "${object_args[@]}" \
+            -instr-profile=c-lean-libp2p/build/fuzz-coverage/fuzz.profdata \
+            "${src_files[@]}" | tee c-lean-libp2p/build/fuzz-coverage/report.txt
+
+      - name: Extract fuzz coverage percentage
+        if: steps.discover.outputs.present == 'true'
+        id: fuzz_coverage
+        run: |
+          COVERAGE=$(tail -1 c-lean-libp2p/build/fuzz-coverage/report.txt | grep -oE '[0-9]+\.[0-9]+%' | head -1 | tr -d '%')
+          echo "percentage=$COVERAGE" >> "$GITHUB_OUTPUT"
+
+      - name: Create fuzz coverage badge
+        if: steps.discover.outputs.present == 'true' && github.ref == 'refs/heads/main' && github.event_name == 'push' && secrets.GIST_TOKEN != '' && vars.COVERAGE_GIST_ID != ''
+        uses: schneegans/dynamic-badges-action@v1.7.0
+        with:
+          auth: ${{ secrets.GIST_TOKEN }}
+          gistID: ${{ vars.COVERAGE_GIST_ID }}
+          filename: fuzz-coverage.json
+          label: fuzz coverage
+          message: ${{ steps.fuzz_coverage.outputs.percentage }}%
+          valColorRange: ${{ steps.fuzz_coverage.outputs.percentage }}
+          minColorRange: 50
+          maxColorRange: 100
+
+      - name: Upload fuzz coverage report
+        if: always() && steps.discover.outputs.present == 'true'
+        uses: actions/upload-artifact@v4
+        with:
+          name: fuzz-coverage-report
+          path: c-lean-libp2p/build/fuzz-coverage/html
+          if-no-files-found: error
+
+      - name: Upload crash artifacts
+        if: always() && steps.discover.outputs.present == 'true'
+        uses: actions/upload-artifact@v4
+        with:
+          name: fuzz-crash-artifacts
+          path: |
+            c-lean-libp2p/build/fuzz-artifacts/crash-*
+            c-lean-libp2p/build/fuzz-artifacts/leak-*
+            c-lean-libp2p/build/fuzz-artifacts/oom-*
+            c-lean-libp2p/build/fuzz-artifacts/timeout-*
+          if-no-files-found: ignore
+
+  fuzzer-32bit:
+    name: fuzzer-32bit
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          path: c-lean-libp2p
+          submodules: recursive
+
+      - name: Discover fuzz harnesses
+        id: discover
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          mkdir -p c-lean-libp2p/build32
+          mapfile -t harnesses < <(find c-lean-libp2p/fuzz -type f -name '*.c' | sort)
+          if [ ${#harnesses[@]} -eq 0 ]; then
+            echo "No fuzz harness sources found under c-lean-libp2p/fuzz."
+            echo "present=false" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
+          printf '%s\n' "${harnesses[@]}" > c-lean-libp2p/build32/fuzz-harnesses.txt
+          echo "present=true" >> "$GITHUB_OUTPUT"
+
+      - name: Install clang and multilib toolchain
+        if: steps.discover.outputs.present == 'true'
+        run: |
+          sudo dpkg --add-architecture i386
+          sudo apt-get update
+          sudo apt-get install -y clang llvm gcc-multilib g++-multilib
+
+      - name: Configure (32-bit)
+        if: steps.discover.outputs.present == 'true'
+        env:
+          CC: clang
+        run: |
+          cmake -S c-lean-libp2p -B c-lean-libp2p/build32 \
+            -DBUILD_TESTING=OFF \
+            -DCMAKE_C_FLAGS='-m32' \
+            -DCMAKE_EXE_LINKER_FLAGS='-m32'
+
+      - name: Build core library (32-bit)
+        if: steps.discover.outputs.present == 'true'
+        run: cmake --build c-lean-libp2p/build32 --parallel
+
+      - name: Build fuzzers (32-bit)
+        if: steps.discover.outputs.present == 'true'
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          mkdir -p c-lean-libp2p/build32/fuzz/bin
+          while IFS= read -r harness; do
+            name="$(printf '%s' "${harness#c-lean-libp2p/fuzz/}" | sed 's#/#_#g; s#\.c$##')"
+            clang \
+              -m32 \
+              -std=c11 \
+              -Wall \
+              -Wextra \
+              -Werror \
+              -O1 \
+              -g \
+              -fno-omit-frame-pointer \
+              -fsanitize=fuzzer,address \
+              -I c-lean-libp2p/include \
+              "$harness" c-lean-libp2p/build32/lib/libc_lean_libp2p.a \
+              -lm \
+              -o "c-lean-libp2p/build32/fuzz/bin/${name}"
+          done < c-lean-libp2p/build32/fuzz-harnesses.txt
+
+      - name: Run fuzzers (32-bit)
+        if: steps.discover.outputs.present == 'true'
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          mkdir -p c-lean-libp2p/build32/fuzz-artifacts
+          mapfile -t fuzzers < <(find c-lean-libp2p/build32/fuzz/bin -maxdepth 1 -type f -perm -u+x | sort)
+          if [ ${#fuzzers[@]} -eq 0 ]; then
+            echo "No fuzz executables found in c-lean-libp2p/build32/fuzz/bin."
+            exit 1
+          fi
+
+          for fuzzer in "${fuzzers[@]}"; do
+            name="$(basename "$fuzzer")"
+            echo "--- Running ${name} (32-bit) ---"
+            "$fuzzer" -max_total_time=60 -artifact_prefix=c-lean-libp2p/build32/fuzz-artifacts/
+          done
+
+      - name: Configure coverage-instrumented build (32-bit)
+        if: steps.discover.outputs.present == 'true'
+        env:
+          CC: clang
+        run: |
+          cmake -S c-lean-libp2p -B c-lean-libp2p/build32-coverage \
+            -DBUILD_TESTING=OFF \
+            -DCMAKE_C_FLAGS='-m32 -fprofile-instr-generate -fcoverage-mapping' \
+            -DCMAKE_EXE_LINKER_FLAGS='-m32 -fprofile-instr-generate -fcoverage-mapping'
+
+      - name: Build coverage-instrumented library (32-bit)
+        if: steps.discover.outputs.present == 'true'
+        run: cmake --build c-lean-libp2p/build32-coverage --parallel
+
+      - name: Build coverage-instrumented fuzzers (32-bit)
+        if: steps.discover.outputs.present == 'true'
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          mkdir -p c-lean-libp2p/build32-coverage/fuzz/bin
+          while IFS= read -r harness; do
+            name="$(printf '%s' "${harness#c-lean-libp2p/fuzz/}" | sed 's#/#_#g; s#\.c$##')"
+            clang \
+              -m32 \
+              -std=c11 \
+              -Wall \
+              -Wextra \
+              -Werror \
+              -O1 \
+              -g \
+              -fno-omit-frame-pointer \
+              -fsanitize=fuzzer,address \
+              -fprofile-instr-generate \
+              -fcoverage-mapping \
+              -I c-lean-libp2p/include \
+              "$harness" c-lean-libp2p/build32-coverage/lib/libc_lean_libp2p.a \
+              -lm \
+              -o "c-lean-libp2p/build32-coverage/fuzz/bin/${name}"
+          done < c-lean-libp2p/build32/fuzz-harnesses.txt
+
+      - name: Run coverage-instrumented fuzzers (32-bit)
+        if: steps.discover.outputs.present == 'true'
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          mkdir -p c-lean-libp2p/build32-coverage/fuzz/profiles c-lean-libp2p/build32-coverage/fuzz/artifacts
+          mapfile -t fuzzers < <(find c-lean-libp2p/build32-coverage/fuzz/bin -maxdepth 1 -type f -perm -u+x | sort)
+          if [ ${#fuzzers[@]} -eq 0 ]; then
+            echo "No coverage fuzz executables found in c-lean-libp2p/build32-coverage/fuzz/bin."
+            exit 1
+          fi
+
+          for fuzzer in "${fuzzers[@]}"; do
+            name="$(basename "$fuzzer")"
+            echo "--- Running ${name} for 32-bit coverage ---"
+            LLVM_PROFILE_FILE="c-lean-libp2p/build32-coverage/fuzz/profiles/${name}.profraw" \
+              "$fuzzer" -max_total_time=60 -artifact_prefix=c-lean-libp2p/build32-coverage/fuzz/artifacts/
+          done
+
+      - name: Generate fuzz coverage report (32-bit)
+        if: steps.discover.outputs.present == 'true'
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          mkdir -p c-lean-libp2p/build32-coverage/fuzz/html
+
+          mapfile -t profraws < <(find c-lean-libp2p/build32-coverage/fuzz/profiles -maxdepth 1 -type f -name '*.profraw' | sort)
+          if [ ${#profraws[@]} -eq 0 ]; then
+            echo "No .profraw files found in c-lean-libp2p/build32-coverage/fuzz/profiles."
+            exit 1
+          fi
+
+          llvm-profdata merge -sparse "${profraws[@]}" -o c-lean-libp2p/build32-coverage/fuzz/fuzz.profdata
+
+          mapfile -t bins < <(find c-lean-libp2p/build32-coverage/fuzz/bin -maxdepth 1 -type f -perm -u+x | sort)
+          if [ ${#bins[@]} -eq 0 ]; then
+            echo "No coverage binaries found in c-lean-libp2p/build32-coverage/fuzz/bin."
+            exit 1
+          fi
+
+          mapfile -t src_files < <(find c-lean-libp2p/src -type f -name '*.c' | sort)
+          if [ ${#src_files[@]} -eq 0 ]; then
+            echo "No production C sources found under c-lean-libp2p/src."
+            exit 1
+          fi
+
+          object_args=()
+          for ((i = 1; i < ${#bins[@]}; i++)); do
+            object_args+=(-object "${bins[i]}")
+          done
+
+          llvm-cov show "${bins[0]}" "${object_args[@]}" \
+            -instr-profile=c-lean-libp2p/build32-coverage/fuzz/fuzz.profdata \
+            --format=html \
+            --output-dir=c-lean-libp2p/build32-coverage/fuzz/html \
+            "${src_files[@]}"
+
+          llvm-cov report "${bins[0]}" "${object_args[@]}" \
+            -instr-profile=c-lean-libp2p/build32-coverage/fuzz/fuzz.profdata \
+            "${src_files[@]}" | tee c-lean-libp2p/build32-coverage/fuzz/report.txt
+
+      - name: Upload fuzz coverage report (32-bit)
+        if: always() && steps.discover.outputs.present == 'true'
+        uses: actions/upload-artifact@v4
+        with:
+          name: fuzz-coverage-report-32bit
+          path: c-lean-libp2p/build32-coverage/fuzz/html
+          if-no-files-found: error
+
+      - name: Upload crash artifacts (32-bit)
+        if: always() && steps.discover.outputs.present == 'true'
+        uses: actions/upload-artifact@v4
+        with:
+          name: fuzz-crash-artifacts-32bit
+          path: |
+            c-lean-libp2p/build32/fuzz-artifacts/crash-*
+            c-lean-libp2p/build32/fuzz-artifacts/leak-*
+            c-lean-libp2p/build32/fuzz-artifacts/oom-*
+            c-lean-libp2p/build32/fuzz-artifacts/timeout-*
+          if-no-files-found: ignore

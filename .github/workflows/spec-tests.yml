@@ -1,0 +1,286 @@
+name: Spec Tests
+
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  generate-fixtures:
+    name: Generate Fixtures
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          path: c-lean-libp2p
+
+      - name: Prepare multiformats specs
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p docs/multiformats-specs
+
+          while read -r name url; do
+            if [ -d "docs/multiformats-specs/${name}" ]; then
+              echo "Spec checkout already present for ${name}."
+              continue
+            fi
+            git clone --depth 1 "$url" "docs/multiformats-specs/${name}"
+          done <<'EOF'
+          multiaddr https://github.com/multiformats/multiaddr.git
+          multibase https://github.com/multiformats/multibase.git
+          multicodec https://github.com/multiformats/multicodec.git
+          multiformats https://github.com/multiformats/multiformats.git
+          multihash https://github.com/multiformats/multihash.git
+          unsigned-varint https://github.com/multiformats/unsigned-varint.git
+          EOF
+
+      - name: Verify required spec assets
+        run: |
+          test -f docs/multiformats-specs/multiaddr/README.md
+          test -f docs/multiformats-specs/multiaddr/test/multiaddr.feature
+          test -f docs/multiformats-specs/multiaddr/protocols.csv
+          test -f docs/multiformats-specs/multibase/tests/basic.csv
+          test -f docs/multiformats-specs/multibase/tests/case_insensitivity.csv
+          test -f docs/multiformats-specs/multicodec/table.csv
+          test -f docs/multiformats-specs/multihash/tests/values/test_cases.csv
+          test -f docs/multiformats-specs/multihash/tests/values/random_vals.csv
+          test -f docs/multiformats-specs/unsigned-varint/README.md
+
+      - name: Remove VCS metadata from spec assets
+        shell: bash
+        run: find docs/multiformats-specs -type d -name .git -prune -exec rm -rf {} +
+
+      - name: Upload fixtures artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: multiformats-spec-assets
+          path: docs/multiformats-specs
+          if-no-files-found: error
+
+  linux-spec-test:
+    name: Linux Spec (${{ matrix.compiler }}, ${{ matrix.arch }}-bit)
+    runs-on: ubuntu-latest
+    needs: [generate-fixtures]
+    timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      matrix:
+        compiler: [gcc, clang]
+        arch: ['64', '32']
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          path: c-lean-libp2p
+
+      - name: Download fixtures
+        uses: actions/download-artifact@v4
+        with:
+          name: multiformats-spec-assets
+          path: docs/multiformats-specs
+
+      - name: Install toolchain packages
+        run: |
+          set -euo pipefail
+          packages=()
+          if [ "${{ matrix.compiler }}" = "clang" ]; then
+            packages+=(clang)
+          fi
+          if [ "${{ matrix.arch }}" = "32" ]; then
+            sudo dpkg --add-architecture i386
+            packages+=(gcc-multilib g++-multilib)
+          fi
+          if [ ${#packages[@]} -gt 0 ]; then
+            sudo apt-get update
+            sudo apt-get install -y "${packages[@]}"
+          fi
+
+      - name: Configure
+        env:
+          CC: ${{ matrix.compiler }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          build_dir="c-lean-libp2p/build/linux-${{ matrix.compiler }}-${{ matrix.arch }}"
+          cmake_args=(-S c-lean-libp2p -B "$build_dir" -DCMAKE_BUILD_TYPE=Debug)
+          if [ "${{ matrix.arch }}" = "32" ]; then
+            cmake_args+=(
+              "-DCMAKE_C_FLAGS=-m32"
+              "-DCMAKE_EXE_LINKER_FLAGS=-m32"
+            )
+          fi
+          cmake "${cmake_args[@]}"
+
+      - name: Build
+        run: cmake --build c-lean-libp2p/build/linux-${{ matrix.compiler }}-${{ matrix.arch }} --parallel
+
+      - name: Test
+        run: ctest --test-dir c-lean-libp2p/build/linux-${{ matrix.compiler }}-${{ matrix.arch }} --output-on-failure --tests-regex '^spec_'
+
+  macos-spec-test:
+    name: macOS Spec
+    runs-on: macos-latest
+    needs: [generate-fixtures]
+    timeout-minutes: 30
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          path: c-lean-libp2p
+
+      - name: Download fixtures
+        uses: actions/download-artifact@v4
+        with:
+          name: multiformats-spec-assets
+          path: docs/multiformats-specs
+
+      - name: Configure
+        run: cmake -S c-lean-libp2p -B c-lean-libp2p/build/macos-spec -DCMAKE_BUILD_TYPE=Debug
+
+      - name: Build
+        run: cmake --build c-lean-libp2p/build/macos-spec --parallel
+
+      - name: Test
+        run: ctest --test-dir c-lean-libp2p/build/macos-spec --output-on-failure --tests-regex '^spec_'
+
+  windows-spec:
+    name: Windows Spec
+    runs-on: windows-latest
+    needs: [generate-fixtures]
+    timeout-minutes: 30
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          path: c-lean-libp2p
+
+      - name: Download fixtures
+        uses: actions/download-artifact@v4
+        with:
+          name: multiformats-spec-assets
+          path: docs/multiformats-specs
+
+      - name: Configure
+        run: cmake -S c-lean-libp2p -B c-lean-libp2p/build/windows-spec -DCMAKE_BUILD_TYPE=Debug
+
+      - name: Build
+        run: cmake --build c-lean-libp2p/build/windows-spec --config Debug
+
+      - name: Test
+        run: ctest --test-dir c-lean-libp2p/build/windows-spec -C Debug --output-on-failure --tests-regex '^spec_'
+
+  sanitizer-suite:
+    name: Sanitizer Suite (${{ matrix.name }})
+    runs-on: ubuntu-latest
+    needs: [generate-fixtures]
+    timeout-minutes: 120
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: asan-ubsan
+            cc: clang
+            cmake_c_flags: -fsanitize=address,undefined -fno-omit-frame-pointer
+            cmake_exe_linker_flags: -fsanitize=address,undefined
+            asan_options: detect_leaks=0
+            ubsan_options: halt_on_error=1:print_stacktrace=1
+          - name: msan
+            cc: clang
+            cmake_c_flags: -fsanitize=memory -fsanitize-memory-track-origins -fno-omit-frame-pointer
+            cmake_exe_linker_flags: -fsanitize=memory
+            asan_options: ''
+            ubsan_options: ''
+          - name: tsan
+            cc: clang
+            cmake_c_flags: -fsanitize=thread -fno-omit-frame-pointer
+            cmake_exe_linker_flags: -fsanitize=thread
+            asan_options: ''
+            ubsan_options: ''
+          - name: valgrind
+            cc: gcc
+            cmake_c_flags: ''
+            cmake_exe_linker_flags: ''
+            asan_options: ''
+            ubsan_options: ''
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          path: c-lean-libp2p
+
+      - name: Download fixtures
+        uses: actions/download-artifact@v4
+        with:
+          name: multiformats-spec-assets
+          path: docs/multiformats-specs
+
+      - name: Install runtime packages
+        run: |
+          set -euo pipefail
+          packages=()
+          if [ "${{ matrix.cc }}" = "clang" ]; then
+            packages+=(clang)
+          fi
+          if [ "${{ matrix.name }}" = "valgrind" ]; then
+            packages+=(valgrind)
+          fi
+          if [ ${#packages[@]} -gt 0 ]; then
+            sudo apt-get update
+            sudo apt-get install -y "${packages[@]}"
+          fi
+
+      - name: Configure
+        env:
+          CC: ${{ matrix.cc }}
+          CMAKE_C_FLAGS_EXTRA: ${{ matrix.cmake_c_flags }}
+          CMAKE_EXE_LINKER_FLAGS_EXTRA: ${{ matrix.cmake_exe_linker_flags }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          build_dir="c-lean-libp2p/build/${{ matrix.name }}"
+          cmake_args=(-S c-lean-libp2p -B "$build_dir" -DCMAKE_BUILD_TYPE=Debug)
+          if [ -n "$CMAKE_C_FLAGS_EXTRA" ]; then
+            cmake_args+=("-DCMAKE_C_FLAGS=$CMAKE_C_FLAGS_EXTRA")
+          fi
+          if [ -n "$CMAKE_EXE_LINKER_FLAGS_EXTRA" ]; then
+            cmake_args+=("-DCMAKE_EXE_LINKER_FLAGS=$CMAKE_EXE_LINKER_FLAGS_EXTRA")
+          fi
+          cmake "${cmake_args[@]}"
+
+      - name: Build
+        run: cmake --build c-lean-libp2p/build/${{ matrix.name }} --parallel
+
+      - name: Test
+        if: matrix.name != 'valgrind'
+        env:
+          ASAN_OPTIONS: ${{ matrix.asan_options }}
+          UBSAN_OPTIONS: ${{ matrix.ubsan_options }}
+        run: ctest --test-dir c-lean-libp2p/build/${{ matrix.name }} --output-on-failure --tests-regex '^spec_'
+
+      - name: Test under valgrind
+        if: matrix.name == 'valgrind'
+        shell: bash
+        run: |
+          set -euo pipefail
+          mapfile -t tests < <(find c-lean-libp2p/build/valgrind/bin -maxdepth 1 -type f -name 'spec_*' -perm -u+x | sort)
+          if [ ${#tests[@]} -eq 0 ]; then
+            echo "No spec test executables found in c-lean-libp2p/build/valgrind/bin."
+            exit 1
+          fi
+
+          for test_bin in "${tests[@]}"; do
+            echo "--- Running $(basename "$test_bin") under valgrind ---"
+            valgrind --error-exitcode=1 --leak-check=full "$test_bin"
+          done

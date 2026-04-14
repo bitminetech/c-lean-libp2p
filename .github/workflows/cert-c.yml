@@ -1,0 +1,128 @@
+name: CERT C Compliance
+
+on:
+  push:
+  pull_request:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  cert-c:
+    name: CERT C (clang-tidy)
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          path: c-lean-libp2p
+          submodules: recursive
+
+      - name: Install clang-tidy
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y clang-tidy
+
+      - name: Configure
+        run: |
+          cmake -S c-lean-libp2p -B c-lean-libp2p/build/cert-c \
+            -DBUILD_TESTING=OFF \
+            -DCMAKE_EXPORT_COMPILE_COMMANDS=ON
+
+      - name: Build
+        run: cmake --build c-lean-libp2p/build/cert-c --parallel
+
+      - name: Validate CERT C checks catch real violations
+        run: |
+          set -euo pipefail
+
+          cat > /tmp/cert_test.c <<'EOF'
+          #include <stdlib.h>
+          int bad(void)
+          {
+              system("echo hello");
+              return atoi("123");
+          }
+          EOF
+
+          echo "Testing CERT C checks with known-bad code..."
+          if clang-tidy --checks='-*,cert-*' /tmp/cert_test.c -- -std=c11 2>&1 | grep -E 'cert-'; then
+            echo "CERT C checks are working."
+          else
+            echo "ERROR: CERT C checks did not detect known violations."
+            exit 1
+          fi
+
+      - name: List enabled CERT C checks
+        run: |
+          echo "=== clang-tidy version ==="
+          clang-tidy --version
+          echo ""
+          echo "=== Enabled cert-* checks ==="
+          clang-tidy --list-checks --checks='-*,cert-*'
+          echo ""
+          echo "=== Files in compilation database ==="
+          python3 - <<'PY'
+          import json
+
+          with open("c-lean-libp2p/build/cert-c/compile_commands.json", encoding="utf-8") as handle:
+              database = json.load(handle)
+
+          for entry in database:
+              print(entry["file"])
+          PY
+
+      - name: Run clang-tidy CERT C checks
+        run: |
+          set -euo pipefail
+
+          mapfile -t c_files < <(
+            python3 - <<'PY'
+          import json
+          import os
+
+          with open("c-lean-libp2p/build/cert-c/compile_commands.json", encoding="utf-8") as handle:
+              database = json.load(handle)
+
+          files = sorted(
+              {
+                  entry["file"]
+                  for entry in database
+                  if entry["file"].endswith(".c")
+                  and "/tests/" not in entry["file"]
+                  and "/bench/" not in entry["file"]
+                  and "/fuzz/" not in entry["file"]
+                  and "/build/" not in entry["file"]
+              }
+          )
+          for path in files:
+              print(path)
+          PY
+          )
+
+          if [ ${#c_files[@]} -eq 0 ]; then
+            echo "No project source files found in compilation database."
+            exit 1
+          fi
+
+          clang-tidy \
+            -p c-lean-libp2p/build/cert-c \
+            --checks='-*,cert-*' \
+            --warnings-as-errors='cert-*' \
+            --header-filter='(^|.*/)c-lean-libp2p/include/' \
+            "${c_files[@]}" 2>&1 | tee cert-c-report.txt
+
+          if grep -q 'warning:' cert-c-report.txt; then
+            echo "CERT C violations found."
+            exit 1
+          fi
+          echo "No CERT C violations found."
+
+      - name: Upload CERT C report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: cert-c-report
+          path: cert-c-report.txt

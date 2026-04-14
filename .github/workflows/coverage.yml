@@ -1,0 +1,225 @@
+name: Coverage
+
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  coverage:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          path: c-lean-libp2p
+
+      - name: Install lcov
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y lcov
+
+      - name: Prepare multiformats specs
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p docs/multiformats-specs
+
+          while read -r name url; do
+            if [ -d "docs/multiformats-specs/${name}" ]; then
+              echo "Spec checkout already present for ${name}."
+              continue
+            fi
+            git clone --depth 1 "$url" "docs/multiformats-specs/${name}"
+          done <<'EOF'
+          multiaddr https://github.com/multiformats/multiaddr.git
+          multibase https://github.com/multiformats/multibase.git
+          multicodec https://github.com/multiformats/multicodec.git
+          multiformats https://github.com/multiformats/multiformats.git
+          multihash https://github.com/multiformats/multihash.git
+          unsigned-varint https://github.com/multiformats/unsigned-varint.git
+          EOF
+
+      - name: Verify required spec assets
+        run: |
+          test -f docs/multiformats-specs/multiaddr/README.md
+          test -f docs/multiformats-specs/multiaddr/test/multiaddr.feature
+          test -f docs/multiformats-specs/multiaddr/protocols.csv
+          test -f docs/multiformats-specs/multibase/tests/basic.csv
+          test -f docs/multiformats-specs/multicodec/table.csv
+          test -f docs/multiformats-specs/multihash/tests/values/test_cases.csv
+          test -f docs/multiformats-specs/unsigned-varint/README.md
+
+      - name: Configure
+        run: |
+          cmake -S c-lean-libp2p -B c-lean-libp2p/build/coverage \
+            -DCMAKE_BUILD_TYPE=Debug \
+            -DCMAKE_C_FLAGS='--coverage' \
+            -DCMAKE_EXE_LINKER_FLAGS='--coverage'
+
+      - name: Build
+        run: cmake --build c-lean-libp2p/build/coverage --parallel
+
+      - name: Zero coverage counters
+        run: lcov --zerocounters --directory c-lean-libp2p/build/coverage
+
+      - name: Test
+        run: ctest --test-dir c-lean-libp2p/build/coverage --output-on-failure
+
+      - name: Generate coverage data
+        run: |
+          lcov \
+            --capture \
+            --directory c-lean-libp2p/build/coverage \
+            --output-file c-lean-libp2p/build/coverage/coverage.info \
+            --ignore-errors mismatch
+
+      - name: Filter coverage report
+        run: |
+          lcov \
+            --remove c-lean-libp2p/build/coverage/coverage.info \
+            '/usr/*' \
+            '*/tests/*' \
+            '*/bench/*' \
+            '*/external/*' \
+            '*/build/*' \
+            --output-file c-lean-libp2p/build/coverage/coverage-filtered.info \
+            --ignore-errors unused
+
+      - name: Generate HTML report
+        run: |
+          genhtml \
+            c-lean-libp2p/build/coverage/coverage-filtered.info \
+            --output-directory c-lean-libp2p/build/coverage/html
+
+      - name: Upload coverage report
+        uses: actions/upload-artifact@v4
+        with:
+          name: coverage-report
+          path: c-lean-libp2p/build/coverage/html
+
+      - name: Coverage summary
+        run: lcov --summary c-lean-libp2p/build/coverage/coverage-filtered.info
+
+      - name: Extract coverage percentage
+        id: coverage
+        run: |
+          COVERAGE=$(lcov --summary c-lean-libp2p/build/coverage/coverage-filtered.info 2>&1 | grep 'lines' | sed 's/.*: \([0-9.]*\)%.*/\1/')
+          echo "percentage=$COVERAGE" >> "$GITHUB_OUTPUT"
+
+      - name: Create coverage badge
+        if: github.ref == 'refs/heads/main' && github.event_name == 'push' && secrets.GIST_TOKEN != '' && vars.COVERAGE_GIST_ID != ''
+        uses: schneegans/dynamic-badges-action@v1.7.0
+        with:
+          auth: ${{ secrets.GIST_TOKEN }}
+          gistID: ${{ vars.COVERAGE_GIST_ID }}
+          filename: test-coverage.json
+          label: test coverage
+          message: ${{ steps.coverage.outputs.percentage }}%
+          valColorRange: ${{ steps.coverage.outputs.percentage }}
+          minColorRange: 50
+          maxColorRange: 100
+
+  coverage-32bit:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          path: c-lean-libp2p
+
+      - name: Install 32-bit toolchain and lcov
+        run: |
+          sudo dpkg --add-architecture i386
+          sudo apt-get update
+          sudo apt-get install -y gcc-multilib g++-multilib lcov
+
+      - name: Prepare multiformats specs
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p docs/multiformats-specs
+
+          while read -r name url; do
+            if [ -d "docs/multiformats-specs/${name}" ]; then
+              echo "Spec checkout already present for ${name}."
+              continue
+            fi
+            git clone --depth 1 "$url" "docs/multiformats-specs/${name}"
+          done <<'EOF'
+          multiaddr https://github.com/multiformats/multiaddr.git
+          multibase https://github.com/multiformats/multibase.git
+          multicodec https://github.com/multiformats/multicodec.git
+          multiformats https://github.com/multiformats/multiformats.git
+          multihash https://github.com/multiformats/multihash.git
+          unsigned-varint https://github.com/multiformats/unsigned-varint.git
+          EOF
+
+      - name: Verify required spec assets
+        run: |
+          test -f docs/multiformats-specs/multiaddr/README.md
+          test -f docs/multiformats-specs/multiaddr/test/multiaddr.feature
+          test -f docs/multiformats-specs/multiaddr/protocols.csv
+          test -f docs/multiformats-specs/multibase/tests/basic.csv
+          test -f docs/multiformats-specs/multicodec/table.csv
+          test -f docs/multiformats-specs/multihash/tests/values/test_cases.csv
+          test -f docs/multiformats-specs/unsigned-varint/README.md
+
+      - name: Configure (32-bit with coverage)
+        run: |
+          cmake -S c-lean-libp2p -B c-lean-libp2p/build/coverage-32 \
+            -DCMAKE_BUILD_TYPE=Debug \
+            -DCMAKE_C_FLAGS='-m32 --coverage' \
+            -DCMAKE_EXE_LINKER_FLAGS='-m32 --coverage'
+
+      - name: Build
+        run: cmake --build c-lean-libp2p/build/coverage-32 --parallel
+
+      - name: Zero coverage counters
+        run: lcov --zerocounters --directory c-lean-libp2p/build/coverage-32
+
+      - name: Test
+        run: ctest --test-dir c-lean-libp2p/build/coverage-32 --output-on-failure
+
+      - name: Generate coverage data
+        run: |
+          lcov \
+            --capture \
+            --directory c-lean-libp2p/build/coverage-32 \
+            --output-file c-lean-libp2p/build/coverage-32/coverage.info \
+            --ignore-errors mismatch
+
+      - name: Filter coverage report
+        run: |
+          lcov \
+            --remove c-lean-libp2p/build/coverage-32/coverage.info \
+            '/usr/*' \
+            '*/tests/*' \
+            '*/bench/*' \
+            '*/external/*' \
+            '*/build/*' \
+            --output-file c-lean-libp2p/build/coverage-32/coverage-filtered.info \
+            --ignore-errors unused
+
+      - name: Generate HTML report
+        run: |
+          genhtml \
+            c-lean-libp2p/build/coverage-32/coverage-filtered.info \
+            --output-directory c-lean-libp2p/build/coverage-32/html
+
+      - name: Upload coverage report
+        uses: actions/upload-artifact@v4
+        with:
+          name: coverage-report-32bit
+          path: c-lean-libp2p/build/coverage-32/html
+
+      - name: Coverage summary
+        run: lcov --summary c-lean-libp2p/build/coverage-32/coverage-filtered.info

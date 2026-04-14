@@ -1,0 +1,94 @@
+name: Benchmark
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  benchmark:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          path: c-lean-libp2p
+          submodules: recursive
+
+      - name: Discover benchmark sources
+        id: discover
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          mkdir -p c-lean-libp2p/build
+          mapfile -t sources < <(find c-lean-libp2p/bench -type f -name '*.c' | sort)
+          if [ ${#sources[@]} -eq 0 ]; then
+            echo "No benchmark sources found under c-lean-libp2p/bench."
+            echo "present=false" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
+          printf '%s\n' "${sources[@]}" > c-lean-libp2p/build/benchmark-sources.txt
+          echo "present=true" >> "$GITHUB_OUTPUT"
+
+      - name: Configure
+        if: steps.discover.outputs.present == 'true'
+        run: cmake -S c-lean-libp2p -B c-lean-libp2p/build -DBUILD_TESTING=OFF
+
+      - name: Build core library
+        if: steps.discover.outputs.present == 'true'
+        run: cmake --build c-lean-libp2p/build --parallel
+
+      - name: Build benchmarks
+        if: steps.discover.outputs.present == 'true'
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          mkdir -p c-lean-libp2p/build/bench/bin
+          while IFS= read -r source; do
+            name="$(printf '%s' "${source#c-lean-libp2p/bench/}" | sed 's#/#_#g; s#\.c$##')"
+            cc \
+              -std=c11 \
+              -Wall \
+              -Wextra \
+              -Werror \
+              -I c-lean-libp2p/include \
+              "$source" c-lean-libp2p/build/lib/libc_lean_libp2p.a \
+              -lm \
+              -o "c-lean-libp2p/build/bench/bin/${name}"
+          done < c-lean-libp2p/build/benchmark-sources.txt
+
+      - name: Run benchmarks
+        if: steps.discover.outputs.present == 'true'
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          mkdir -p c-lean-libp2p/build/bench-results
+          mapfile -t executables < <(find c-lean-libp2p/build/bench/bin -maxdepth 1 -type f -perm -u+x | sort)
+          if [ ${#executables[@]} -eq 0 ]; then
+            echo "No benchmark executables were produced."
+            exit 1
+          fi
+
+          for exe in "${executables[@]}"; do
+            name="$(basename "$exe")"
+            echo "--- Running ${name} ---"
+            if "$exe" "--output=c-lean-libp2p/build/bench-results/${name}.csv" >/dev/null 2>&1; then
+              echo "Wrote CSV output for ${name}."
+            else
+              "$exe" | tee "c-lean-libp2p/build/bench-results/${name}.txt"
+            fi
+          done
+
+      - name: Upload benchmark results
+        uses: actions/upload-artifact@v4
+        with:
+          name: benchmark-results
+          path: c-lean-libp2p/build/bench-results/
+          if-no-files-found: ignore

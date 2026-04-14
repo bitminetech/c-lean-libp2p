@@ -1,0 +1,105 @@
+name: Duvet
+
+on:
+  push:
+  pull_request:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  duvet:
+    name: Duvet Spec Compliance
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          path: c-lean-libp2p
+          submodules: recursive
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Cache cargo
+        uses: actions/cache@v4
+        with:
+          path: ~/.cargo
+          key: ${{ runner.os }}-duvet
+          restore-keys: |
+            ${{ runner.os }}-duvet-
+
+      - name: Install duvet
+        run: cargo install --locked duvet || cargo install duvet
+
+      - name: Prepare multiformats specs
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p docs/multiformats-specs
+
+          while read -r name url; do
+            if [ -d "docs/multiformats-specs/${name}" ]; then
+              echo "Spec checkout already present for ${name}."
+              continue
+            fi
+            git clone --depth 1 "$url" "docs/multiformats-specs/${name}"
+          done <<'EOF'
+          multiaddr https://github.com/multiformats/multiaddr.git
+          multibase https://github.com/multiformats/multibase.git
+          multicodec https://github.com/multiformats/multicodec.git
+          multihash https://github.com/multiformats/multihash.git
+          unsigned-varint https://github.com/multiformats/unsigned-varint.git
+          EOF
+
+      - name: Verify multiformats spec files exist
+        run: |
+          test -f docs/multiformats-specs/multiaddr/README.md
+          test -f docs/multiformats-specs/multibase/README.md
+          test -f docs/multiformats-specs/multicodec/README.md
+          test -f docs/multiformats-specs/multihash/README.md
+          test -f docs/multiformats-specs/unsigned-varint/README.md
+
+      - name: Generate Duvet config
+        run: |
+          mkdir -p build/duvet
+          cat > build/duvet/config.toml <<'EOF'
+          '$schema' = "https://awslabs.github.io/duvet/config/v0.4.0.json"
+
+          [[source]]
+          pattern = "c-lean-libp2p/src/**/*.c"
+
+          [[source]]
+          pattern = "c-lean-libp2p/include/**/*.h"
+
+          [[specification]]
+          source = "docs/multiformats-specs/multiaddr/README.md"
+          format = "markdown"
+
+          [[specification]]
+          source = "docs/multiformats-specs/multibase/README.md"
+          format = "markdown"
+
+          [[specification]]
+          source = "docs/multiformats-specs/multicodec/README.md"
+          format = "markdown"
+
+          [[specification]]
+          source = "docs/multiformats-specs/multihash/README.md"
+          format = "markdown"
+
+          [[specification]]
+          source = "docs/multiformats-specs/unsigned-varint/README.md"
+          format = "markdown"
+          EOF
+
+      - name: Run duvet report
+        run: duvet report --config-path build/duvet/config.toml --json build/duvet/report.json
+
+      - name: Upload duvet report
+        uses: actions/upload-artifact@v4
+        with:
+          name: duvet-report
+          path: build/duvet/report.json
