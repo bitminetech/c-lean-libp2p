@@ -30,12 +30,29 @@ static size_t multicodec_table_len(void)
     return sizeof(multicodec_table) / sizeof(multicodec_table[0]);
 }
 
+static int multicodec_name_matches(const char *entry_name, const char *name, size_t name_len)
+{
+    size_t index = 0U;
+    int match = 1;
+
+    for (index = 0U; index < name_len; index++)
+    {
+        if (entry_name[index] != name[index])
+        {
+            match = 0;
+        }
+    }
+
+    return match;
+}
+
 libp2p_multicodec_err_t libp2p_multicodec_lookup(
     uint64_t code,
     const char **name,
     libp2p_multicodec_tag_t *tag)
 {
     size_t index = 0U;
+    libp2p_multicodec_err_t result = LIBP2P_MULTICODEC_ERR_UNSUPPORTED;
 
     for (index = 0U; index < multicodec_table_len(); index++)
     {
@@ -52,11 +69,12 @@ libp2p_multicodec_err_t libp2p_multicodec_lookup(
                 *tag = entry->tag;
             }
 
-            return LIBP2P_MULTICODEC_OK;
+            result = LIBP2P_MULTICODEC_OK;
+            break;
         }
     }
 
-    return LIBP2P_MULTICODEC_ERR_UNSUPPORTED;
+    return result;
 }
 
 libp2p_multicodec_err_t libp2p_multicodec_from_name(
@@ -65,27 +83,28 @@ libp2p_multicodec_err_t libp2p_multicodec_from_name(
     uint64_t *code)
 {
     size_t index = 0U;
+    libp2p_multicodec_err_t result = LIBP2P_MULTICODEC_ERR_UNKNOWN_NAME;
 
-    if (name == NULL)
+    if (name != NULL)
     {
-        return LIBP2P_MULTICODEC_ERR_UNKNOWN_NAME;
-    }
-
-    for (index = 0U; index < multicodec_table_len(); index++)
-    {
-        const libp2p_multicodec_entry_t *const entry = &multicodec_table[index];
-        const size_t entry_name_len = strlen(entry->name);
-
-        if ((entry_name_len == name_len) && (memcmp(entry->name, name, name_len) == 0))
+        for (index = 0U; index < multicodec_table_len(); index++)
         {
-            if (code != NULL)
-            {
-                *code = entry->code;
-            }
+            const libp2p_multicodec_entry_t *const entry = &multicodec_table[index];
+            const size_t entry_name_len = strlen(entry->name);
 
-            return LIBP2P_MULTICODEC_OK;
+            if ((entry_name_len == name_len) &&
+                (multicodec_name_matches(entry->name, name, name_len) != 0))
+            {
+                if (code != NULL)
+                {
+                    *code = entry->code;
+                }
+
+                result = LIBP2P_MULTICODEC_OK;
+                break;
+            }
         }
     }
 
-    return LIBP2P_MULTICODEC_ERR_UNKNOWN_NAME;
+    return result;
 }

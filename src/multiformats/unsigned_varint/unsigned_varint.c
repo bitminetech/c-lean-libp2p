@@ -9,15 +9,14 @@
 
 #include "multiformats/unsigned_varint/unsigned_varint.h"
 
-#define LIBP2P_UVARINT_MAX_VALUE UINT64_C(0x7FFFFFFFFFFFFFFF)
-
 static uint8_t uvarint_measure_unchecked(uint64_t value)
 {
     uint8_t size = 1U;
+    uint64_t remaining = value;
 
-    while (value >= UINT64_C(0x80))
+    while (remaining >= 0x80ULL)
     {
-        value >>= 7U;
+        remaining >>= 7U;
         size++;
     }
 
@@ -32,6 +31,9 @@ libp2p_uvarint_err_t libp2p_uvarint_encode(
 {
     size_t index = 0U;
     size_t required = 0U;
+    uint64_t remaining = value;
+    libp2p_uvarint_err_t result = LIBP2P_UVARINT_OK;
+    int done = 0;
 
     if (written != NULL)
     {
@@ -45,31 +47,37 @@ libp2p_uvarint_err_t libp2p_uvarint_encode(
         *written = required;
     }
 
-    if (value > LIBP2P_UVARINT_MAX_VALUE)
+    if (value > 0x7FFFFFFFFFFFFFFFULL)
     {
-        return LIBP2P_UVARINT_ERR_OVERFLOW;
+        result = LIBP2P_UVARINT_ERR_OVERFLOW;
     }
-
-    if ((buf == NULL) || (buf_len < required))
+    else if ((buf == NULL) || (buf_len < required))
     {
-        return LIBP2P_UVARINT_ERR_BUF_TOO_SMALL;
+        result = LIBP2P_UVARINT_ERR_BUF_TOO_SMALL;
     }
-
-    do
+    else
     {
-        uint8_t byte = (uint8_t)(value & UINT64_C(0x7f));
-
-        value >>= 7U;
-        if (value != UINT64_C(0))
+        while (done == 0)
         {
-            byte = (uint8_t)(byte | 0x80U);
+            uint8_t byte = (uint8_t)(remaining & UINT64_C(0x7f));
+
+            remaining >>= 7U;
+            if (remaining != 0ULL)
+            {
+                byte = (uint8_t)(byte | 0x80U);
+            }
+
+            buf[index] = byte;
+            index++;
+
+            if (remaining == 0ULL)
+            {
+                done = 1;
+            }
         }
+    }
 
-        buf[index] = byte;
-        index++;
-    } while (value != UINT64_C(0));
-
-    return LIBP2P_UVARINT_OK;
+    return result;
 }
 
 libp2p_uvarint_err_t libp2p_uvarint_decode(
@@ -81,6 +89,8 @@ libp2p_uvarint_err_t libp2p_uvarint_decode(
     uint64_t decoded_value = UINT64_C(0);
     uint32_t shift = 0U;
     size_t index = 0U;
+    libp2p_uvarint_err_t result = LIBP2P_UVARINT_ERR_TRUNCATED;
+    int done = 0;
 
     if (value != NULL)
     {
@@ -93,48 +103,62 @@ libp2p_uvarint_err_t libp2p_uvarint_decode(
 
     if ((buf == NULL) && (buf_len != 0U))
     {
-        return LIBP2P_UVARINT_ERR_TRUNCATED;
+        result = LIBP2P_UVARINT_ERR_TRUNCATED;
     }
-
-    for (index = 0U; index < buf_len; index++)
+    else
     {
-        const uint8_t byte = buf[index];
-
-        if (index >= (size_t)LIBP2P_UVARINT_MAX_BYTES)
+        for (index = 0U; (index < buf_len) && (done == 0); index++)
         {
-            return LIBP2P_UVARINT_ERR_OVERFLOW;
-        }
+            const uint8_t byte = buf[index];
 
-        if ((index == ((size_t)LIBP2P_UVARINT_MAX_BYTES - 1U)) && ((byte & 0x80U) != 0U))
-        {
-            return LIBP2P_UVARINT_ERR_OVERFLOW;
-        }
-
-        decoded_value |= ((uint64_t)(byte & 0x7fU)) << shift;
-
-        if ((byte & 0x80U) == 0U)
-        {
-            if ((index > 0U) && (byte == 0U))
+            if (index >= (size_t)LIBP2P_UVARINT_MAX_BYTES)
             {
-                return LIBP2P_UVARINT_ERR_NON_MINIMAL;
+                result = LIBP2P_UVARINT_ERR_OVERFLOW;
+                done = 1;
             }
-
-            if (value != NULL)
+            else if ((index == ((size_t)LIBP2P_UVARINT_MAX_BYTES - 1U)) && ((byte & 0x80U) != 0U))
             {
-                *value = decoded_value;
+                result = LIBP2P_UVARINT_ERR_OVERFLOW;
+                done = 1;
             }
-            if (read != NULL)
+            else
             {
-                *read = index + 1U;
-            }
+                uint64_t payload = (uint64_t)byte;
 
-            return LIBP2P_UVARINT_OK;
+                payload &= UINT64_C(0x7f);
+                payload <<= shift;
+                decoded_value |= payload;
+
+                if ((byte & 0x80U) == 0U)
+                {
+                    if ((index > 0U) && (byte == 0U))
+                    {
+                        result = LIBP2P_UVARINT_ERR_NON_MINIMAL;
+                    }
+                    else
+                    {
+                        result = LIBP2P_UVARINT_OK;
+                        if (value != NULL)
+                        {
+                            *value = decoded_value;
+                        }
+                        if (read != NULL)
+                        {
+                            *read = index + 1U;
+                        }
+                    }
+
+                    done = 1;
+                }
+                else
+                {
+                    shift += 7U;
+                }
+            }
         }
-
-        shift += 7U;
     }
 
-    return LIBP2P_UVARINT_ERR_TRUNCATED;
+    return result;
 }
 
 uint8_t libp2p_uvarint_size(uint64_t value)

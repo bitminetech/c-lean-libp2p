@@ -16,266 +16,296 @@
 static const char multibase_base58btc_alphabet[] =
     "123456789ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz";
 
-static const char multibase_base64url_alphabet[] =
-    "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-_";
-
 static int multibase_add_overflow(size_t a, size_t b, size_t *out)
 {
-    if (SIZE_MAX - a < b)
+    int overflowed = 0;
+    size_t result = SIZE_MAX;
+
+    if ((SIZE_MAX - a) < b)
     {
-        *out = SIZE_MAX;
-        return 1;
+        overflowed = 1;
+    }
+    else
+    {
+        result = a + b;
     }
 
-    *out = a + b;
-    return 0;
+    *out = result;
+    return overflowed;
 }
 
 static int multibase_mul_overflow(size_t a, size_t b, size_t *out)
 {
+    int overflowed = 0;
+    size_t result = SIZE_MAX;
+
     if ((a != 0U) && ((SIZE_MAX / a) < b))
     {
-        *out = SIZE_MAX;
-        return 1;
+        overflowed = 1;
+    }
+    else
+    {
+        result = a * b;
     }
 
-    *out = a * b;
-    return 0;
+    *out = result;
+    return overflowed;
 }
 
 static size_t multibase_base58_encoded_upper_bound(size_t in_len)
 {
     size_t scaled = 0U;
+    size_t result = 0U;
 
-    if (in_len == 0U)
+    if (in_len != 0U)
     {
-        return 0U;
+        if (multibase_mul_overflow(in_len, 138U, &scaled) != 0)
+        {
+            result = SIZE_MAX;
+        }
+        else
+        {
+            result = (scaled / 100U) + 1U;
+        }
     }
 
-    if (multibase_mul_overflow(in_len, 138U, &scaled) != 0)
-    {
-        return SIZE_MAX;
-    }
-
-    if (scaled == SIZE_MAX)
-    {
-        return SIZE_MAX;
-    }
-
-    scaled /= 100U;
-    if (scaled == SIZE_MAX)
-    {
-        return SIZE_MAX;
-    }
-
-    if (scaled == SIZE_MAX)
-    {
-        return SIZE_MAX;
-    }
-
-    if (scaled == SIZE_MAX)
-    {
-        return SIZE_MAX;
-    }
-
-    return scaled + 1U;
+    return result;
 }
 
 static size_t multibase_base64_encoded_exact_size(size_t in_len)
 {
     size_t full_groups = in_len / 3U;
     size_t total = 0U;
+    size_t result = SIZE_MAX;
     const size_t remainder = in_len % 3U;
 
-    if (multibase_mul_overflow(full_groups, 4U, &total) != 0)
+    if (multibase_mul_overflow(full_groups, 4U, &total) == 0)
     {
-        return SIZE_MAX;
+        switch (remainder)
+        {
+        case 0U:
+            result = total;
+            break;
+
+        case 1U:
+            if (multibase_add_overflow(total, 2U, &total) == 0)
+            {
+                result = total;
+            }
+            break;
+
+        default:
+            if (multibase_add_overflow(total, 3U, &total) == 0)
+            {
+                result = total;
+            }
+            break;
+        }
     }
 
-    switch (remainder)
-    {
-    case 0U:
-        return total;
-
-    case 1U:
-        if (multibase_add_overflow(total, 2U, &total) != 0)
-        {
-            return SIZE_MAX;
-        }
-        return total;
-
-    default:
-        if (multibase_add_overflow(total, 3U, &total) != 0)
-        {
-            return SIZE_MAX;
-        }
-        return total;
-    }
+    return result;
 }
 
 static size_t multibase_base64_decoded_upper_bound(size_t text_len)
 {
     size_t groups = 0U;
     size_t total = 0U;
+    size_t result = SIZE_MAX;
 
-    if (multibase_add_overflow(text_len, 3U, &groups) != 0)
+    if (multibase_add_overflow(text_len, 3U, &groups) == 0)
     {
-        return SIZE_MAX;
+        groups /= 4U;
+
+        if (multibase_mul_overflow(groups, 3U, &total) == 0)
+        {
+            result = total;
+        }
     }
 
-    groups /= 4U;
-
-    if (multibase_mul_overflow(groups, 3U, &total) != 0)
-    {
-        return SIZE_MAX;
-    }
-
-    return total;
+    return result;
 }
 
 static int multibase_base64_decoded_exact_size(size_t text_len, size_t *decoded_len)
 {
     size_t total = 0U;
-    size_t full_groups = 0U;
+    size_t result = 0U;
+    int size_is_valid = 1;
     const size_t remainder = text_len % 4U;
 
     if (remainder == 1U)
     {
-        *decoded_len = 0U;
-        return 0;
+        size_is_valid = 0;
     }
-
-    full_groups = text_len / 4U;
-    if (multibase_mul_overflow(full_groups, 3U, &total) != 0)
+    else
     {
-        *decoded_len = SIZE_MAX;
-        return 1;
+        const size_t full_groups = text_len / 4U;
+        if (multibase_mul_overflow(full_groups, 3U, &total) != 0)
+        {
+            result = SIZE_MAX;
+        }
+        else
+        {
+            switch (remainder)
+            {
+            case 0U:
+                result = total;
+                break;
+
+            case 2U:
+                if (multibase_add_overflow(total, 1U, &total) != 0)
+                {
+                    result = SIZE_MAX;
+                }
+                else
+                {
+                    result = total;
+                }
+                break;
+
+            default:
+                if (multibase_add_overflow(total, 2U, &total) != 0)
+                {
+                    result = SIZE_MAX;
+                }
+                else
+                {
+                    result = total;
+                }
+                break;
+            }
+        }
     }
 
-    switch (remainder)
-    {
-    case 0U:
-        *decoded_len = total;
-        return 1;
-
-    case 2U:
-        if (multibase_add_overflow(total, 1U, &total) != 0)
-        {
-            *decoded_len = SIZE_MAX;
-            return 1;
-        }
-        *decoded_len = total;
-        return 1;
-
-    default:
-        if (multibase_add_overflow(total, 2U, &total) != 0)
-        {
-            *decoded_len = SIZE_MAX;
-            return 1;
-        }
-        *decoded_len = total;
-        return 1;
-    }
+    *decoded_len = result;
+    return size_is_valid;
 }
 
 static libp2p_multibase_err_t multibase_prefix_for_base(
     libp2p_multibase_t base,
     char *prefix)
 {
+    char resolved_prefix = '\0';
+    libp2p_multibase_err_t err = LIBP2P_MULTIBASE_ERR_UNSUPPORTED_BASE;
+
     switch (base)
     {
     case LIBP2P_MULTIBASE_BASE58BTC:
-        *prefix = 'z';
-        return LIBP2P_MULTIBASE_OK;
+        resolved_prefix = 'z';
+        err = LIBP2P_MULTIBASE_OK;
+        break;
 
     case LIBP2P_MULTIBASE_BASE64URL:
-        *prefix = 'u';
-        return LIBP2P_MULTIBASE_OK;
+        resolved_prefix = 'u';
+        err = LIBP2P_MULTIBASE_OK;
+        break;
 
     default:
-        *prefix = '\0';
-        return LIBP2P_MULTIBASE_ERR_UNSUPPORTED_BASE;
+        break;
     }
+
+    *prefix = resolved_prefix;
+    return err;
 }
 
 static libp2p_multibase_err_t multibase_base_from_prefix(
     char prefix,
     libp2p_multibase_t *base)
 {
+    libp2p_multibase_t resolved_base = LIBP2P_MULTIBASE_BASE58BTC;
+    libp2p_multibase_err_t err = LIBP2P_MULTIBASE_ERR_UNSUPPORTED_BASE;
+    int base_was_resolved = 0;
+
     switch (prefix)
     {
     case 'z':
-        if (base != NULL)
-        {
-            *base = LIBP2P_MULTIBASE_BASE58BTC;
-        }
-        return LIBP2P_MULTIBASE_OK;
+        resolved_base = LIBP2P_MULTIBASE_BASE58BTC;
+        err = LIBP2P_MULTIBASE_OK;
+        base_was_resolved = 1;
+        break;
 
     case 'u':
-        if (base != NULL)
-        {
-            *base = LIBP2P_MULTIBASE_BASE64URL;
-        }
-        return LIBP2P_MULTIBASE_OK;
+        resolved_base = LIBP2P_MULTIBASE_BASE64URL;
+        err = LIBP2P_MULTIBASE_OK;
+        base_was_resolved = 1;
+        break;
 
     case '\0':
     case '/':
     case '1':
     case 'Q':
-        return LIBP2P_MULTIBASE_ERR_RESERVED_PREFIX;
+        err = LIBP2P_MULTIBASE_ERR_RESERVED_PREFIX;
+        break;
 
     default:
-        return LIBP2P_MULTIBASE_ERR_UNSUPPORTED_BASE;
+        break;
     }
+
+    if ((base != NULL) && (base_was_resolved != 0))
+    {
+        *base = resolved_base;
+    }
+
+    return err;
 }
 
 static int multibase_base58_value(char character, uint8_t *value)
 {
     size_t index = 0U;
+    int found = 0;
+    uint8_t resolved_value = 0U;
 
     for (index = 0U; index < 58U; index++)
     {
         if (multibase_base58btc_alphabet[index] == character)
         {
-            *value = (uint8_t)index;
-            return 1;
+            resolved_value = (uint8_t)index;
+            found = 1;
+            break;
         }
     }
 
-    *value = 0U;
-    return 0;
+    *value = resolved_value;
+    return found;
 }
 
 static int multibase_base64url_value(char character, uint8_t *value)
 {
+    const unsigned int ascii_value = (unsigned int)(unsigned char)character;
+    unsigned int resolved_value = 0U;
+    int is_valid = 0;
+
     if ((character >= 'A') && (character <= 'Z'))
     {
-        *value = (uint8_t)(character - 'A');
-        return 1;
+        resolved_value = ascii_value - (unsigned int)'A';
+        is_valid = 1;
     }
-    if ((character >= 'a') && (character <= 'z'))
+    else if ((character >= 'a') && (character <= 'z'))
     {
-        *value = (uint8_t)(26U + (uint8_t)(character - 'a'));
-        return 1;
+        resolved_value = 26U + (ascii_value - (unsigned int)'a');
+        is_valid = 1;
     }
-    if ((character >= '0') && (character <= '9'))
+    else if ((character >= '0') && (character <= '9'))
     {
-        *value = (uint8_t)(52U + (uint8_t)(character - '0'));
-        return 1;
+        resolved_value = 52U + (ascii_value - (unsigned int)'0');
+        is_valid = 1;
     }
-    if (character == '-')
+    else if (character == '-')
     {
-        *value = 62U;
-        return 1;
+        resolved_value = 62U;
+        is_valid = 1;
     }
-    if (character == '_')
+    else if (character == '_')
     {
-        *value = 63U;
-        return 1;
+        resolved_value = 63U;
+        is_valid = 1;
+    }
+    else
+    {
+        /* Invalid base64url character. */
     }
 
-    *value = 0U;
-    return 0;
+    *value = (uint8_t)resolved_value;
+    return is_valid;
 }
 
 static libp2p_multibase_err_t multibase_encode_base64url(
@@ -285,10 +315,11 @@ static libp2p_multibase_err_t multibase_encode_base64url(
     size_t out_len,
     size_t *written)
 {
+    static const char base64url_alphabet[] =
+        "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-_";
     const size_t exact_payload_len = multibase_base64_encoded_exact_size(in_len);
+    libp2p_multibase_err_t err = LIBP2P_MULTIBASE_OK;
     size_t exact_total_len = 0U;
-    size_t in_index = 0U;
-    size_t out_index = 0U;
 
     if (written != NULL)
     {
@@ -307,45 +338,59 @@ static libp2p_multibase_err_t multibase_encode_base64url(
 
     if (((in_len != 0U) && (in == NULL)) || (out == NULL) || (out_len < exact_total_len))
     {
-        return LIBP2P_MULTIBASE_ERR_BUF_TOO_SMALL;
+        err = LIBP2P_MULTIBASE_ERR_BUF_TOO_SMALL;
     }
-
-    out[out_index] = 'u';
-    out_index++;
-
-    while ((in_index + 3U) <= in_len)
+    else
     {
-        const uint32_t chunk = ((uint32_t)in[in_index] << 16U) |
-                               ((uint32_t)in[in_index + 1U] << 8U) | (uint32_t)in[in_index + 2U];
+        size_t in_index = 0U;
+        size_t out_index = 0U;
 
-        out[out_index] = multibase_base64url_alphabet[(chunk >> 18U) & 0x3fU];
-        out[out_index + 1U] = multibase_base64url_alphabet[(chunk >> 12U) & 0x3fU];
-        out[out_index + 2U] = multibase_base64url_alphabet[(chunk >> 6U) & 0x3fU];
-        out[out_index + 3U] = multibase_base64url_alphabet[chunk & 0x3fU];
+        out[out_index] = 'u';
+        out_index++;
 
-        in_index += 3U;
-        out_index += 4U;
+        while ((in_index + 3U) <= in_len)
+        {
+            const uint32_t chunk = ((uint32_t)in[in_index] << 16U) |
+                                   ((uint32_t)in[in_index + 1U] << 8U) |
+                                   (uint32_t)in[in_index + 2U];
+
+            out[out_index] = base64url_alphabet[(chunk >> 18U) & 0x3fU];
+            out[out_index + 1U] = base64url_alphabet[(chunk >> 12U) & 0x3fU];
+            out[out_index + 2U] = base64url_alphabet[(chunk >> 6U) & 0x3fU];
+            out[out_index + 3U] = base64url_alphabet[chunk & 0x3fU];
+
+            in_index += 3U;
+            out_index += 4U;
+        }
+
+        {
+            const size_t remaining = in_len - in_index;
+
+            if (remaining == 1U)
+            {
+                const uint8_t byte0 = in[in_index];
+
+                out[out_index] = base64url_alphabet[byte0 >> 2U];
+                out[out_index + 1U] = base64url_alphabet[(byte0 & 0x03U) << 4U];
+            }
+            else if (remaining == 2U)
+            {
+                const uint8_t byte0 = in[in_index];
+                const uint8_t byte1 = in[in_index + 1U];
+
+                out[out_index] = base64url_alphabet[byte0 >> 2U];
+                out[out_index + 1U] =
+                    base64url_alphabet[((byte0 & 0x03U) << 4U) | (byte1 >> 4U)];
+                out[out_index + 2U] = base64url_alphabet[(byte1 & 0x0fU) << 2U];
+            }
+            else
+            {
+                /* No trailing bytes remain. */
+            }
+        }
     }
 
-    if ((in_len - in_index) == 1U)
-    {
-        const uint8_t byte0 = in[in_index];
-
-        out[out_index] = multibase_base64url_alphabet[byte0 >> 2U];
-        out[out_index + 1U] = multibase_base64url_alphabet[(byte0 & 0x03U) << 4U];
-    }
-    else if ((in_len - in_index) == 2U)
-    {
-        const uint8_t byte0 = in[in_index];
-        const uint8_t byte1 = in[in_index + 1U];
-
-        out[out_index] = multibase_base64url_alphabet[byte0 >> 2U];
-        out[out_index + 1U] =
-            multibase_base64url_alphabet[((byte0 & 0x03U) << 4U) | (byte1 >> 4U)];
-        out[out_index + 2U] = multibase_base64url_alphabet[(byte1 & 0x0fU) << 2U];
-    }
-
-    return LIBP2P_MULTIBASE_OK;
+    return err;
 }
 
 static libp2p_multibase_err_t multibase_encode_base58btc(
@@ -358,10 +403,12 @@ static libp2p_multibase_err_t multibase_encode_base58btc(
     size_t zero_count = 0U;
     size_t significant_len = 0U;
     size_t required_bound = 0U;
+    size_t scratch_offset = 0U;
     size_t digits_capacity = 0U;
     size_t used = 0U;
     size_t in_index = 0U;
     size_t out_index = 0U;
+    libp2p_multibase_err_t err = LIBP2P_MULTIBASE_OK;
 
     if (written != NULL)
     {
@@ -370,120 +417,142 @@ static libp2p_multibase_err_t multibase_encode_base58btc(
 
     if ((in_len != 0U) && (in == NULL))
     {
-        return LIBP2P_MULTIBASE_ERR_BUF_TOO_SMALL;
+        err = LIBP2P_MULTIBASE_ERR_BUF_TOO_SMALL;
     }
-
-    while ((zero_count < in_len) && (in[zero_count] == 0U))
+    else
     {
-        zero_count++;
-    }
-
-    significant_len = in_len - zero_count;
-    required_bound = 1U + zero_count;
-
-    if (significant_len != 0U)
-    {
-        size_t digits_bound = multibase_base58_encoded_upper_bound(significant_len);
-
-        if (digits_bound == SIZE_MAX)
+        while ((zero_count < in_len) && (in[zero_count] == 0U))
         {
-            required_bound = SIZE_MAX;
+            zero_count++;
         }
-        else if (multibase_add_overflow(required_bound, digits_bound, &required_bound) != 0)
-        {
-            required_bound = SIZE_MAX;
-        }
-    }
 
-    if (written != NULL)
-    {
-        *written = required_bound;
-    }
+        significant_len = in_len - zero_count;
+        scratch_offset = 1U + zero_count;
+        required_bound = scratch_offset;
 
-    if (significant_len == 0U)
-    {
-        if ((out == NULL) || (out_len < (1U + zero_count)))
+        if (significant_len != 0U)
         {
-            if (written != NULL)
+            const size_t digits_bound = multibase_base58_encoded_upper_bound(significant_len);
+
+            if (digits_bound == SIZE_MAX)
             {
-                *written = 1U + zero_count;
+                required_bound = SIZE_MAX;
             }
-            return LIBP2P_MULTIBASE_ERR_BUF_TOO_SMALL;
+            else if (multibase_add_overflow(required_bound, digits_bound, &required_bound) != 0)
+            {
+                required_bound = SIZE_MAX;
+            }
+            else
+            {
+                /* required_bound already contains the exact upper bound. */
+            }
         }
-
-        out[0] = 'z';
-        for (out_index = 0U; out_index < zero_count; out_index++)
+        else
         {
-            out[1U + out_index] = '1';
+            /* Only the prefix and leading zero digits are required. */
         }
 
         if (written != NULL)
         {
-            *written = 1U + zero_count;
+            *written = required_bound;
         }
-        return LIBP2P_MULTIBASE_OK;
-    }
 
-    if (out == NULL)
-    {
-        return LIBP2P_MULTIBASE_ERR_BUF_TOO_SMALL;
-    }
-
-    if (out_len <= (1U + zero_count))
-    {
-        return LIBP2P_MULTIBASE_ERR_BUF_TOO_SMALL;
-    }
-
-    digits_capacity = out_len - (1U + zero_count);
-    (void)memset(out + 1U + zero_count, 0, digits_capacity);
-
-    for (in_index = zero_count; in_index < in_len; in_index++)
-    {
-        uint32_t carry = (uint32_t)in[in_index];
-        size_t digit_index = 0U;
-
-        while ((carry != 0U) || (digit_index < used))
+        if (significant_len == 0U)
         {
-            size_t array_index = 0U;
-
-            if (digit_index >= digits_capacity)
+            if ((out == NULL) || (out_len < required_bound))
             {
-                return LIBP2P_MULTIBASE_ERR_BUF_TOO_SMALL;
+                err = LIBP2P_MULTIBASE_ERR_BUF_TOO_SMALL;
+            }
+            else
+            {
+                out[0] = 'z';
+                for (out_index = 0U; out_index < zero_count; out_index++)
+                {
+                    out[1U + out_index] = '1';
+                }
+
+                if (written != NULL)
+                {
+                    *written = required_bound;
+                }
+            }
+        }
+        else if ((out == NULL) || (out_len <= scratch_offset))
+        {
+            err = LIBP2P_MULTIBASE_ERR_BUF_TOO_SMALL;
+        }
+        else
+        {
+            digits_capacity = out_len - scratch_offset;
+            for (out_index = 0U; out_index < digits_capacity; out_index++)
+            {
+                out[scratch_offset + out_index] = '\0';
             }
 
-            array_index = digits_capacity - 1U - digit_index;
-            carry += ((uint32_t)(uint8_t)out[1U + zero_count + array_index]) << 8U;
-            out[1U + zero_count + array_index] = (char)(carry % 58U);
-            carry /= 58U;
-            digit_index++;
+            in_index = zero_count;
+            while ((in_index < in_len) && (err == LIBP2P_MULTIBASE_OK))
+            {
+                uint32_t carry = (uint32_t)in[in_index];
+                size_t digit_index = 0U;
+
+                while (((carry != 0U) || (digit_index < used)) &&
+                       (err == LIBP2P_MULTIBASE_OK))
+                {
+                    if (digit_index >= digits_capacity)
+                    {
+                        err = LIBP2P_MULTIBASE_ERR_BUF_TOO_SMALL;
+                    }
+                    else
+                    {
+                        const size_t array_index = digits_capacity - 1U - digit_index;
+                        const size_t scratch_index = scratch_offset + array_index;
+                        uint32_t digit_value = 0U;
+
+                        carry += ((uint32_t)(uint8_t)out[scratch_index]) << 8U;
+                        digit_value = carry % 58U;
+                        out[scratch_index] = (char)digit_value;
+                        carry /= 58U;
+                        digit_index++;
+                    }
+                }
+
+                if (err == LIBP2P_MULTIBASE_OK)
+                {
+                    used = digit_index;
+                }
+
+                in_index++;
+            }
+
+            if (err == LIBP2P_MULTIBASE_OK)
+            {
+                out[0] = 'z';
+                for (out_index = 0U; out_index < zero_count; out_index++)
+                {
+                    out[1U + out_index] = '1';
+                }
+
+                if (used != 0U)
+                {
+                    const size_t start_index = digits_capacity - used;
+
+                    for (out_index = 0U; out_index < used; out_index++)
+                    {
+                        const uint8_t digit =
+                            (uint8_t)out[scratch_offset + start_index + out_index];
+                        out[scratch_offset + out_index] = multibase_base58btc_alphabet[digit];
+                    }
+                }
+
+                if (written != NULL)
+                {
+                    *written = scratch_offset + used;
+                }
+            }
         }
-
-        used = digit_index;
     }
 
-    out[0] = 'z';
-    for (out_index = 0U; out_index < zero_count; out_index++)
-    {
-        out[1U + out_index] = '1';
-    }
-
-    if (used != 0U)
-    {
-        const size_t start_index = digits_capacity - used;
-
-        for (out_index = 0U; out_index < used; out_index++)
-        {
-            const uint8_t digit = (uint8_t)out[1U + zero_count + start_index + out_index];
-            out[1U + zero_count + out_index] = multibase_base58btc_alphabet[digit];
-        }
-    }
-
-    if (written != NULL)
-    {
-        *written = 1U + zero_count + used;
-    }
-
-    return LIBP2P_MULTIBASE_OK;
+    return err;
 }
 
 static libp2p_multibase_err_t multibase_decode_base64url(
@@ -494,10 +563,13 @@ static libp2p_multibase_err_t multibase_decode_base64url(
     size_t *written)
 {
     const size_t payload_len = in_len - 1U;
+    const size_t remainder = payload_len % 4U;
+    libp2p_multibase_err_t err = LIBP2P_MULTIBASE_OK;
     size_t exact_size = 0U;
     size_t in_index = 1U;
     size_t out_index = 0U;
     int size_is_valid = multibase_base64_decoded_exact_size(payload_len, &exact_size);
+    int output_available = 0;
 
     if (written != NULL)
     {
@@ -506,95 +578,115 @@ static libp2p_multibase_err_t multibase_decode_base64url(
 
     if (size_is_valid == 0)
     {
-        return LIBP2P_MULTIBASE_ERR_INVALID_LENGTH;
+        err = LIBP2P_MULTIBASE_ERR_INVALID_LENGTH;
     }
-
-    if (written != NULL)
+    else
     {
-        *written = exact_size;
-    }
-
-    while ((in_index + 4U) <= in_len)
-    {
-        uint8_t v0 = 0U;
-        uint8_t v1 = 0U;
-        uint8_t v2 = 0U;
-        uint8_t v3 = 0U;
-        uint32_t chunk = 0U;
-
-        if ((multibase_base64url_value(in[in_index], &v0) == 0) ||
-            (multibase_base64url_value(in[in_index + 1U], &v1) == 0) ||
-            (multibase_base64url_value(in[in_index + 2U], &v2) == 0) ||
-            (multibase_base64url_value(in[in_index + 3U], &v3) == 0))
+        if (written != NULL)
         {
-            return LIBP2P_MULTIBASE_ERR_INVALID_CHARACTER;
-        }
-
-        chunk = ((uint32_t)v0 << 18U) | ((uint32_t)v1 << 12U) | ((uint32_t)v2 << 6U) | (uint32_t)v3;
-
-        if ((out != NULL) && (out_len >= exact_size))
-        {
-            out[out_index] = (uint8_t)(chunk >> 16U);
-            out[out_index + 1U] = (uint8_t)(chunk >> 8U);
-            out[out_index + 2U] = (uint8_t)chunk;
-        }
-
-        in_index += 4U;
-        out_index += 3U;
-    }
-
-    if ((payload_len % 4U) == 2U)
-    {
-        uint8_t v0 = 0U;
-        uint8_t v1 = 0U;
-
-        if ((multibase_base64url_value(in[in_index], &v0) == 0) ||
-            (multibase_base64url_value(in[in_index + 1U], &v1) == 0))
-        {
-            return LIBP2P_MULTIBASE_ERR_INVALID_CHARACTER;
-        }
-
-        if ((v1 & 0x0fU) != 0U)
-        {
-            return LIBP2P_MULTIBASE_ERR_INVALID_CHARACTER;
+            *written = exact_size;
         }
 
         if ((out != NULL) && (out_len >= exact_size))
         {
-            out[out_index] = (uint8_t)((v0 << 2U) | (v1 >> 4U));
+            output_available = 1;
+        }
+
+        while ((in_index + 4U) <= in_len)
+        {
+            uint8_t v0 = 0U;
+            uint8_t v1 = 0U;
+            uint8_t v2 = 0U;
+            uint8_t v3 = 0U;
+            uint32_t chunk = 0U;
+
+            if ((multibase_base64url_value(in[in_index], &v0) == 0) ||
+                (multibase_base64url_value(in[in_index + 1U], &v1) == 0) ||
+                (multibase_base64url_value(in[in_index + 2U], &v2) == 0) ||
+                (multibase_base64url_value(in[in_index + 3U], &v3) == 0))
+            {
+                err = LIBP2P_MULTIBASE_ERR_INVALID_CHARACTER;
+                break;
+            }
+
+            chunk =
+                ((uint32_t)v0 << 18U) | ((uint32_t)v1 << 12U) | ((uint32_t)v2 << 6U) | (uint32_t)v3;
+
+            if (output_available != 0)
+            {
+                out[out_index] = (uint8_t)(chunk >> 16U);
+                out[out_index + 1U] = (uint8_t)(chunk >> 8U);
+                out[out_index + 2U] = (uint8_t)chunk;
+            }
+
+            in_index += 4U;
+            out_index += 3U;
+        }
+
+        if (err == LIBP2P_MULTIBASE_OK)
+        {
+            if (remainder == 2U)
+            {
+                uint8_t v0 = 0U;
+                uint8_t v1 = 0U;
+
+                if ((multibase_base64url_value(in[in_index], &v0) == 0) ||
+                    (multibase_base64url_value(in[in_index + 1U], &v1) == 0))
+                {
+                    err = LIBP2P_MULTIBASE_ERR_INVALID_CHARACTER;
+                }
+                else if ((v1 & 0x0fU) != 0U)
+                {
+                    err = LIBP2P_MULTIBASE_ERR_INVALID_CHARACTER;
+                }
+                else if (output_available != 0)
+                {
+                    out[out_index] = (uint8_t)((v0 << 2U) | (v1 >> 4U));
+                }
+                else
+                {
+                    /* Output buffer is only required after validation succeeds. */
+                }
+            }
+            else if (remainder == 3U)
+            {
+                uint8_t v0 = 0U;
+                uint8_t v1 = 0U;
+                uint8_t v2 = 0U;
+
+                if ((multibase_base64url_value(in[in_index], &v0) == 0) ||
+                    (multibase_base64url_value(in[in_index + 1U], &v1) == 0) ||
+                    (multibase_base64url_value(in[in_index + 2U], &v2) == 0))
+                {
+                    err = LIBP2P_MULTIBASE_ERR_INVALID_CHARACTER;
+                }
+                else if ((v2 & 0x03U) != 0U)
+                {
+                    err = LIBP2P_MULTIBASE_ERR_INVALID_CHARACTER;
+                }
+                else if (output_available != 0)
+                {
+                    out[out_index] = (uint8_t)((v0 << 2U) | (v1 >> 4U));
+                    out[out_index + 1U] = (uint8_t)((v1 << 4U) | (v2 >> 2U));
+                }
+                else
+                {
+                    /* Output buffer is only required after validation succeeds. */
+                }
+            }
+            else
+            {
+                /* No trailing payload characters remain. */
+            }
+        }
+
+        if ((err == LIBP2P_MULTIBASE_OK) && (output_available == 0))
+        {
+            err = LIBP2P_MULTIBASE_ERR_BUF_TOO_SMALL;
         }
     }
-    else if ((payload_len % 4U) == 3U)
-    {
-        uint8_t v0 = 0U;
-        uint8_t v1 = 0U;
-        uint8_t v2 = 0U;
 
-        if ((multibase_base64url_value(in[in_index], &v0) == 0) ||
-            (multibase_base64url_value(in[in_index + 1U], &v1) == 0) ||
-            (multibase_base64url_value(in[in_index + 2U], &v2) == 0))
-        {
-            return LIBP2P_MULTIBASE_ERR_INVALID_CHARACTER;
-        }
-
-        if ((v2 & 0x03U) != 0U)
-        {
-            return LIBP2P_MULTIBASE_ERR_INVALID_CHARACTER;
-        }
-
-        if ((out != NULL) && (out_len >= exact_size))
-        {
-            out[out_index] = (uint8_t)((v0 << 2U) | (v1 >> 4U));
-            out[out_index + 1U] = (uint8_t)((v1 << 4U) | (v2 >> 2U));
-        }
-    }
-
-    if ((out == NULL) || (out_len < exact_size))
-    {
-        return LIBP2P_MULTIBASE_ERR_BUF_TOO_SMALL;
-    }
-
-    return LIBP2P_MULTIBASE_OK;
+    return err;
 }
 
 static libp2p_multibase_err_t multibase_decode_base58btc(
@@ -605,6 +697,7 @@ static libp2p_multibase_err_t multibase_decode_base58btc(
     size_t *written)
 {
     const size_t payload_len = in_len - 1U;
+    libp2p_multibase_err_t err = LIBP2P_MULTIBASE_OK;
     size_t zero_count = 0U;
     size_t text_index = 0U;
     size_t used = 0U;
@@ -636,7 +729,8 @@ static libp2p_multibase_err_t multibase_decode_base58btc(
 
         if (multibase_base58_value(in[text_index], &value) == 0)
         {
-            return LIBP2P_MULTIBASE_ERR_INVALID_CHARACTER;
+            err = LIBP2P_MULTIBASE_ERR_INVALID_CHARACTER;
+            break;
         }
 
         if (buffer_too_small == 0)
@@ -668,38 +762,42 @@ static libp2p_multibase_err_t multibase_decode_base58btc(
         }
     }
 
-    if (buffer_too_small != 0)
+    if (err == LIBP2P_MULTIBASE_OK)
     {
-        return LIBP2P_MULTIBASE_ERR_BUF_TOO_SMALL;
-    }
-
-    if ((zero_count + used) > out_len)
-    {
-        return LIBP2P_MULTIBASE_ERR_BUF_TOO_SMALL;
-    }
-
-    if (used != 0U)
-    {
-        const size_t source_start = out_len - used;
-        size_t move_index = 0U;
-
-        for (move_index = 0U; move_index < used; move_index++)
+        if (buffer_too_small != 0)
         {
-            out[zero_count + move_index] = out[source_start + move_index];
+            err = LIBP2P_MULTIBASE_ERR_BUF_TOO_SMALL;
+        }
+        else if ((zero_count + used) > out_len)
+        {
+            err = LIBP2P_MULTIBASE_ERR_BUF_TOO_SMALL;
+        }
+        else
+        {
+            if (used != 0U)
+            {
+                const size_t source_start = out_len - used;
+                size_t move_index = 0U;
+
+                for (move_index = 0U; move_index < used; move_index++)
+                {
+                    out[zero_count + move_index] = out[source_start + move_index];
+                }
+            }
+
+            for (text_index = 0U; text_index < zero_count; text_index++)
+            {
+                out[text_index] = 0U;
+            }
+
+            if (written != NULL)
+            {
+                *written = zero_count + used;
+            }
         }
     }
 
-    for (text_index = 0U; text_index < zero_count; text_index++)
-    {
-        out[text_index] = 0U;
-    }
-
-    if (written != NULL)
-    {
-        *written = zero_count + used;
-    }
-
-    return LIBP2P_MULTIBASE_OK;
+    return err;
 }
 
 libp2p_multibase_err_t libp2p_multibase_encode(
@@ -710,21 +808,27 @@ libp2p_multibase_err_t libp2p_multibase_encode(
     size_t out_len,
     size_t *written)
 {
+    libp2p_multibase_err_t err = LIBP2P_MULTIBASE_ERR_UNSUPPORTED_BASE;
+
     switch (base)
     {
     case LIBP2P_MULTIBASE_BASE58BTC:
-        return multibase_encode_base58btc(in, in_len, out, out_len, written);
+        err = multibase_encode_base58btc(in, in_len, out, out_len, written);
+        break;
 
     case LIBP2P_MULTIBASE_BASE64URL:
-        return multibase_encode_base64url(in, in_len, out, out_len, written);
+        err = multibase_encode_base64url(in, in_len, out, out_len, written);
+        break;
 
     default:
         if (written != NULL)
         {
             *written = 0U;
         }
-        return LIBP2P_MULTIBASE_ERR_UNSUPPORTED_BASE;
+        break;
     }
+
+    return err;
 }
 
 libp2p_multibase_err_t libp2p_multibase_decode(
@@ -736,7 +840,7 @@ libp2p_multibase_err_t libp2p_multibase_decode(
     size_t *written)
 {
     libp2p_multibase_t parsed_base = LIBP2P_MULTIBASE_BASE58BTC;
-    libp2p_multibase_err_t err = LIBP2P_MULTIBASE_OK;
+    libp2p_multibase_err_t err = LIBP2P_MULTIBASE_ERR_EMPTY_INPUT;
 
     if (written != NULL)
     {
@@ -745,31 +849,36 @@ libp2p_multibase_err_t libp2p_multibase_decode(
 
     if ((in == NULL) || (in_len == 0U))
     {
-        return LIBP2P_MULTIBASE_ERR_EMPTY_INPUT;
+        err = LIBP2P_MULTIBASE_ERR_EMPTY_INPUT;
     }
-
-    err = multibase_base_from_prefix(in[0], &parsed_base);
-    if (err != LIBP2P_MULTIBASE_OK)
+    else
     {
-        return err;
+        err = multibase_base_from_prefix(in[0], &parsed_base);
+        if (err == LIBP2P_MULTIBASE_OK)
+        {
+            if (base != NULL)
+            {
+                *base = parsed_base;
+            }
+
+            switch (parsed_base)
+            {
+            case LIBP2P_MULTIBASE_BASE58BTC:
+                err = multibase_decode_base58btc(in, in_len, out, out_len, written);
+                break;
+
+            case LIBP2P_MULTIBASE_BASE64URL:
+                err = multibase_decode_base64url(in, in_len, out, out_len, written);
+                break;
+
+            default:
+                err = LIBP2P_MULTIBASE_ERR_UNSUPPORTED_BASE;
+                break;
+            }
+        }
     }
 
-    if (base != NULL)
-    {
-        *base = parsed_base;
-    }
-
-    switch (parsed_base)
-    {
-    case LIBP2P_MULTIBASE_BASE58BTC:
-        return multibase_decode_base58btc(in, in_len, out, out_len, written);
-
-    case LIBP2P_MULTIBASE_BASE64URL:
-        return multibase_decode_base64url(in, in_len, out, out_len, written);
-
-    default:
-        return LIBP2P_MULTIBASE_ERR_UNSUPPORTED_BASE;
-    }
+    return err;
 }
 
 libp2p_multibase_err_t libp2p_multibase_encoded_size(
@@ -788,35 +897,41 @@ libp2p_multibase_err_t libp2p_multibase_encoded_size(
 
     if (err != LIBP2P_MULTIBASE_OK)
     {
-        return err;
+        /* The requested base is unsupported. */
     }
-
-    switch (base)
+    else
     {
-    case LIBP2P_MULTIBASE_BASE58BTC:
-        payload_len = multibase_base58_encoded_upper_bound(in_len);
-        break;
+        switch (base)
+        {
+        case LIBP2P_MULTIBASE_BASE58BTC:
+            payload_len = multibase_base58_encoded_upper_bound(in_len);
+            break;
 
-    case LIBP2P_MULTIBASE_BASE64URL:
-        payload_len = multibase_base64_encoded_exact_size(in_len);
-        break;
+        case LIBP2P_MULTIBASE_BASE64URL:
+            payload_len = multibase_base64_encoded_exact_size(in_len);
+            break;
 
-    default:
-        return LIBP2P_MULTIBASE_ERR_UNSUPPORTED_BASE;
-    }
+        default:
+            err = LIBP2P_MULTIBASE_ERR_UNSUPPORTED_BASE;
+            break;
+        }
 
-    if (multibase_add_overflow(1U, payload_len, &payload_len) != 0)
-    {
-        payload_len = SIZE_MAX;
-    }
+        if (err == LIBP2P_MULTIBASE_OK)
+        {
+            if (multibase_add_overflow(1U, payload_len, &payload_len) != 0)
+            {
+                payload_len = SIZE_MAX;
+            }
 
-    if (out_len != NULL)
-    {
-        *out_len = payload_len;
+            if (out_len != NULL)
+            {
+                *out_len = payload_len;
+            }
+        }
     }
 
     (void)prefix;
-    return LIBP2P_MULTIBASE_OK;
+    return err;
 }
 
 libp2p_multibase_err_t libp2p_multibase_max_decoded_size(
@@ -825,6 +940,7 @@ libp2p_multibase_err_t libp2p_multibase_max_decoded_size(
     size_t *out_len)
 {
     size_t max_len = 0U;
+    libp2p_multibase_err_t err = LIBP2P_MULTIBASE_OK;
 
     if (out_len != NULL)
     {
@@ -842,13 +958,14 @@ libp2p_multibase_err_t libp2p_multibase_max_decoded_size(
         break;
 
     default:
-        return LIBP2P_MULTIBASE_ERR_UNSUPPORTED_BASE;
+        err = LIBP2P_MULTIBASE_ERR_UNSUPPORTED_BASE;
+        break;
     }
 
-    if (out_len != NULL)
+    if ((err == LIBP2P_MULTIBASE_OK) && (out_len != NULL))
     {
         *out_len = max_len;
     }
 
-    return LIBP2P_MULTIBASE_OK;
+    return err;
 }
