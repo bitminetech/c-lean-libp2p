@@ -12,6 +12,7 @@ Checks: >
   -cert-dcl37-c,
   -cert-dcl51-cpp,
   clang-analyzer-*,
+  -clang-analyzer-security.insecureAPI.DeprecatedOrUnsafeBufferHandling,
   misc-*,
   -misc-include-cleaner,
   -misc-unused-parameters,

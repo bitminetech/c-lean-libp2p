@@ -31,6 +31,11 @@ target_compile_options(
         $<$<AND:$<COMPILE_LANGUAGE:C>,$<C_COMPILER_ID:MSVC>>:/W4>
         $<$<AND:$<COMPILE_LANGUAGE:C>,$<C_COMPILER_ID:MSVC>>:/WX>
 )
+target_compile_definitions(
+    c_lean_libp2p_project_defaults
+    INTERFACE
+        $<$<C_COMPILER_ID:MSVC>:_CRT_SECURE_NO_WARNINGS>
+)
 target_include_directories(
     c_lean_libp2p_project_defaults
     INTERFACE

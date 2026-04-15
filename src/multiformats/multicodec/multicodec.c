@@ -66,7 +66,7 @@ libp2p_multicodec_err_t libp2p_multicodec_from_name(
 {
     size_t index = 0U;
 
-    if ((name == NULL) && (name_len != 0U))
+    if (name == NULL)
     {
         return LIBP2P_MULTICODEC_ERR_UNKNOWN_NAME;
     }
