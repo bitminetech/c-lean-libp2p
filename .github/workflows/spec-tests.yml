@@ -195,6 +195,12 @@ jobs:
             cmake_exe_linker_flags: -fsanitize=address,undefined
             asan_options: detect_leaks=0
             ubsan_options: halt_on_error=1:print_stacktrace=1
+          - name: asan-ubsan-32
+            cc: clang
+            cmake_c_flags: -m32 -fsanitize=address,undefined -fno-omit-frame-pointer
+            cmake_exe_linker_flags: -m32 -fsanitize=address,undefined
+            asan_options: detect_leaks=0
+            ubsan_options: halt_on_error=1:print_stacktrace=1
           - name: msan
             cc: clang
             cmake_c_flags: -fsanitize=memory -fsanitize-memory-track-origins -fno-omit-frame-pointer
@@ -235,6 +241,10 @@ jobs:
           fi
           if [ "${{ matrix.name }}" = "valgrind" ]; then
             packages+=(valgrind)
+          fi
+          if [ "${{ matrix.name }}" = "asan-ubsan-32" ]; then
+            sudo dpkg --add-architecture i386
+            packages+=(gcc-multilib g++-multilib libc6-dbg:i386)
           fi
           if [ ${#packages[@]} -gt 0 ]; then
             sudo apt-get update
