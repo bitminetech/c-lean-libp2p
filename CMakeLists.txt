@@ -24,10 +24,12 @@ target_compile_features(c_lean_libp2p_project_defaults INTERFACE c_std_11)
 target_compile_options(
     c_lean_libp2p_project_defaults
     INTERFACE
-        $<$<COMPILE_LANGUAGE:C>:-Wall>
-        $<$<COMPILE_LANGUAGE:C>:-Wextra>
-        $<$<COMPILE_LANGUAGE:C>:-Werror>
-        $<$<COMPILE_LANGUAGE:C>:-ffreestanding>
+        $<$<AND:$<COMPILE_LANGUAGE:C>,$<C_COMPILER_ID:GNU,Clang,AppleClang>>:-Wall>
+        $<$<AND:$<COMPILE_LANGUAGE:C>,$<C_COMPILER_ID:GNU,Clang,AppleClang>>:-Wextra>
+        $<$<AND:$<COMPILE_LANGUAGE:C>,$<C_COMPILER_ID:GNU,Clang,AppleClang>>:-Werror>
+        $<$<AND:$<COMPILE_LANGUAGE:C>,$<C_COMPILER_ID:GNU,Clang,AppleClang>>:-ffreestanding>
+        $<$<AND:$<COMPILE_LANGUAGE:C>,$<C_COMPILER_ID:MSVC>>:/W4>
+        $<$<AND:$<COMPILE_LANGUAGE:C>,$<C_COMPILER_ID:MSVC>>:/WX>
 )
 target_include_directories(
     c_lean_libp2p_project_defaults
