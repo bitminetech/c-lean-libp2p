@@ -9,8 +9,7 @@
 
 #include "multiformats/unsigned_varint/unsigned_varint.h"
 
-#define LIBP2P_MULTIHASH_MAX_VARINT_VALUE      UINT64_C(0x7FFFFFFFFFFFFFFF)
-#define LIBP2P_MULTIHASH_SHA2_256_DIGEST_BYTES 32U
+#define LIBP2P_MULTIHASH_MAX_VARINT_VALUE UINT64_C(0x7FFFFFFFFFFFFFFF)
 
 static libp2p_multihash_err_t multihash_validate_size_input(size_t digest_len)
 {

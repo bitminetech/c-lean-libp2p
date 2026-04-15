@@ -25,6 +25,13 @@
 #include <stddef.h>
 #include <stdint.h>
 
+/** Multiaddr protocol codes (supported subset). */
+#define LIBP2P_MULTIADDR_CODE_IP4     UINT64_C(0x04)
+#define LIBP2P_MULTIADDR_CODE_IP6     UINT64_C(0x29)
+#define LIBP2P_MULTIADDR_CODE_UDP     UINT64_C(0x0111)
+#define LIBP2P_MULTIADDR_CODE_P2P     UINT64_C(0x01a5)
+#define LIBP2P_MULTIADDR_CODE_QUIC_V1 UINT64_C(0x01cd)
+
 /** Value-size class for a multiaddr protocol. */
 typedef enum
 {

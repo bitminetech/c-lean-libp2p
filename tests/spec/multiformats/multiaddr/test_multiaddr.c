@@ -6,8 +6,6 @@
 
 #include "multiformats/multiaddr/multiaddr.h"
 
-#define LIBP2P_TEST_MULTIADDR_CODE_P2P UINT64_C(0x01A5)
-
 static const char multiaddr_spec_source_suffix[] =
     "c-lean-libp2p/tests/spec/multiformats/multiaddr/test_multiaddr.c";
 static const char multiaddr_spec_peer_id[] = "QmYtUc4iTCbbfVSDNKvtQqrfyezPPnFvE33wFmutw9PBBk";
@@ -695,7 +693,7 @@ static void multiaddr_spec_protocol_table(void)
             size_t canonical_len = 0U;
             int written = 0;
 
-            assert(code == LIBP2P_TEST_MULTIADDR_CODE_P2P);
+            assert(code == LIBP2P_MULTIADDR_CODE_P2P);
             assert(
                 libp2p_multiaddr_protocol_info(code, &name, &value_class, &fixed_size) ==
                 LIBP2P_MULTIADDR_OK);

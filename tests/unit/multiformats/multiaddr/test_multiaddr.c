@@ -7,13 +7,8 @@
 #include "multiformats/multiaddr/multiaddr.h"
 #include "multiformats/multibase/multibase.h"
 
-#define LIBP2P_TEST_MULTIADDR_CODE_IP4     UINT64_C(0x04)
-#define LIBP2P_TEST_MULTIADDR_CODE_TCP     UINT64_C(0x06)
-#define LIBP2P_TEST_MULTIADDR_CODE_IP6     UINT64_C(0x29)
-#define LIBP2P_TEST_MULTIADDR_CODE_UDP     UINT64_C(0x0111)
-#define LIBP2P_TEST_MULTIADDR_CODE_P2P     UINT64_C(0x01A5)
-#define LIBP2P_TEST_MULTIADDR_CODE_QUIC    UINT64_C(0x01CC)
-#define LIBP2P_TEST_MULTIADDR_CODE_QUIC_V1 UINT64_C(0x01CD)
+#define LIBP2P_TEST_MULTIADDR_CODE_TCP  UINT64_C(0x06)
+#define LIBP2P_TEST_MULTIADDR_CODE_QUIC UINT64_C(0x01CC)
 
 static const char multiaddr_unit_legacy_peer_id[] =
     "QmYtUc4iTCbbfVSDNKvtQqrfyezPPnFvE33wFmutw9PBBk";
@@ -105,7 +100,7 @@ static int multiaddr_unit_build_ip4_udp(
     libp2p_multiaddr_err_t err = LIBP2P_MULTIADDR_OK;
 
     err = libp2p_multiaddr_append_component(
-        LIBP2P_TEST_MULTIADDR_CODE_IP4,
+        LIBP2P_MULTIADDR_CODE_IP4,
         ip4_value,
         sizeof(ip4_value),
         out,
@@ -121,7 +116,7 @@ static int multiaddr_unit_build_ip4_udp(
     }
 
     err = libp2p_multiaddr_append_component(
-        LIBP2P_TEST_MULTIADDR_CODE_UDP,
+        LIBP2P_MULTIADDR_CODE_UDP,
         udp_value,
         sizeof(udp_value),
         out,
@@ -148,7 +143,7 @@ static int multiaddr_unit_build_quic_p2p(uint8_t *out, size_t out_len, size_t *w
     }
 
     err = libp2p_multiaddr_append_component(
-        LIBP2P_TEST_MULTIADDR_CODE_QUIC_V1,
+        LIBP2P_MULTIADDR_CODE_QUIC_V1,
         NULL,
         0U,
         out,
@@ -164,7 +159,7 @@ static int multiaddr_unit_build_quic_p2p(uint8_t *out, size_t out_len, size_t *w
     }
 
     err = libp2p_multiaddr_append_component(
-        LIBP2P_TEST_MULTIADDR_CODE_P2P,
+        LIBP2P_MULTIADDR_CODE_P2P,
         peer_id,
         peer_id_len,
         out,
@@ -193,7 +188,7 @@ static int multiaddr_unit_build_sample_address(uint8_t *out, size_t out_len, siz
     }
 
     err = libp2p_multiaddr_append_component(
-        LIBP2P_TEST_MULTIADDR_CODE_IP4,
+        LIBP2P_MULTIADDR_CODE_IP4,
         ip4_value,
         sizeof(ip4_value),
         out,
@@ -205,7 +200,7 @@ static int multiaddr_unit_build_sample_address(uint8_t *out, size_t out_len, siz
     }
 
     err = libp2p_multiaddr_append_component(
-        LIBP2P_TEST_MULTIADDR_CODE_UDP,
+        LIBP2P_MULTIADDR_CODE_UDP,
         udp_value,
         sizeof(udp_value),
         out,
@@ -217,7 +212,7 @@ static int multiaddr_unit_build_sample_address(uint8_t *out, size_t out_len, siz
     }
 
     err = libp2p_multiaddr_append_component(
-        LIBP2P_TEST_MULTIADDR_CODE_QUIC_V1,
+        LIBP2P_MULTIADDR_CODE_QUIC_V1,
         NULL,
         0U,
         out,
@@ -229,7 +224,7 @@ static int multiaddr_unit_build_sample_address(uint8_t *out, size_t out_len, siz
     }
 
     err = libp2p_multiaddr_append_component(
-        LIBP2P_TEST_MULTIADDR_CODE_P2P,
+        LIBP2P_MULTIADDR_CODE_P2P,
         peer_id,
         peer_id_len,
         out,
@@ -284,7 +279,7 @@ static void multiaddr_unit_protocol_info(void)
 
     assert(
         libp2p_multiaddr_protocol_info(
-            LIBP2P_TEST_MULTIADDR_CODE_IP4,
+            LIBP2P_MULTIADDR_CODE_IP4,
             &name,
             &value_class,
             &fixed_size) == LIBP2P_MULTIADDR_OK);
@@ -294,7 +289,7 @@ static void multiaddr_unit_protocol_info(void)
 
     assert(
         libp2p_multiaddr_protocol_info(
-            LIBP2P_TEST_MULTIADDR_CODE_QUIC_V1,
+            LIBP2P_MULTIADDR_CODE_QUIC_V1,
             &name,
             &value_class,
             &fixed_size) == LIBP2P_MULTIADDR_OK);
@@ -304,7 +299,7 @@ static void multiaddr_unit_protocol_info(void)
 
     assert(
         libp2p_multiaddr_protocol_info(
-            LIBP2P_TEST_MULTIADDR_CODE_P2P,
+            LIBP2P_MULTIADDR_CODE_P2P,
             &name,
             &value_class,
             &fixed_size) == LIBP2P_MULTIADDR_OK);
@@ -338,24 +333,24 @@ static void multiaddr_unit_next_component_iteration(void)
 
     assert(
         libp2p_multiaddr_next_component(&cursor, &code, &value, &value_len) == LIBP2P_MULTIADDR_OK);
-    assert(code == LIBP2P_TEST_MULTIADDR_CODE_IP4);
+    assert(code == LIBP2P_MULTIADDR_CODE_IP4);
     assert(value_len == 4U);
     assert(memcmp(value, ((const uint8_t[]){127U, 0U, 0U, 1U}), 4U) == 0);
 
     assert(
         libp2p_multiaddr_next_component(&cursor, &code, &value, &value_len) == LIBP2P_MULTIADDR_OK);
-    assert(code == LIBP2P_TEST_MULTIADDR_CODE_UDP);
+    assert(code == LIBP2P_MULTIADDR_CODE_UDP);
     assert(value_len == 2U);
     assert(memcmp(value, ((const uint8_t[]){0x0fU, 0xa1U}), 2U) == 0);
 
     assert(
         libp2p_multiaddr_next_component(&cursor, &code, &value, &value_len) == LIBP2P_MULTIADDR_OK);
-    assert(code == LIBP2P_TEST_MULTIADDR_CODE_QUIC_V1);
+    assert(code == LIBP2P_MULTIADDR_CODE_QUIC_V1);
     assert(value_len == 0U);
 
     assert(
         libp2p_multiaddr_next_component(&cursor, &code, &value, &value_len) == LIBP2P_MULTIADDR_OK);
-    assert(code == LIBP2P_TEST_MULTIADDR_CODE_P2P);
+    assert(code == LIBP2P_MULTIADDR_CODE_P2P);
     assert(value_len == expected_peer_id_len);
     assert(memcmp(value, expected_peer_id, expected_peer_id_len) == 0);
 
@@ -427,7 +422,7 @@ static void multiaddr_unit_append_component_measure_and_write(void)
 
     assert(
         libp2p_multiaddr_append_component(
-            LIBP2P_TEST_MULTIADDR_CODE_IP4,
+            LIBP2P_MULTIADDR_CODE_IP4,
             ip4_value,
             sizeof(ip4_value),
             NULL,
@@ -438,7 +433,7 @@ static void multiaddr_unit_append_component_measure_and_write(void)
     pos = 0U;
     assert(
         libp2p_multiaddr_append_component(
-            LIBP2P_TEST_MULTIADDR_CODE_IP4,
+            LIBP2P_MULTIADDR_CODE_IP4,
             ip4_value,
             sizeof(ip4_value),
             encoded_ip4,
@@ -450,7 +445,7 @@ static void multiaddr_unit_append_component_measure_and_write(void)
     pos = 0U;
     assert(
         libp2p_multiaddr_append_component(
-            LIBP2P_TEST_MULTIADDR_CODE_P2P,
+            LIBP2P_MULTIADDR_CODE_P2P,
             peer_id,
             peer_id_len,
             NULL,
@@ -461,7 +456,7 @@ static void multiaddr_unit_append_component_measure_and_write(void)
     pos = 0U;
     assert(
         libp2p_multiaddr_append_component(
-            LIBP2P_TEST_MULTIADDR_CODE_P2P,
+            LIBP2P_MULTIADDR_CODE_P2P,
             peer_id,
             peer_id_len,
             encoded_p2p,
@@ -481,7 +476,7 @@ static void multiaddr_unit_append_component_rejects_invalid(void)
 
     assert(
         libp2p_multiaddr_append_component(
-            LIBP2P_TEST_MULTIADDR_CODE_IP4,
+            LIBP2P_MULTIADDR_CODE_IP4,
             one_byte_value,
             sizeof(one_byte_value),
             NULL,
@@ -497,7 +492,7 @@ static void multiaddr_unit_append_component_rejects_invalid(void)
             &pos) == LIBP2P_MULTIADDR_ERR_UNSUPPORTED_PROTOCOL);
     assert(
         libp2p_multiaddr_append_component(
-            LIBP2P_TEST_MULTIADDR_CODE_QUIC_V1,
+            LIBP2P_MULTIADDR_CODE_QUIC_V1,
             one_byte_value,
             sizeof(one_byte_value),
             NULL,
@@ -505,7 +500,7 @@ static void multiaddr_unit_append_component_rejects_invalid(void)
             &pos) == LIBP2P_MULTIADDR_ERR_INVALID_VALUE);
     assert(
         libp2p_multiaddr_append_component(
-            LIBP2P_TEST_MULTIADDR_CODE_IP4,
+            LIBP2P_MULTIADDR_CODE_IP4,
             NULL,
             4U,
             NULL,
@@ -513,7 +508,7 @@ static void multiaddr_unit_append_component_rejects_invalid(void)
             &pos) == LIBP2P_MULTIADDR_ERR_INVALID_VALUE);
     assert(
         libp2p_multiaddr_append_component(
-            LIBP2P_TEST_MULTIADDR_CODE_P2P,
+            LIBP2P_MULTIADDR_CODE_P2P,
             NULL,
             1U,
             NULL,
@@ -521,7 +516,7 @@ static void multiaddr_unit_append_component_rejects_invalid(void)
             &pos) == LIBP2P_MULTIADDR_ERR_INVALID_VALUE);
     assert(
         libp2p_multiaddr_append_component(
-            LIBP2P_TEST_MULTIADDR_CODE_P2P,
+            LIBP2P_MULTIADDR_CODE_P2P,
             invalid_peer_id,
             sizeof(invalid_peer_id),
             NULL,

@@ -25,6 +25,9 @@
 /** sha2-256 multihash code. */
 #define LIBP2P_MULTIHASH_CODE_SHA2_256 0x12U
 
+/** sha2-256 digest size in bytes. */
+#define LIBP2P_MULTIHASH_SHA2_256_DIGEST_BYTES 32U
+
 /** Error codes returned by multihash operations. */
 typedef enum
 {

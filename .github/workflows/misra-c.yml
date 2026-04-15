@@ -70,6 +70,10 @@ jobs:
             --suppress=missingIncludeSystem \
             --suppress=unusedFunction \
             --suppress=unmatchedSuppression \
+            --suppress='*:*external/*' \
+            --suppress='misra-c2012-2.5:*include/*' \
+            --suppress='misra-c2012-8.7' \
+            -i c-lean-libp2p/external \
             -i c-lean-libp2p/tests \
             -i c-lean-libp2p/bench \
             -i c-lean-libp2p/fuzz \

@@ -15,12 +15,7 @@
 #include "multiformats/multihash/multihash.h"
 #include "multiformats/unsigned_varint/unsigned_varint.h"
 
-#define LIBP2P_MULTIADDR_CODE_IP4          UINT64_C(0x04)
-#define LIBP2P_MULTIADDR_CODE_IP6          UINT64_C(0x29)
 #define LIBP2P_MULTIADDR_CODE_LIBP2P_KEY   UINT64_C(0x72)
-#define LIBP2P_MULTIADDR_CODE_UDP          UINT64_C(0x0111)
-#define LIBP2P_MULTIADDR_CODE_P2P          UINT64_C(0x01a5)
-#define LIBP2P_MULTIADDR_CODE_QUIC_V1      UINT64_C(0x01cd)
 #define LIBP2P_MULTIADDR_CID_VERSION_1     UINT64_C(0x01)
 #define LIBP2P_MULTIADDR_MAX_VARINT_VALUE  UINT64_C(0x7FFFFFFFFFFFFFFF)
 #define LIBP2P_MULTIADDR_MAX_PEER_ID_BYTES 128U
