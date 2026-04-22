@@ -1649,9 +1649,6 @@ libp2p_multiaddr_err_t libp2p_multiaddr_from_string(
         const char *protocol_text = NULL;
         size_t protocol_len = 0U;
         const libp2p_multiaddr_protocol_entry_t *protocol = NULL;
-        uint64_t code = UINT64_C(0);
-        const uint8_t *component_value = NULL;
-        size_t component_value_len = 0U;
         libp2p_multiaddr_err_t err = LIBP2P_MULTIADDR_OK;
 
         err = multiaddr_read_text_segment(in, in_len, &offset, &protocol_text, &protocol_len);
@@ -1675,12 +1672,18 @@ libp2p_multiaddr_err_t libp2p_multiaddr_from_string(
 
         if (parse_result == LIBP2P_MULTIADDR_OK)
         {
-            code = protocol->code;
+            const uint64_t code = protocol->code;
+
             switch (code)
             {
             case LIBP2P_MULTIADDR_CODE_QUIC_V1:
-                component_value = NULL;
-                component_value_len = 0U;
+                err = libp2p_multiaddr_append_component(
+                    code,
+                    NULL,
+                    0U,
+                    (result == LIBP2P_MULTIADDR_OK) ? out : NULL,
+                    (result == LIBP2P_MULTIADDR_OK) ? out_len : 0U,
+                    &pos);
                 break;
 
             case LIBP2P_MULTIADDR_CODE_IP4:
@@ -1690,6 +1693,8 @@ libp2p_multiaddr_err_t libp2p_multiaddr_from_string(
             {
                 const char *value_text = NULL;
                 size_t value_len = 0U;
+                const uint8_t *component_value = NULL;
+                size_t component_value_len = 0U;
                 uint8_t fixed_value[16];
                 uint8_t peer_id[LIBP2P_MULTIADDR_MAX_PEER_ID_BYTES];
 
@@ -1713,6 +1718,17 @@ libp2p_multiaddr_err_t libp2p_multiaddr_from_string(
                         &component_value,
                         &component_value_len);
                 }
+
+                if (parse_result == LIBP2P_MULTIADDR_OK)
+                {
+                    err = libp2p_multiaddr_append_component(
+                        code,
+                        component_value,
+                        component_value_len,
+                        (result == LIBP2P_MULTIADDR_OK) ? out : NULL,
+                        (result == LIBP2P_MULTIADDR_OK) ? out_len : 0U,
+                        &pos);
+                }
                 break;
             }
 
@@ -1724,13 +1740,6 @@ libp2p_multiaddr_err_t libp2p_multiaddr_from_string(
 
         if (parse_result == LIBP2P_MULTIADDR_OK)
         {
-            err = libp2p_multiaddr_append_component(
-                code,
-                component_value,
-                component_value_len,
-                (result == LIBP2P_MULTIADDR_OK) ? out : NULL,
-                (result == LIBP2P_MULTIADDR_OK) ? out_len : 0U,
-                &pos);
             if (err == LIBP2P_MULTIADDR_ERR_BUF_TOO_SMALL)
             {
                 result = LIBP2P_MULTIADDR_ERR_BUF_TOO_SMALL;
