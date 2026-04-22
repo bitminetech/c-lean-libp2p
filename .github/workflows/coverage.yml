@@ -78,7 +78,7 @@ jobs:
             --capture \
             --directory c-lean-libp2p/build/coverage \
             --output-file c-lean-libp2p/build/coverage/coverage.info \
-            --ignore-errors mismatch
+            --ignore-errors mismatch,version
 
       - name: Filter coverage report
         run: |
@@ -90,7 +90,7 @@ jobs:
             '*/external/*' \
             '*/build/*' \
             --output-file c-lean-libp2p/build/coverage/coverage-filtered.info \
-            --ignore-errors unused
+            --ignore-errors unused,version
 
       - name: Generate HTML report
         run: |
@@ -207,7 +207,7 @@ jobs:
             --capture \
             --directory c-lean-libp2p/build/coverage-32 \
             --output-file c-lean-libp2p/build/coverage-32/coverage.info \
-            --ignore-errors mismatch
+            --ignore-errors mismatch,version
 
       - name: Filter coverage report
         run: |
@@ -219,7 +219,7 @@ jobs:
             '*/external/*' \
             '*/build/*' \
             --output-file c-lean-libp2p/build/coverage-32/coverage-filtered.info \
-            --ignore-errors unused
+            --ignore-errors unused,version
 
       - name: Generate HTML report
         run: |

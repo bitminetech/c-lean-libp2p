@@ -1652,8 +1652,6 @@ libp2p_multiaddr_err_t libp2p_multiaddr_from_string(
         uint64_t code = UINT64_C(0);
         const uint8_t *component_value = NULL;
         size_t component_value_len = 0U;
-        uint8_t fixed_value[16];
-        uint8_t peer_id[LIBP2P_MULTIADDR_MAX_PEER_ID_BYTES];
         libp2p_multiaddr_err_t err = LIBP2P_MULTIADDR_OK;
 
         err = multiaddr_read_text_segment(in, in_len, &offset, &protocol_text, &protocol_len);
@@ -1692,6 +1690,8 @@ libp2p_multiaddr_err_t libp2p_multiaddr_from_string(
             {
                 const char *value_text = NULL;
                 size_t value_len = 0U;
+                uint8_t fixed_value[16];
+                uint8_t peer_id[LIBP2P_MULTIADDR_MAX_PEER_ID_BYTES];
 
                 err = multiaddr_read_text_segment(in, in_len, &offset, &value_text, &value_len);
                 if (err != LIBP2P_MULTIADDR_OK)

@@ -567,10 +567,7 @@ static libp2p_multibase_err_t multibase_decode_base64url(
     const size_t remainder = payload_len % 4U;
     libp2p_multibase_err_t err = LIBP2P_MULTIBASE_OK;
     size_t exact_size = 0U;
-    size_t in_index = 1U;
-    size_t out_index = 0U;
     int size_is_valid = multibase_base64_decoded_exact_size(payload_len, &exact_size);
-    int output_available = 0;
 
     if (written != NULL)
     {
@@ -583,6 +580,10 @@ static libp2p_multibase_err_t multibase_decode_base64url(
     }
     else
     {
+        size_t in_index = 1U;
+        size_t out_index = 0U;
+        int output_available = 0;
+
         if (written != NULL)
         {
             *written = exact_size;
