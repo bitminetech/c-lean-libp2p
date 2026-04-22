@@ -113,8 +113,20 @@ jobs:
           COVERAGE=$(lcov --summary c-lean-libp2p/build/coverage/coverage-filtered.info 2>&1 | grep 'lines' | sed 's/.*: \([0-9.]*\)%.*/\1/')
           echo "percentage=$COVERAGE" >> "$GITHUB_OUTPUT"
 
+      - name: Determine badge availability
+        id: badge_gate
+        env:
+          GIST_TOKEN: ${{ secrets.GIST_TOKEN }}
+          COVERAGE_GIST_ID: ${{ vars.COVERAGE_GIST_ID }}
+        run: |
+          if [ -n "${GIST_TOKEN}" ] && [ -n "${COVERAGE_GIST_ID}" ]; then
+            echo "enabled=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "enabled=false" >> "$GITHUB_OUTPUT"
+          fi
+
       - name: Create coverage badge
-        if: github.ref == 'refs/heads/main' && github.event_name == 'push' && secrets.GIST_TOKEN != '' && vars.COVERAGE_GIST_ID != ''
+        if: github.ref == 'refs/heads/main' && github.event_name == 'push' && steps.badge_gate.outputs.enabled == 'true'
         uses: schneegans/dynamic-badges-action@v1.7.0
         with:
           auth: ${{ secrets.GIST_TOKEN }}

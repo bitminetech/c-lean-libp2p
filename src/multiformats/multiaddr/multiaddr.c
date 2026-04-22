@@ -67,7 +67,6 @@ static int multiaddr_size_fits_varint_limit(size_t value_len)
 
 static int multiaddr_char_sequence_matches(const char *left, const char *right, size_t len)
 {
-    size_t index = 0U;
     int result = 1;
 
     if ((left == NULL) || (right == NULL))
@@ -76,6 +75,8 @@ static int multiaddr_char_sequence_matches(const char *left, const char *right, 
     }
     else
     {
+        size_t index = 0U;
+
         for (index = 0U; index < len; index++)
         {
             if (left[index] != right[index])
@@ -90,7 +91,6 @@ static int multiaddr_char_sequence_matches(const char *left, const char *right, 
 
 static int multiaddr_byte_sequence_matches(const uint8_t *left, const uint8_t *right, size_t len)
 {
-    size_t index = 0U;
     int result = 1;
 
     if ((len != 0U) && ((left == NULL) || (right == NULL)))
@@ -99,6 +99,8 @@ static int multiaddr_byte_sequence_matches(const uint8_t *left, const uint8_t *r
     }
     else
     {
+        size_t index = 0U;
+
         for (index = 0U; index < len; index++)
         {
             if (left[index] != right[index])
@@ -211,7 +213,6 @@ static int multiaddr_parse_decimal(
         const unsigned char character = (unsigned char)text[index];
         const unsigned char zero_char = (unsigned char)'0';
         const unsigned char nine_char = (unsigned char)'9';
-        uint32_t digit = 0U;
 
         if ((character < zero_char) || (character > nine_char))
         {
@@ -219,7 +220,7 @@ static int multiaddr_parse_decimal(
         }
         else
         {
-            digit = ((uint32_t)character) - ((uint32_t)zero_char);
+            const uint32_t digit = ((uint32_t)character) - ((uint32_t)zero_char);
 
             if (parsed > ((max_value - digit) / 10U))
             {
@@ -344,7 +345,6 @@ static int multiaddr_parse_ipv6(const char *text, size_t text_len, uint8_t out[1
     size_t group_count = 0U;
     size_t compress_index = SIZE_MAX;
     size_t pos = 0U;
-    size_t group_index = 0U;
     int result = 1;
     int parsing_complete = 0;
 
@@ -376,7 +376,6 @@ static int multiaddr_parse_ipv6(const char *text, size_t text_len, uint8_t out[1
         size_t segment_start = pos;
         size_t segment_end = pos;
         uint16_t value = 0U;
-        size_t digit_count = 0U;
         int ipv4_tail = 0;
 
         if (group_count >= 8U)
@@ -422,6 +421,8 @@ static int multiaddr_parse_ipv6(const char *text, size_t text_len, uint8_t out[1
 
         if ((result != 0) && (ipv4_tail == 0))
         {
+            size_t digit_count = 0U;
+
             if (segment_end == segment_start)
             {
                 result = 0;
@@ -495,6 +496,8 @@ static int multiaddr_parse_ipv6(const char *text, size_t text_len, uint8_t out[1
         }
         else
         {
+            size_t group_index = 0U;
+
             for (group_index = group_count; group_index > compress_index; group_index--)
             {
                 groups[group_index + zeros_to_insert - 1U] = groups[group_index - 1U];
@@ -516,6 +519,8 @@ static int multiaddr_parse_ipv6(const char *text, size_t text_len, uint8_t out[1
 
     if (result != 0)
     {
+        size_t group_index = 0U;
+
         for (group_index = 0U; group_index < 8U; group_index++)
         {
             out[group_index * 2U] = (uint8_t)(groups[group_index] >> 8U);
@@ -753,7 +758,6 @@ static int multiaddr_parse_legacy_peer_id(
     char prefixed[LIBP2P_MULTIADDR_MAX_PEER_ID_TEXT];
     libp2p_multibase_t base = LIBP2P_MULTIBASE_BASE58BTC;
     size_t decoded_len = 0U;
-    size_t index = 0U;
     size_t multihash_read = 0U;
     int result = 1;
 
@@ -764,6 +768,8 @@ static int multiaddr_parse_legacy_peer_id(
 
     if (result != 0)
     {
+        size_t index = 0U;
+
         prefixed[0] = 'z';
         for (index = 0U; index < text_len; index++)
         {
@@ -943,7 +949,6 @@ static int multiaddr_format_peer_id(
     size_t *text_len)
 {
     size_t encoded_len = 0U;
-    size_t index = 0U;
     int result = 1;
 
     if ((peer_id_len > LIBP2P_MULTIADDR_MAX_PEER_ID_BYTES) || (text_capacity == 0U))
@@ -970,6 +975,8 @@ static int multiaddr_format_peer_id(
 
     if (result != 0)
     {
+        size_t index = 0U;
+
         for (index = 0U; index < (encoded_len - 1U); index++)
         {
             text[index] = text[index + 1U];
@@ -989,7 +996,6 @@ static libp2p_multiaddr_err_t multiaddr_read_text_segment(
     size_t *segment_len)
 {
     libp2p_multiaddr_err_t result = LIBP2P_MULTIADDR_OK;
-    size_t start = 0U;
 
     if ((in == NULL) || (offset == NULL) || (segment_text == NULL) || (segment_len == NULL))
     {
@@ -1001,8 +1007,9 @@ static libp2p_multiaddr_err_t multiaddr_read_text_segment(
     }
     else
     {
+        const size_t start = *offset + 1U;
+
         *offset += 1U;
-        start = *offset;
         while ((*offset < in_len) && (in[*offset] != '/'))
         {
             *offset += 1U;
@@ -1288,8 +1295,6 @@ libp2p_multiaddr_err_t libp2p_multiaddr_append_component(
     const libp2p_multiaddr_protocol_entry_t *protocol = NULL;
     size_t start = 0U;
     size_t total_size = 0U;
-    size_t code_size = 0U;
-    size_t length_size = 0U;
     uint8_t code_buf[LIBP2P_UVARINT_MAX_BYTES + 1U];
     uint8_t length_buf[LIBP2P_UVARINT_MAX_BYTES + 1U];
     size_t code_written = 0U;
@@ -1345,12 +1350,14 @@ libp2p_multiaddr_err_t libp2p_multiaddr_append_component(
 
     if (result == LIBP2P_MULTIADDR_OK)
     {
-        code_size = (size_t)libp2p_uvarint_size(code);
+        const size_t code_size = (size_t)libp2p_uvarint_size(code);
+
         total_size = code_size;
 
         if (protocol->value_class == LIBP2P_MULTIADDR_VALUE_VARIABLE)
         {
-            length_size = (size_t)libp2p_uvarint_size((uint64_t)value_len);
+            const size_t length_size = (size_t)libp2p_uvarint_size((uint64_t)value_len);
+
             if (multiaddr_add_overflow(total_size, length_size, &total_size) != 0)
             {
                 *pos = SIZE_MAX;

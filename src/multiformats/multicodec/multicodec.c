@@ -82,11 +82,12 @@ libp2p_multicodec_err_t libp2p_multicodec_from_name(
     size_t name_len,
     uint64_t *code)
 {
-    size_t index = 0U;
     libp2p_multicodec_err_t result = LIBP2P_MULTICODEC_ERR_UNKNOWN_NAME;
 
     if (name != NULL)
     {
+        size_t index = 0U;
+
         for (index = 0U; index < multicodec_table_len(); index++)
         {
             const libp2p_multicodec_entry_t *const entry = &multicodec_table[index];

@@ -208,8 +208,21 @@ jobs:
           COVERAGE=$(tail -1 c-lean-libp2p/build/fuzz-coverage/report.txt | grep -oE '[0-9]+\.[0-9]+%' | head -1 | tr -d '%')
           echo "percentage=$COVERAGE" >> "$GITHUB_OUTPUT"
 
+      - name: Determine badge availability
+        if: steps.discover.outputs.present == 'true'
+        id: badge_gate
+        env:
+          GIST_TOKEN: ${{ secrets.GIST_TOKEN }}
+          COVERAGE_GIST_ID: ${{ vars.COVERAGE_GIST_ID }}
+        run: |
+          if [ -n "${GIST_TOKEN}" ] && [ -n "${COVERAGE_GIST_ID}" ]; then
+            echo "enabled=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "enabled=false" >> "$GITHUB_OUTPUT"
+          fi
+
       - name: Create fuzz coverage badge
-        if: steps.discover.outputs.present == 'true' && github.ref == 'refs/heads/main' && github.event_name == 'push' && secrets.GIST_TOKEN != '' && vars.COVERAGE_GIST_ID != ''
+        if: steps.discover.outputs.present == 'true' && github.ref == 'refs/heads/main' && github.event_name == 'push' && steps.badge_gate.outputs.enabled == 'true'
         uses: schneegans/dynamic-badges-action@v1.7.0
         with:
           auth: ${{ secrets.GIST_TOKEN }}

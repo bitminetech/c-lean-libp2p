@@ -6,8 +6,6 @@
 
 #include "multiformats/multiaddr/multiaddr.h"
 
-static const char multiaddr_spec_source_suffix[] =
-    "c-lean-libp2p/tests/spec/multiformats/multiaddr/test_multiaddr.c";
 static const char multiaddr_spec_peer_id[] = "QmYtUc4iTCbbfVSDNKvtQqrfyezPPnFvE33wFmutw9PBBk";
 
 static int multiaddr_spec_is_space(char character)
@@ -77,51 +75,6 @@ static int multiaddr_spec_join_path(
     (void)memcpy(out + root_len, relative_path, relative_len);
     out[root_len + relative_len] = '\0';
     return 1;
-}
-
-static int multiaddr_spec_repo_path(
-    const char *source_file,
-    const char *source_suffix,
-    const char *relative_path,
-    char *out,
-    size_t out_len)
-{
-    const char *match = NULL;
-
-    if ((source_file == NULL) || (source_suffix == NULL) || (relative_path == NULL))
-    {
-        return 0;
-    }
-
-    match = strstr(source_file, source_suffix);
-    if (match == NULL)
-    {
-        return 0;
-    }
-    if (match == source_file)
-    {
-        if (strlen(relative_path) >= out_len)
-        {
-            return 0;
-        }
-
-        (void)memcpy(out, relative_path, strlen(relative_path) + 1U);
-        return 1;
-    }
-
-    {
-        char root[512];
-        const size_t root_len = (size_t)(match - source_file);
-
-        if ((root_len + 1U) > sizeof(root))
-        {
-            return 0;
-        }
-
-        (void)memcpy(root, source_file, root_len);
-        root[root_len] = '\0';
-        return multiaddr_spec_join_path(root, relative_path, out, out_len);
-    }
 }
 
 static char *multiaddr_spec_trim(char *text)
@@ -506,7 +459,7 @@ static void multiaddr_spec_run_supported_readme_example(
     assert(memcmp(roundtrip, address_text, roundtrip_len) == 0);
 }
 
-static void multiaddr_spec_readme_example(void)
+static void multiaddr_spec_readme_example(const char *repo_root)
 {
     char path[256];
     char line[512];
@@ -517,9 +470,8 @@ static void multiaddr_spec_readme_example(void)
     int found_packed = 0;
 
     assert(
-        multiaddr_spec_repo_path(
-            __FILE__,
-            multiaddr_spec_source_suffix,
+        multiaddr_spec_join_path(
+            repo_root,
             "docs/multiformats-specs/multiaddr/README.md",
             path,
             sizeof(path)) != 0);
@@ -592,7 +544,7 @@ static void multiaddr_spec_run_packed_scenario(const char *packed_text, const ch
             &written) == LIBP2P_MULTIADDR_ERR_UNSUPPORTED_PROTOCOL);
 }
 
-static void multiaddr_spec_feature_file(void)
+static void multiaddr_spec_feature_file(const char *repo_root)
 {
     char path[256];
     char line[512];
@@ -602,9 +554,8 @@ static void multiaddr_spec_feature_file(void)
     int scenario_count = 0;
 
     assert(
-        multiaddr_spec_repo_path(
-            __FILE__,
-            multiaddr_spec_source_suffix,
+        multiaddr_spec_join_path(
+            repo_root,
             "docs/multiformats-specs/multiaddr/test/multiaddr.feature",
             path,
             sizeof(path)) != 0);
@@ -641,7 +592,7 @@ static void multiaddr_spec_feature_file(void)
     assert(scenario_count == 2);
 }
 
-static void multiaddr_spec_protocol_table(void)
+static void multiaddr_spec_protocol_table(const char *repo_root)
 {
     char path[256];
     char line[512];
@@ -654,9 +605,8 @@ static void multiaddr_spec_protocol_table(void)
     int saw_alias = 0;
 
     assert(
-        multiaddr_spec_repo_path(
-            __FILE__,
-            multiaddr_spec_source_suffix,
+        multiaddr_spec_join_path(
+            repo_root,
             "docs/multiformats-specs/multiaddr/protocols.csv",
             path,
             sizeof(path)) != 0);
@@ -763,10 +713,17 @@ static void multiaddr_spec_protocol_table(void)
     assert(row_count > 0);
 }
 
-int main(void)
+int main(int argc, char **argv)
 {
-    multiaddr_spec_readme_example();
-    multiaddr_spec_feature_file();
-    multiaddr_spec_protocol_table();
+    const char *repo_root = ".";
+
+    if (argc > 1)
+    {
+        repo_root = argv[1];
+    }
+
+    multiaddr_spec_readme_example(repo_root);
+    multiaddr_spec_feature_file(repo_root);
+    multiaddr_spec_protocol_table(repo_root);
     return 0;
 }

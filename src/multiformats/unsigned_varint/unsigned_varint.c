@@ -29,11 +29,8 @@ libp2p_uvarint_err_t libp2p_uvarint_encode(
     size_t buf_len,
     size_t *written)
 {
-    size_t index = 0U;
     size_t required = 0U;
-    uint64_t remaining = value;
     libp2p_uvarint_err_t result = LIBP2P_UVARINT_OK;
-    int done = 0;
 
     if (written != NULL)
     {
@@ -57,7 +54,10 @@ libp2p_uvarint_err_t libp2p_uvarint_encode(
     }
     else
     {
-        while (done == 0)
+        size_t index = 0U;
+        uint64_t remaining = value;
+
+        do
         {
             uint8_t byte = (uint8_t)(remaining & UINT64_C(0x7f));
 
@@ -69,12 +69,7 @@ libp2p_uvarint_err_t libp2p_uvarint_encode(
 
             buf[index] = byte;
             index++;
-
-            if (remaining == 0ULL)
-            {
-                done = 1;
-            }
-        }
+        } while (remaining != 0ULL);
     }
 
     return result;
@@ -87,10 +82,7 @@ libp2p_uvarint_err_t libp2p_uvarint_decode(
     size_t *read)
 {
     uint64_t decoded_value = UINT64_C(0);
-    uint32_t shift = 0U;
-    size_t index = 0U;
     libp2p_uvarint_err_t result = LIBP2P_UVARINT_ERR_TRUNCATED;
-    int done = 0;
 
     if (value != NULL)
     {
@@ -107,6 +99,10 @@ libp2p_uvarint_err_t libp2p_uvarint_decode(
     }
     else
     {
+        uint32_t shift = 0U;
+        size_t index = 0U;
+        int done = 0;
+
         for (index = 0U; (index < buf_len) && (done == 0); index++)
         {
             const uint8_t byte = buf[index];

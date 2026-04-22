@@ -98,7 +98,6 @@ libp2p_multihash_err_t libp2p_multihash_encode(
     size_t code_written = 0U;
     size_t size_written = 0U;
     size_t required = 0U;
-    size_t offset = 0U;
     libp2p_multihash_err_t result = libp2p_multihash_size(code, digest_len, &required);
 
     if (written != NULL)
@@ -143,6 +142,8 @@ libp2p_multihash_err_t libp2p_multihash_encode(
 
     if (result == LIBP2P_MULTIHASH_OK)
     {
+        size_t offset = 0U;
+
         (void)memcpy(&out[offset], code_buf, code_written);
         offset += code_written;
         (void)memcpy(&out[offset], size_buf, size_written);
@@ -292,7 +293,6 @@ libp2p_multihash_err_t libp2p_multihash_read_header(
 
 libp2p_multihash_err_t libp2p_multihash_size(uint64_t code, size_t digest_len, size_t *out_len)
 {
-    size_t total = 0U;
     libp2p_multihash_err_t result = multihash_validate_code_and_length(code, digest_len);
 
     if (out_len != NULL)
@@ -302,7 +302,8 @@ libp2p_multihash_err_t libp2p_multihash_size(uint64_t code, size_t digest_len, s
 
     if (result == LIBP2P_MULTIHASH_OK)
     {
-        total = (size_t)libp2p_uvarint_size(code);
+        size_t total = (size_t)libp2p_uvarint_size(code);
+
         total += (size_t)libp2p_uvarint_size((uint64_t)digest_len);
         total += digest_len;
 

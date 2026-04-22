@@ -400,14 +400,6 @@ static libp2p_multibase_err_t multibase_encode_base58btc(
     size_t out_len,
     size_t *written)
 {
-    size_t zero_count = 0U;
-    size_t significant_len = 0U;
-    size_t required_bound = 0U;
-    size_t scratch_offset = 0U;
-    size_t digits_capacity = 0U;
-    size_t used = 0U;
-    size_t in_index = 0U;
-    size_t out_index = 0U;
     libp2p_multibase_err_t err = LIBP2P_MULTIBASE_OK;
 
     if (written != NULL)
@@ -421,17 +413,47 @@ static libp2p_multibase_err_t multibase_encode_base58btc(
     }
     else
     {
+        size_t zero_count = 0U;
+
         while ((zero_count < in_len) && (in[zero_count] == 0U))
         {
             zero_count++;
         }
 
-        significant_len = in_len - zero_count;
-        scratch_offset = 1U + zero_count;
-        required_bound = scratch_offset;
-
-        if (significant_len != 0U)
+        if (zero_count == in_len)
         {
+            const size_t required_bound = 1U + zero_count;
+
+            if (written != NULL)
+            {
+                *written = required_bound;
+            }
+
+            if ((out == NULL) || (out_len < required_bound))
+            {
+                err = LIBP2P_MULTIBASE_ERR_BUF_TOO_SMALL;
+            }
+            else
+            {
+                size_t out_index = 0U;
+
+                out[0] = 'z';
+                for (out_index = 0U; out_index < zero_count; out_index++)
+                {
+                    out[1U + out_index] = '1';
+                }
+
+                if (written != NULL)
+                {
+                    *written = required_bound;
+                }
+            }
+        }
+        else
+        {
+            const size_t significant_len = in_len - zero_count;
+            const size_t scratch_offset = 1U + zero_count;
+            size_t required_bound = scratch_offset;
             const size_t digits_bound = multibase_base58_encoded_upper_bound(significant_len);
 
             if (digits_bound == SIZE_MAX)
@@ -446,107 +468,86 @@ static libp2p_multibase_err_t multibase_encode_base58btc(
             {
                 /* required_bound already contains the exact upper bound. */
             }
-        }
-        else
-        {
-            /* Only the prefix and leading zero digits are required. */
-        }
 
-        if (written != NULL)
-        {
-            *written = required_bound;
-        }
+            if (written != NULL)
+            {
+                *written = required_bound;
+            }
 
-        if (significant_len == 0U)
-        {
-            if ((out == NULL) || (out_len < required_bound))
+            if ((out == NULL) || (out_len <= scratch_offset))
             {
                 err = LIBP2P_MULTIBASE_ERR_BUF_TOO_SMALL;
             }
             else
             {
-                out[0] = 'z';
-                for (out_index = 0U; out_index < zero_count; out_index++)
+                size_t digits_capacity = out_len - scratch_offset;
+                size_t used = 0U;
+                size_t in_index = zero_count;
+                size_t out_index = 0U;
+
+                for (out_index = 0U; out_index < digits_capacity; out_index++)
                 {
-                    out[1U + out_index] = '1';
+                    out[scratch_offset + out_index] = '\0';
                 }
 
-                if (written != NULL)
+                while ((in_index < in_len) && (err == LIBP2P_MULTIBASE_OK))
                 {
-                    *written = required_bound;
-                }
-            }
-        }
-        else if ((out == NULL) || (out_len <= scratch_offset))
-        {
-            err = LIBP2P_MULTIBASE_ERR_BUF_TOO_SMALL;
-        }
-        else
-        {
-            digits_capacity = out_len - scratch_offset;
-            for (out_index = 0U; out_index < digits_capacity; out_index++)
-            {
-                out[scratch_offset + out_index] = '\0';
-            }
+                    uint32_t carry = (uint32_t)in[in_index];
+                    size_t digit_index = 0U;
 
-            in_index = zero_count;
-            while ((in_index < in_len) && (err == LIBP2P_MULTIBASE_OK))
-            {
-                uint32_t carry = (uint32_t)in[in_index];
-                size_t digit_index = 0U;
-
-                while (((carry != 0U) || (digit_index < used)) &&
-                       (err == LIBP2P_MULTIBASE_OK))
-                {
-                    if (digit_index >= digits_capacity)
+                    while (((carry != 0U) || (digit_index < used)) &&
+                           (err == LIBP2P_MULTIBASE_OK))
                     {
-                        err = LIBP2P_MULTIBASE_ERR_BUF_TOO_SMALL;
-                    }
-                    else
-                    {
-                        const size_t array_index = digits_capacity - 1U - digit_index;
-                        const size_t scratch_index = scratch_offset + array_index;
-                        uint32_t digit_value = 0U;
+                        if (digit_index >= digits_capacity)
+                        {
+                            err = LIBP2P_MULTIBASE_ERR_BUF_TOO_SMALL;
+                        }
+                        else
+                        {
+                            const size_t array_index = digits_capacity - 1U - digit_index;
+                            const size_t scratch_index = scratch_offset + array_index;
+                            uint32_t digit_value = 0U;
 
-                        carry += ((uint32_t)(uint8_t)out[scratch_index]) << 8U;
-                        digit_value = carry % 58U;
-                        out[scratch_index] = (char)digit_value;
-                        carry /= 58U;
-                        digit_index++;
+                            carry += ((uint32_t)(uint8_t)out[scratch_index]) << 8U;
+                            digit_value = carry % 58U;
+                            out[scratch_index] = (char)digit_value;
+                            carry /= 58U;
+                            digit_index++;
+                        }
                     }
+
+                    if (err == LIBP2P_MULTIBASE_OK)
+                    {
+                        used = digit_index;
+                    }
+
+                    in_index++;
                 }
 
                 if (err == LIBP2P_MULTIBASE_OK)
                 {
-                    used = digit_index;
-                }
-
-                in_index++;
-            }
-
-            if (err == LIBP2P_MULTIBASE_OK)
-            {
-                out[0] = 'z';
-                for (out_index = 0U; out_index < zero_count; out_index++)
-                {
-                    out[1U + out_index] = '1';
-                }
-
-                if (used != 0U)
-                {
-                    const size_t start_index = digits_capacity - used;
-
-                    for (out_index = 0U; out_index < used; out_index++)
+                    out[0] = 'z';
+                    for (out_index = 0U; out_index < zero_count; out_index++)
                     {
-                        const uint8_t digit =
-                            (uint8_t)out[scratch_offset + start_index + out_index];
-                        out[scratch_offset + out_index] = multibase_base58btc_alphabet[digit];
+                        out[1U + out_index] = '1';
                     }
-                }
 
-                if (written != NULL)
-                {
-                    *written = scratch_offset + used;
+                    if (used != 0U)
+                    {
+                        const size_t start_index = digits_capacity - used;
+
+                        for (out_index = 0U; out_index < used; out_index++)
+                        {
+                            const uint8_t digit =
+                                (uint8_t)out[scratch_offset + start_index + out_index];
+                            out[scratch_offset + out_index] = multibase_base58btc_alphabet[digit];
+                        }
+                    }
+
+                    if (written != NULL)
+                    {
+                        *written = scratch_offset + used;
+                    }
                 }
             }
         }
