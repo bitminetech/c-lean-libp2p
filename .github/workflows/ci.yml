@@ -105,6 +105,7 @@ jobs:
         run: |
           cmake -S c-lean-libp2p -B c-lean-libp2p/build-sanitizers \
             -DCMAKE_EXPORT_COMPILE_COMMANDS=ON \
+            -DSECP256K1_ASM=OFF \
             -DCMAKE_C_FLAGS='-fsanitize=address,undefined -fno-omit-frame-pointer' \
             -DCMAKE_EXE_LINKER_FLAGS='-fsanitize=address,undefined'
 

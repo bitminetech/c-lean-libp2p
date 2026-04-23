@@ -190,7 +190,7 @@ static libp2p_peer_id_err_t peer_id_validate_private_key(
     }
     else
     {
-        max_align_t context_storage[LIBP2P_PEER_ID_SECP256K1_CONTEXT_STORAGE_WORDS];
+        uint64_t context_storage[LIBP2P_PEER_ID_SECP256K1_CONTEXT_STORAGE_WORDS];
         secp256k1_context *context = NULL;
 
         result = peer_id_create_context(context_storage, &context);
@@ -871,7 +871,7 @@ libp2p_peer_id_err_t libp2p_peer_id_public_key_from_private_key(
 
     if (result == LIBP2P_PEER_ID_OK)
     {
-        max_align_t context_storage[LIBP2P_PEER_ID_SECP256K1_CONTEXT_STORAGE_WORDS];
+        uint64_t context_storage[LIBP2P_PEER_ID_SECP256K1_CONTEXT_STORAGE_WORDS];
         secp256k1_context *context = NULL;
 
         result = peer_id_create_context(context_storage, &context);
@@ -931,7 +931,7 @@ libp2p_peer_id_err_t libp2p_peer_id_sign_hash(
 
     if (result == LIBP2P_PEER_ID_OK)
     {
-        max_align_t context_storage[LIBP2P_PEER_ID_SECP256K1_CONTEXT_STORAGE_WORDS];
+        uint64_t context_storage[LIBP2P_PEER_ID_SECP256K1_CONTEXT_STORAGE_WORDS];
         secp256k1_context *context = NULL;
 
         result = peer_id_create_context(context_storage, &context);

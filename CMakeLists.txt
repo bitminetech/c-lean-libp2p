@@ -35,6 +35,11 @@ set(SECP256K1_ENABLE_MODULE_ELLSWIFT OFF CACHE BOOL "" FORCE)
 
 add_subdirectory(external/secp256k1)
 
+if(MSVC)
+    target_compile_options(secp256k1 PRIVATE /WX-)
+    target_compile_options(secp256k1_precomputed PRIVATE /WX-)
+endif()
+
 add_library(c_lean_libp2p_project_defaults INTERFACE)
 target_compile_features(c_lean_libp2p_project_defaults INTERFACE c_std_11)
 target_compile_options(
