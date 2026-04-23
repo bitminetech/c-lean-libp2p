@@ -20,10 +20,15 @@ jobs:
         with:
           path: c-lean-libp2p
 
-      - name: Install lcov
+      - name: Install lcov from source
         run: |
           sudo apt-get update
-          sudo apt-get install -y lcov
+          sudo apt-get install -y git make perl
+          cd /tmp
+          git clone --depth 1 --branch v2.3 https://github.com/linux-test-project/lcov.git lcov-src
+          cd lcov-src
+          sudo make install PREFIX=/usr/local
+          lcov --version
 
       - name: Prepare multiformats specs
         shell: bash
@@ -78,7 +83,7 @@ jobs:
             --capture \
             --directory c-lean-libp2p/build/coverage \
             --output-file c-lean-libp2p/build/coverage/coverage.info \
-            --ignore-errors mismatch,version
+            --ignore-errors mismatch
 
       - name: Filter coverage report
         run: |
@@ -90,7 +95,7 @@ jobs:
             '*/external/*' \
             '*/build/*' \
             --output-file c-lean-libp2p/build/coverage/coverage-filtered.info \
-            --ignore-errors unused,version
+            --ignore-errors unused
 
       - name: Generate HTML report
         run: |
@@ -148,11 +153,16 @@ jobs:
         with:
           path: c-lean-libp2p
 
-      - name: Install 32-bit toolchain and lcov
+      - name: Install 32-bit toolchain and lcov from source
         run: |
           sudo dpkg --add-architecture i386
           sudo apt-get update
-          sudo apt-get install -y gcc-multilib g++-multilib lcov
+          sudo apt-get install -y gcc-multilib g++-multilib git make perl
+          cd /tmp
+          git clone --depth 1 --branch v2.3 https://github.com/linux-test-project/lcov.git lcov-src
+          cd lcov-src
+          sudo make install PREFIX=/usr/local
+          lcov --version
 
       - name: Prepare multiformats specs
         shell: bash
@@ -207,7 +217,7 @@ jobs:
             --capture \
             --directory c-lean-libp2p/build/coverage-32 \
             --output-file c-lean-libp2p/build/coverage-32/coverage.info \
-            --ignore-errors mismatch,version
+            --ignore-errors mismatch
 
       - name: Filter coverage report
         run: |
@@ -219,7 +229,7 @@ jobs:
             '*/external/*' \
             '*/build/*' \
             --output-file c-lean-libp2p/build/coverage-32/coverage-filtered.info \
-            --ignore-errors unused,version
+            --ignore-errors unused
 
       - name: Generate HTML report
         run: |
