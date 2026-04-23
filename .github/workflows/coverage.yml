@@ -20,15 +20,10 @@ jobs:
         with:
           path: c-lean-libp2p
 
-      - name: Install lcov from source
+      - name: Install lcov
         run: |
           sudo apt-get update
-          sudo apt-get install -y git make perl
-          cd /tmp
-          git clone --depth 1 --branch v2.3 https://github.com/linux-test-project/lcov.git lcov-src
-          cd lcov-src
-          sudo make install PREFIX=/usr/local
-          lcov --version
+          sudo apt-get install -y lcov
 
       - name: Prepare multiformats specs
         shell: bash
@@ -62,6 +57,8 @@ jobs:
           test -f docs/multiformats-specs/unsigned-varint/README.md
 
       - name: Configure
+        env:
+          CC: gcc
         run: |
           cmake -S c-lean-libp2p -B c-lean-libp2p/build/coverage \
             -DCMAKE_BUILD_TYPE=Debug \
@@ -153,16 +150,11 @@ jobs:
         with:
           path: c-lean-libp2p
 
-      - name: Install 32-bit toolchain and lcov from source
+      - name: Install 32-bit toolchain and lcov
         run: |
           sudo dpkg --add-architecture i386
           sudo apt-get update
-          sudo apt-get install -y gcc-multilib g++-multilib git make perl
-          cd /tmp
-          git clone --depth 1 --branch v2.3 https://github.com/linux-test-project/lcov.git lcov-src
-          cd lcov-src
-          sudo make install PREFIX=/usr/local
-          lcov --version
+          sudo apt-get install -y gcc-multilib g++-multilib lcov
 
       - name: Prepare multiformats specs
         shell: bash
@@ -196,6 +188,8 @@ jobs:
           test -f docs/multiformats-specs/unsigned-varint/README.md
 
       - name: Configure (32-bit with coverage)
+        env:
+          CC: gcc
         run: |
           cmake -S c-lean-libp2p -B c-lean-libp2p/build/coverage-32 \
             -DCMAKE_BUILD_TYPE=Debug \
