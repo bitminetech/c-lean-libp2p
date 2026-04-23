@@ -19,6 +19,22 @@ enable_testing()
 
 get_filename_component(LIBP2P_REPO_ROOT "${PROJECT_SOURCE_DIR}/.." ABSOLUTE)
 
+set(BUILD_SHARED_LIBS OFF CACHE BOOL "" FORCE)
+set(SECP256K1_INSTALL OFF CACHE BOOL "" FORCE)
+set(SECP256K1_BUILD_BENCHMARK OFF CACHE BOOL "" FORCE)
+set(SECP256K1_BUILD_TESTS OFF CACHE BOOL "" FORCE)
+set(SECP256K1_BUILD_EXHAUSTIVE_TESTS OFF CACHE BOOL "" FORCE)
+set(SECP256K1_BUILD_CTIME_TESTS OFF CACHE BOOL "" FORCE)
+set(SECP256K1_BUILD_EXAMPLES OFF CACHE BOOL "" FORCE)
+set(SECP256K1_ENABLE_MODULE_ECDH OFF CACHE BOOL "" FORCE)
+set(SECP256K1_ENABLE_MODULE_RECOVERY OFF CACHE BOOL "" FORCE)
+set(SECP256K1_ENABLE_MODULE_EXTRAKEYS OFF CACHE BOOL "" FORCE)
+set(SECP256K1_ENABLE_MODULE_SCHNORRSIG OFF CACHE BOOL "" FORCE)
+set(SECP256K1_ENABLE_MODULE_MUSIG OFF CACHE BOOL "" FORCE)
+set(SECP256K1_ENABLE_MODULE_ELLSWIFT OFF CACHE BOOL "" FORCE)
+
+add_subdirectory(external/secp256k1)
+
 add_library(c_lean_libp2p_project_defaults INTERFACE)
 target_compile_features(c_lean_libp2p_project_defaults INTERFACE c_std_11)
 target_compile_options(
@@ -67,7 +83,8 @@ file(
 list(SORT LIBP2P_SOURCE_FILES)
 
 add_library(c_lean_libp2p STATIC ${LIBP2P_SOURCE_FILES})
-target_link_libraries(c_lean_libp2p PUBLIC c_lean_libp2p_project_defaults)
+target_link_libraries(c_lean_libp2p PUBLIC c_lean_libp2p_project_defaults secp256k1)
+target_include_directories(c_lean_libp2p PRIVATE "${PROJECT_SOURCE_DIR}/external/secp256k1/src")
 
 c_lean_libp2p_set_output_directories(c_lean_libp2p)
 
@@ -84,13 +101,7 @@ if(BUILD_TESTING)
         multiaddr
     )
 
-    function(c_lean_libp2p_add_multiformats_test suite_name module_name)
-        set(test_name "${suite_name}_${module_name}")
-        set(
-            test_source
-            "${PROJECT_SOURCE_DIR}/tests/${suite_name}/multiformats/${module_name}/test_${module_name}.c"
-        )
-
+    function(c_lean_libp2p_add_test test_name test_source)
         add_executable("${test_name}" "${test_source}")
         target_link_libraries(
             "${test_name}"
@@ -109,8 +120,28 @@ if(BUILD_TESTING)
         )
     endfunction()
 
+    function(c_lean_libp2p_add_multiformats_test suite_name module_name)
+        set(test_name "${suite_name}_${module_name}")
+        set(
+            test_source
+            "${PROJECT_SOURCE_DIR}/tests/${suite_name}/multiformats/${module_name}/test_${module_name}.c"
+        )
+
+        c_lean_libp2p_add_test("${test_name}" "${test_source}")
+    endfunction()
+
+    function(c_lean_libp2p_add_peer_id_test suite_name)
+        set(test_name "${suite_name}_peer_id")
+        set(test_source "${PROJECT_SOURCE_DIR}/tests/${suite_name}/peer_id/test_peer_id.c")
+
+        c_lean_libp2p_add_test("${test_name}" "${test_source}")
+    endfunction()
+
     foreach(module_name IN LISTS LIBP2P_MULTIFORMATS_MODULES)
         c_lean_libp2p_add_multiformats_test(unit "${module_name}")
         c_lean_libp2p_add_multiformats_test(spec "${module_name}")
     endforeach()
+
+    c_lean_libp2p_add_peer_id_test(unit)
+    c_lean_libp2p_add_peer_id_test(spec)
 endif()
