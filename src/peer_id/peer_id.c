@@ -20,6 +20,11 @@
 #include "secp256k1.h"
 #include "secp256k1_preallocated.h"
 
+#if defined(_MSC_VER)
+#pragma warning(push)
+#pragma warning(disable : 4146)
+#pragma warning(disable : 4244)
+#endif
 #if defined(__clang__) || defined(__GNUC__)
 #pragma GCC diagnostic push
 #pragma GCC diagnostic ignored "-Wunused-function"
@@ -28,6 +33,9 @@
 #include "hash_impl.h"
 #if defined(__clang__) || defined(__GNUC__)
 #pragma GCC diagnostic pop
+#endif
+#if defined(_MSC_VER)
+#pragma warning(pop)
 #endif
 
 #define LIBP2P_PEER_ID_PROTOBUF_KEY_TYPE_TAG            0x08U
