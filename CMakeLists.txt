@@ -35,6 +35,29 @@ set(SECP256K1_ENABLE_MODULE_ELLSWIFT OFF CACHE BOOL "" FORCE)
 
 add_subdirectory(external/secp256k1)
 
+set(LIBP2P_BUILD_TESTING "${BUILD_TESTING}")
+set(BUILD_TESTING OFF CACHE BOOL "Build third-party dependency tests" FORCE)
+set(BUILD_LIBSSL ON CACHE BOOL "Build AWS-LC libssl" FORCE)
+set(BUILD_TOOL OFF CACHE BOOL "Build AWS-LC command-line tool" FORCE)
+set(DISABLE_GO ON CACHE BOOL "Do not require Go when building AWS-LC" FORCE)
+set(DISABLE_PERL ON CACHE BOOL "Use generated AWS-LC assembly sources" FORCE)
+add_subdirectory(external/aws-lc)
+
+set(ENABLE_LIB_ONLY ON CACHE BOOL "Build only ngtcp2 libraries" FORCE)
+set(ENABLE_STATIC_LIB ON CACHE BOOL "Build ngtcp2 static libraries" FORCE)
+set(ENABLE_SHARED_LIB OFF CACHE BOOL "Do not build ngtcp2 shared libraries" FORCE)
+set(ENABLE_OPENSSL OFF CACHE BOOL "Do not build ngtcp2 OpenSSL backend" FORCE)
+set(ENABLE_BORINGSSL ON CACHE BOOL "Build ngtcp2 BoringSSL/AWS-LC backend" FORCE)
+set(ENABLE_GNUTLS OFF CACHE BOOL "Do not build ngtcp2 GnuTLS backend" FORCE)
+set(ENABLE_PICOTLS OFF CACHE BOOL "Do not build ngtcp2 picotls backend" FORCE)
+set(ENABLE_WOLFSSL OFF CACHE BOOL "Do not build ngtcp2 wolfSSL backend" FORCE)
+set(BORINGSSL_INCLUDE_DIR "${PROJECT_SOURCE_DIR}/external/aws-lc/include" CACHE PATH "AWS-LC include directory" FORCE)
+set(BORINGSSL_LIBRARIES ssl crypto CACHE STRING "AWS-LC libraries for ngtcp2" FORCE)
+set(HAVE_AWSLC TRUE CACHE BOOL "AWS-LC is provided by the aws-lc submodule" FORCE)
+add_subdirectory(external/ngtcp2)
+
+set(BUILD_TESTING "${LIBP2P_BUILD_TESTING}" CACHE BOOL "Build c-lean-libp2p tests" FORCE)
+
 if(MSVC)
     target_compile_options(secp256k1 PRIVATE /WX-)
     target_compile_options(secp256k1_precomputed PRIVATE /WX-)
@@ -88,7 +111,16 @@ file(
 list(SORT LIBP2P_SOURCE_FILES)
 
 add_library(c_lean_libp2p STATIC ${LIBP2P_SOURCE_FILES})
-target_link_libraries(c_lean_libp2p PUBLIC c_lean_libp2p_project_defaults secp256k1)
+target_link_libraries(
+    c_lean_libp2p
+    PUBLIC
+        c_lean_libp2p_project_defaults
+        secp256k1
+        ngtcp2_static
+        ngtcp2_crypto_boringssl_static
+        ssl
+        crypto
+)
 target_include_directories(c_lean_libp2p PRIVATE "${PROJECT_SOURCE_DIR}/external/secp256k1/src")
 
 c_lean_libp2p_set_output_directories(c_lean_libp2p)
@@ -114,6 +146,12 @@ if(BUILD_TESTING)
                 c_lean_libp2p
                 c_lean_libp2p_project_defaults
         )
+        target_compile_options(
+            "${test_name}"
+            PRIVATE
+                $<$<AND:$<COMPILE_LANGUAGE:C>,$<C_COMPILER_ID:GNU,Clang,AppleClang>>:-UNDEBUG>
+        )
+        target_include_directories("${test_name}" PRIVATE "${PROJECT_SOURCE_DIR}/tests/support")
 
         c_lean_libp2p_set_output_directories("${test_name}")
 
@@ -142,6 +180,13 @@ if(BUILD_TESTING)
         c_lean_libp2p_add_test("${test_name}" "${test_source}")
     endfunction()
 
+    function(c_lean_libp2p_add_quic_test suite_name module_name)
+        set(test_name "${suite_name}_quic_${module_name}")
+        set(test_source "${PROJECT_SOURCE_DIR}/tests/${suite_name}/transport/quic/test_quic_${module_name}.c")
+
+        c_lean_libp2p_add_test("${test_name}" "${test_source}")
+    endfunction()
+
     foreach(module_name IN LISTS LIBP2P_MULTIFORMATS_MODULES)
         c_lean_libp2p_add_multiformats_test(unit "${module_name}")
         c_lean_libp2p_add_multiformats_test(spec "${module_name}")
@@ -149,4 +194,13 @@ if(BUILD_TESTING)
 
     c_lean_libp2p_add_peer_id_test(unit)
     c_lean_libp2p_add_peer_id_test(spec)
+
+    c_lean_libp2p_add_quic_test(unit addr)
+    c_lean_libp2p_add_quic_test(unit identity)
+    c_lean_libp2p_add_quic_test(unit endpoint)
+    c_lean_libp2p_add_quic_test(unit lifecycle)
+    c_lean_libp2p_add_quic_test(unit service)
+    c_lean_libp2p_add_quic_test(unit udp)
+    c_lean_libp2p_add_quic_test(spec transport)
+    c_lean_libp2p_add_quic_test(spec tls_vectors)
 endif()

@@ -1,3 +1,9 @@
 [submodule "external/secp256k1"]
 	path = external/secp256k1
 	url = https://github.com/bitcoin-core/secp256k1.git
+[submodule "external/ngtcp2"]
+	path = external/ngtcp2
+	url = https://github.com/ngtcp2/ngtcp2.git
+[submodule "external/aws-lc"]
+	path = external/aws-lc
+	url = https://github.com/aws/aws-lc.git
