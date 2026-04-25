@@ -149,7 +149,10 @@ typedef struct
  *
  * Return LIBP2P_QUIC_OK on success.
  */
-typedef libp2p_quic_err_t (*libp2p_quic_random_fn)(uint8_t *out, size_t out_len, void *user_data);
+typedef libp2p_quic_err_t (*libp2p_quic_random_fn_t)(
+    uint8_t *out,
+    size_t out_len,
+    void *user_data);
 
 /**
  * Wall-clock callback used for certificate validity checks.
@@ -158,20 +161,22 @@ typedef libp2p_quic_err_t (*libp2p_quic_random_fn)(uint8_t *out, size_t out_len,
  * validation needs Unix time separately so tests and embedded callers can keep
  * the two clocks explicit.
  */
-typedef libp2p_quic_err_t (*libp2p_quic_unix_time_fn)(uint64_t *out_unix_seconds, void *user_data);
+typedef libp2p_quic_err_t (*libp2p_quic_unix_time_fn_t)(
+    uint64_t *out_unix_seconds,
+    void *user_data);
 
 /** Allocator hooks used by the QUIC backend. NULL hooks select backend defaults. */
-typedef void *(*libp2p_quic_malloc_fn)(size_t size, void *user_data);
-typedef void *(*libp2p_quic_calloc_fn)(size_t nmemb, size_t size, void *user_data);
-typedef void *(*libp2p_quic_realloc_fn)(void *ptr, size_t size, void *user_data);
-typedef void (*libp2p_quic_free_fn)(void *ptr, void *user_data);
+typedef void *(*libp2p_quic_malloc_fn_t)(size_t size, void *user_data);
+typedef void *(*libp2p_quic_calloc_fn_t)(size_t nmemb, size_t size, void *user_data);
+typedef void *(*libp2p_quic_realloc_fn_t)(void *ptr, size_t size, void *user_data);
+typedef void (*libp2p_quic_free_fn_t)(void *ptr, void *user_data);
 
 typedef struct
 {
-    libp2p_quic_malloc_fn malloc_fn;
-    libp2p_quic_calloc_fn calloc_fn;
-    libp2p_quic_realloc_fn realloc_fn;
-    libp2p_quic_free_fn free_fn;
+    libp2p_quic_malloc_fn_t malloc_fn;
+    libp2p_quic_calloc_fn_t calloc_fn;
+    libp2p_quic_realloc_fn_t realloc_fn;
+    libp2p_quic_free_fn_t free_fn;
     void *user_data;
 } libp2p_quic_allocator_t;
 

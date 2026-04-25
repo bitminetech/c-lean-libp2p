@@ -96,7 +96,7 @@ typedef struct
     libp2p_quic_certificate_key_type_t certificate_key_type;
     uint64_t not_before_unix_seconds;
     uint64_t not_after_unix_seconds;
-    libp2p_quic_random_fn random_fn;
+    libp2p_quic_random_fn_t random_fn;
     void *random_user_data;
 } libp2p_quic_certificate_config_t;
 

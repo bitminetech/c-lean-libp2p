@@ -35,9 +35,9 @@ typedef struct
     libp2p_quic_role_t role;
     libp2p_quic_local_identity_t identity;
     libp2p_quic_allocator_t allocator;
-    libp2p_quic_random_fn random_fn;
+    libp2p_quic_random_fn_t random_fn;
     void *random_user_data;
-    libp2p_quic_unix_time_fn unix_time_fn;
+    libp2p_quic_unix_time_fn_t unix_time_fn;
     void *unix_time_user_data;
     size_t max_connections;
     size_t max_incoming_connections;
