@@ -169,6 +169,7 @@ jobs:
             --suppress=missingIncludeSystem \
             --error-exitcode=1 \
             -i c-lean-libp2p/external \
+            -i c-lean-libp2p/build-analysis/external \
             -i c-lean-libp2p/tests \
             -i c-lean-libp2p/bench \
             -i c-lean-libp2p/fuzz \

@@ -91,6 +91,7 @@ jobs:
                   entry["file"]
                   for entry in database
                   if entry["file"].endswith(".c")
+                  and "/external/" not in entry["file"]
                   and "/tests/" not in entry["file"]
                   and "/bench/" not in entry["file"]
                   and "/fuzz/" not in entry["file"]

@@ -27,6 +27,7 @@ set(CMAKE_C_STANDARD_REQUIRED ON)
 set(CMAKE_C_EXTENSIONS OFF)
 
 option(BUILD_TESTING "Build c-lean-libp2p tests" ON)
+option(LIBP2P_ENABLE_GCC_ANALYZER "Enable GCC -fanalyzer for c-lean-libp2p project sources" OFF)
 
 enable_testing()
 
@@ -180,6 +181,20 @@ target_include_directories(
 )
 
 c_lean_libp2p_set_output_directories(c_lean_libp2p)
+
+if(LIBP2P_ENABLE_GCC_ANALYZER)
+    if(NOT CMAKE_C_COMPILER_ID STREQUAL "GNU")
+        message(FATAL_ERROR "LIBP2P_ENABLE_GCC_ANALYZER requires GCC")
+    endif()
+
+    target_compile_options(
+        c_lean_libp2p
+        PRIVATE
+            -fanalyzer
+            -fanalyzer-transitivity
+            -Wno-analyzer-too-complex
+    )
+endif()
 
 # ---------------------------------------------------------------------------
 # Tests

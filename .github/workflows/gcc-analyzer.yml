@@ -26,7 +26,7 @@ jobs:
         run: |
           cmake -S c-lean-libp2p -B c-lean-libp2p/build/gcc-analyzer \
             -DCMAKE_BUILD_TYPE=Debug \
-            -DCMAKE_C_FLAGS='-fanalyzer -Werror=analyzer-too-complex -fanalyzer-transitivity'
+            -DLIBP2P_ENABLE_GCC_ANALYZER=ON
 
       - name: Build with -fanalyzer
         run: cmake --build c-lean-libp2p/build/gcc-analyzer --parallel 2>&1 | tee gcc-analyzer-report.txt
