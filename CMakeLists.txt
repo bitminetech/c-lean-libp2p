@@ -7,6 +7,19 @@ if(NOT DEFINED CMAKE_C_COMPILER AND "$ENV{CC}" STREQUAL "")
     endif()
 endif()
 
+if(NOT DEFINED CMAKE_CXX_COMPILER AND "$ENV{CXX}" STREQUAL "")
+    set(LIBP2P_SELECTED_C_COMPILER "${CMAKE_C_COMPILER}")
+    if((LIBP2P_SELECTED_C_COMPILER STREQUAL "") AND (NOT "$ENV{CC}" STREQUAL ""))
+        set(LIBP2P_SELECTED_C_COMPILER "$ENV{CC}")
+    endif()
+    if(LIBP2P_SELECTED_C_COMPILER MATCHES "(^|[/\\\\])clang(-[0-9.]+)?$")
+        find_program(LIBP2P_DEFAULT_CLANGXX clang++)
+        if(LIBP2P_DEFAULT_CLANGXX)
+            set(CMAKE_CXX_COMPILER "${LIBP2P_DEFAULT_CLANGXX}" CACHE FILEPATH "Default C++ compiler")
+        endif()
+    endif()
+endif()
+
 project(c_lean_libp2p LANGUAGES C)
 
 set(CMAKE_C_STANDARD 11)
@@ -18,6 +31,33 @@ option(BUILD_TESTING "Build c-lean-libp2p tests" ON)
 enable_testing()
 
 get_filename_component(LIBP2P_REPO_ROOT "${PROJECT_SOURCE_DIR}/.." ABSOLUTE)
+
+macro(c_lean_libp2p_mirror_c_flag_to_cxx flag)
+    string(FIND " ${CMAKE_C_FLAGS} " " ${flag} " _libp2p_c_flag_pos)
+    string(FIND " ${CMAKE_CXX_FLAGS} " " ${flag} " _libp2p_cxx_flag_pos)
+    if((NOT _libp2p_c_flag_pos EQUAL -1) AND (_libp2p_cxx_flag_pos EQUAL -1))
+        string(APPEND CMAKE_CXX_FLAGS " ${flag}")
+    endif()
+endmacro()
+
+foreach(_libp2p_abi_c_flag IN ITEMS
+    -m32
+    --coverage
+    -fno-omit-frame-pointer
+    -fsanitize=address
+    -fsanitize=undefined
+    -fsanitize=address,undefined
+    -fsanitize=memory
+    -fsanitize-memory-track-origins
+    -fsanitize=thread
+)
+    c_lean_libp2p_mirror_c_flag_to_cxx("${_libp2p_abi_c_flag}")
+endforeach()
+
+if(CMAKE_SYSTEM_NAME STREQUAL "Linux")
+    set(THREADS_PREFER_PTHREAD_FLAG TRUE CACHE BOOL "Prefer -pthread for dependency probes" FORCE)
+    set(THREADS_HAVE_PTHREAD_ARG TRUE CACHE BOOL "Linux toolchains support -pthread" FORCE)
+endif()
 
 set(BUILD_SHARED_LIBS OFF CACHE BOOL "" FORCE)
 set(SECP256K1_INSTALL OFF CACHE BOOL "" FORCE)
@@ -41,6 +81,9 @@ set(BUILD_LIBSSL ON CACHE BOOL "Build AWS-LC libssl" FORCE)
 set(BUILD_TOOL OFF CACHE BOOL "Build AWS-LC command-line tool" FORCE)
 set(DISABLE_GO ON CACHE BOOL "Do not require Go when building AWS-LC" FORCE)
 set(DISABLE_PERL ON CACHE BOOL "Use generated AWS-LC assembly sources" FORCE)
+if(CMAKE_SIZEOF_VOID_P EQUAL 4)
+    set(OPENSSL_NO_ASM ON CACHE BOOL "Use AWS-LC portable code for 32-bit builds" FORCE)
+endif()
 add_subdirectory(external/aws-lc)
 
 set(ENABLE_LIB_ONLY ON CACHE BOOL "Build only ngtcp2 libraries" FORCE)
@@ -120,8 +163,21 @@ target_link_libraries(
         ngtcp2_crypto_boringssl_static
         ssl
         crypto
+        $<$<PLATFORM_ID:Windows>:ws2_32>
 )
 target_include_directories(c_lean_libp2p PRIVATE "${PROJECT_SOURCE_DIR}/external/secp256k1/src")
+target_include_directories(
+    c_lean_libp2p
+    SYSTEM
+    PRIVATE
+        "${PROJECT_SOURCE_DIR}/external/secp256k1/include"
+        "${PROJECT_SOURCE_DIR}/external/ngtcp2/lib/includes"
+        "${PROJECT_BINARY_DIR}/external/ngtcp2/lib/includes"
+        "${PROJECT_SOURCE_DIR}/external/ngtcp2/crypto/includes"
+        "${PROJECT_BINARY_DIR}/external/ngtcp2/crypto/includes"
+        "${PROJECT_SOURCE_DIR}/external/aws-lc/include"
+        "${PROJECT_BINARY_DIR}/external/aws-lc/symbol_prefix_include"
+)
 
 c_lean_libp2p_set_output_directories(c_lean_libp2p)
 

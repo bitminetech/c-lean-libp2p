@@ -250,14 +250,14 @@ static void quic_service_test_runtime_driver_and_stream_api(void)
     size_t accepted = 0U;
     size_t read_len = 0U;
     uint32_t interest = 0U;
-    int fd = -1;
+    libp2p_quic_udp_fd_t fd = LIBP2P_QUIC_UDP_INVALID_FD;
     int fin = 0;
     size_t round = 0U;
 
     quic_service_fixture_init(&fixture);
 
     assert(libp2p_quic_service_fd(fixture.client, &fd) == LIBP2P_QUIC_OK);
-    assert(fd >= 0);
+    assert(fd != LIBP2P_QUIC_UDP_INVALID_FD);
     assert(libp2p_quic_service_io_interest(fixture.client, &interest) == LIBP2P_QUIC_OK);
     assert((interest & LIBP2P_QUIC_SERVICE_INTEREST_READ) != 0U);
     assert((interest & LIBP2P_QUIC_SERVICE_INTEREST_WRITE) == 0U);

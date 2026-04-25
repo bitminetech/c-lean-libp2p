@@ -3,9 +3,19 @@
  * @brief ngtcp2 + AWS-LC backend for libp2p QUIC v1.
  */
 
+#if defined(_WIN32)
+#ifndef WIN32_LEAN_AND_MEAN
+#define WIN32_LEAN_AND_MEAN
+#endif
+#include <winsock2.h>
+#include <ws2tcpip.h>
+#else
 #include <arpa/inet.h>
-#include <limits.h>
 #include <netinet/in.h>
+#include <sys/socket.h>
+#endif
+
+#include <limits.h>
 #include <ngtcp2/ngtcp2.h>
 #include <ngtcp2/ngtcp2_crypto.h>
 #include <ngtcp2/ngtcp2_crypto_boringssl.h>
@@ -17,7 +27,6 @@
 #include <stdint.h>
 #include <stdlib.h>
 #include <string.h>
-#include <sys/socket.h>
 
 #include "transport/quic/quic_backend.h"
 
@@ -504,7 +513,7 @@ static int quic_backend_alpn_select_cb(
 
 static ngtcp2_conn *quic_backend_crypto_get_conn(ngtcp2_crypto_conn_ref *conn_ref)
 {
-    libp2p_quic_conn_t *conn = NULL;
+    const libp2p_quic_conn_t *conn = NULL;
 
     if ((conn_ref == NULL) || (conn_ref->user_data == NULL))
     {
@@ -818,10 +827,6 @@ static libp2p_quic_err_t quic_backend_stream_vec_push(
     libp2p_quic_conn_t *conn,
     libp2p_quic_stream_t *stream)
 {
-    size_t new_cap = 0U;
-    size_t new_bytes = 0U;
-    libp2p_quic_stream_t **new_items = NULL;
-
     if ((conn == NULL) || (stream == NULL))
     {
         return LIBP2P_QUIC_ERR_INVALID_ARG;
@@ -829,8 +834,12 @@ static libp2p_quic_err_t quic_backend_stream_vec_push(
 
     if (conn->streams.len == conn->streams.cap)
     {
-        new_cap = conn->streams.cap == 0U ? 8U : conn->streams.cap * 2U;
+        const size_t new_cap = conn->streams.cap == 0U ? 8U : conn->streams.cap * 2U;
+        size_t new_bytes = 0U;
+        libp2p_quic_stream_t **new_items = NULL;
+
         if ((new_cap < conn->streams.cap) ||
+            // NOLINTNEXTLINE(bugprone-sizeof-expression)
             (quic_backend_size_mul_overflow(new_cap, sizeof(*conn->streams.items), &new_bytes) !=
              0))
         {
@@ -838,7 +847,7 @@ static libp2p_quic_err_t quic_backend_stream_vec_push(
         }
 
         new_items = (libp2p_quic_stream_t **)
-            quic_backend_realloc(conn->endpoint, conn->streams.items, new_bytes);
+            quic_backend_realloc(conn->endpoint, (void *)conn->streams.items, new_bytes);
         if (new_items == NULL)
         {
             return LIBP2P_QUIC_ERR_NO_MEMORY;
@@ -1289,7 +1298,7 @@ static void quic_backend_conn_free(libp2p_quic_conn_t *conn)
     {
         quic_backend_stream_free(conn->streams.items[index]);
     }
-    quic_backend_free(endpoint, conn->streams.items);
+    quic_backend_free(endpoint, (void *)conn->streams.items);
     ngtcp2_conn_del(conn->ngconn);
     SSL_free(conn->ssl);
     conn->magic = 0U;
@@ -1651,7 +1660,7 @@ static libp2p_quic_err_t quic_backend_write_conn_datagram(
     ngtcp2_tstamp ts = quic_backend_time_to_ngtcp2(now_us);
     libp2p_quic_stream_t *stream = NULL;
     ngtcp2_vec vec;
-    ngtcp2_vec *vec_ptr = NULL;
+    const ngtcp2_vec *vec_ptr = NULL;
     size_t vec_count = 0U;
     uint32_t flags = NGTCP2_WRITE_STREAM_FLAG_NONE;
     int64_t stream_id = -1;
@@ -1855,6 +1864,7 @@ static libp2p_quic_err_t quic_backend_endpoint_init(
 
     if (quic_backend_size_mul_overflow(
             config->max_connections,
+            // NOLINTNEXTLINE(bugprone-sizeof-expression)
             sizeof(*endpoint->connections),
             &pointer_bytes) != 0)
     {
@@ -1874,6 +1884,7 @@ static libp2p_quic_err_t quic_backend_endpoint_init(
     }
 
     endpoint->connections = (libp2p_quic_conn_t **)
+        // NOLINTNEXTLINE(bugprone-sizeof-expression)
         quic_backend_calloc(endpoint, config->max_connections, sizeof(*endpoint->connections));
     endpoint->events =
         (libp2p_quic_event_t *)quic_backend_calloc(endpoint, event_cap, sizeof(*endpoint->events));
@@ -1911,7 +1922,7 @@ static libp2p_quic_err_t quic_backend_endpoint_init(
 fail:
     SSL_CTX_free(endpoint->client_ctx);
     SSL_CTX_free(endpoint->server_ctx);
-    quic_backend_free(endpoint, endpoint->connections);
+    quic_backend_free(endpoint, (void *)endpoint->connections);
     quic_backend_free(endpoint, endpoint->events);
     endpoint->magic = 0U;
     return result;
@@ -1932,7 +1943,7 @@ static void quic_backend_endpoint_deinit(libp2p_quic_endpoint_t *endpoint)
     }
     SSL_CTX_free(endpoint->client_ctx);
     SSL_CTX_free(endpoint->server_ctx);
-    quic_backend_free(endpoint, endpoint->connections);
+    quic_backend_free(endpoint, (void *)endpoint->connections);
     quic_backend_free(endpoint, endpoint->events);
     endpoint->magic = 0U;
 }
@@ -2134,7 +2145,6 @@ static libp2p_quic_err_t quic_backend_endpoint_poll(
     {
         libp2p_quic_conn_t *conn = endpoint->connections[index];
         ngtcp2_tstamp expiry = 0U;
-        int rv = 0;
 
         if ((conn == NULL) || (conn->state == LIBP2P_QUIC_CONN_CLOSED) ||
             (conn->state == LIBP2P_QUIC_CONN_DRAINED))
@@ -2145,7 +2155,7 @@ static libp2p_quic_err_t quic_backend_endpoint_poll(
         expiry = ngtcp2_conn_get_expiry2(conn->ngconn);
         if ((expiry != UINT64_MAX) && (expiry <= now))
         {
-            rv = ngtcp2_conn_handle_expiry(conn->ngconn, now);
+            const int rv = ngtcp2_conn_handle_expiry(conn->ngconn, now);
             if (rv != 0)
             {
                 result = quic_backend_handle_conn_error(conn, rv);
@@ -2475,7 +2485,6 @@ static libp2p_quic_err_t quic_backend_stream_read(
     int *fin)
 {
     size_t available = 0U;
-    size_t copied = 0U;
     libp2p_quic_err_t result = quic_backend_validate_stream(stream);
 
     if (read_len != NULL)
@@ -2498,7 +2507,7 @@ static libp2p_quic_err_t quic_backend_stream_read(
     available = stream->rx_len - stream->rx_read_offset;
     if (available != 0U)
     {
-        copied = available < out_len ? available : out_len;
+        const size_t copied = available < out_len ? available : out_len;
         if (copied != 0U)
         {
             (void)memcpy(out, &stream->rx_data[stream->rx_read_offset], copied);

@@ -436,7 +436,9 @@ static libp2p_quic_err_t quic_service_mark_conn_established(
     return LIBP2P_QUIC_OK;
 }
 
-static void quic_service_mark_conn_closed(libp2p_quic_service_t *service, libp2p_quic_conn_t *conn)
+static void quic_service_mark_conn_closed(
+    libp2p_quic_service_t *service,
+    const libp2p_quic_conn_t *conn)
 {
     quic_service_conn_entry_t *entry = quic_service_find_conn(service, conn);
 
@@ -588,11 +590,10 @@ static libp2p_quic_err_t quic_service_drive_rx(
     libp2p_quic_service_drive_result_t *result)
 {
     size_t index = 0U;
-    libp2p_quic_err_t err = LIBP2P_QUIC_OK;
 
     for (index = 0U; index < service->config.max_rx_datagrams_per_drive; index++)
     {
-        err = libp2p_quic_udp_socket_recv(
+        libp2p_quic_err_t err = libp2p_quic_udp_socket_recv(
             &service->socket,
             service->endpoint,
             service->rx_buffer,
@@ -621,11 +622,10 @@ static libp2p_quic_err_t quic_service_drive_tx(
     libp2p_quic_service_drive_result_t *result)
 {
     size_t index = 0U;
-    libp2p_quic_err_t err = LIBP2P_QUIC_OK;
 
     for (index = 0U; index < service->config.max_tx_datagrams_per_drive; index++)
     {
-        err = libp2p_quic_udp_socket_send(
+        libp2p_quic_err_t err = libp2p_quic_udp_socket_send(
             &service->socket,
             service->endpoint,
             service->tx_buffer,
@@ -818,10 +818,7 @@ libp2p_quic_err_t libp2p_quic_service_init(
 fail:
     libp2p_quic_udp_socket_close(&service->socket);
     libp2p_quic_endpoint_deinit(service->endpoint);
-    if (service != NULL)
-    {
-        service->magic = 0U;
-    }
+    service->magic = 0U;
     return result;
 }
 
@@ -838,7 +835,9 @@ void libp2p_quic_service_deinit(libp2p_quic_service_t *service)
     service->magic = 0U;
 }
 
-libp2p_quic_err_t libp2p_quic_service_fd(const libp2p_quic_service_t *service, int *out_fd)
+libp2p_quic_err_t libp2p_quic_service_fd(
+    const libp2p_quic_service_t *service,
+    libp2p_quic_udp_fd_t *out_fd)
 {
     libp2p_quic_err_t result = quic_service_validate(service);
 
@@ -1129,7 +1128,12 @@ libp2p_quic_err_t libp2p_quic_service_open_stream(
     {
         return result;
     }
-    return libp2p_quic_conn_open_bidi_stream(conn, out_stream);
+    result = libp2p_quic_conn_open_bidi_stream(conn, out_stream);
+    if (result == LIBP2P_QUIC_OK)
+    {
+        service->tx_pending = 1U;
+    }
+    return result;
 }
 
 libp2p_quic_err_t libp2p_quic_service_accept_stream(

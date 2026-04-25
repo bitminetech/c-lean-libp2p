@@ -67,10 +67,11 @@ static int quic_identity_add_overflow(size_t a, size_t b, size_t *out)
 static size_t quic_identity_der_length_size(size_t len)
 {
     size_t size = 1U;
-    size_t value = len;
 
     if (len >= 128U)
     {
+        size_t value = len;
+
         size = 1U;
         do
         {
@@ -111,8 +112,6 @@ static libp2p_quic_err_t quic_identity_der_write_length(
     size_t *written)
 {
     size_t required = quic_identity_der_length_size(len);
-    size_t index = 0U;
-    size_t shift = 0U;
 
     if (written != NULL)
     {
@@ -132,9 +131,9 @@ static libp2p_quic_err_t quic_identity_der_write_length(
         const size_t len_bytes = required - 1U;
 
         out[0] = (uint8_t)(QUIC_IDENTITY_DER_LONG_FORM_BIT | (uint8_t)len_bytes);
-        for (index = 0U; index < len_bytes; index++)
+        for (size_t index = 0U; index < len_bytes; index++)
         {
-            shift = (len_bytes - 1U - index) * 8U;
+            const size_t shift = (len_bytes - 1U - index) * 8U;
             out[index + 1U] = (uint8_t)(len >> shift);
         }
     }
@@ -1127,9 +1126,6 @@ libp2p_quic_err_t libp2p_quic_host_key_peer_id(
 
 libp2p_quic_err_t libp2p_quic_local_identity_validate(const libp2p_quic_local_identity_t *identity)
 {
-    char text[1];
-    size_t written = 0U;
-
     if (identity == NULL)
     {
         return LIBP2P_QUIC_ERR_INVALID_ARG;
@@ -1147,6 +1143,9 @@ libp2p_quic_err_t libp2p_quic_local_identity_validate(const libp2p_quic_local_id
     }
     if (identity->peer_id_len != 0U)
     {
+        char text[1];
+        size_t written = 0U;
+
         if ((identity->peer_id == NULL) || (identity->peer_id_len > LIBP2P_PEER_ID_MAX_BYTES))
         {
             return LIBP2P_QUIC_ERR_INVALID_ARG;
@@ -1314,6 +1313,7 @@ libp2p_quic_err_t libp2p_quic_identity_write_signing_payload(
     size_t *written)
 {
     size_t required = 0U;
+    size_t prefix_index = 0U;
     libp2p_quic_err_t result =
         libp2p_quic_identity_signing_payload_size(certificate_public_key_spki_der_len, &required);
 
@@ -1336,10 +1336,11 @@ libp2p_quic_err_t libp2p_quic_identity_write_signing_payload(
         return LIBP2P_QUIC_ERR_BUF_TOO_SMALL;
     }
 
-    (void)memcpy(
-        out,
-        LIBP2P_QUIC_TLS_HANDSHAKE_SIGNING_PREFIX,
-        LIBP2P_QUIC_TLS_HANDSHAKE_SIGNING_PREFIX_LEN);
+    for (prefix_index = 0U; prefix_index < LIBP2P_QUIC_TLS_HANDSHAKE_SIGNING_PREFIX_LEN;
+         prefix_index++)
+    {
+        out[prefix_index] = (uint8_t)LIBP2P_QUIC_TLS_HANDSHAKE_SIGNING_PREFIX[prefix_index];
+    }
     (void)memcpy(
         &out[LIBP2P_QUIC_TLS_HANDSHAKE_SIGNING_PREFIX_LEN],
         certificate_public_key_spki_der,

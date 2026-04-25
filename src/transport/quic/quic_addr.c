@@ -146,18 +146,21 @@ libp2p_quic_err_t libp2p_quic_addr_validate(const libp2p_quic_addr_t *addr)
             }
         }
     }
-    if ((result == LIBP2P_QUIC_OK) && (addr->has_peer_id != 0U) &&
-        (quic_addr_peer_id_is_valid(addr->peer_id, addr->peer_id_len) != LIBP2P_QUIC_OK))
+    if (result == LIBP2P_QUIC_OK)
     {
-        result = LIBP2P_QUIC_ERR_ADDR;
-    }
-    else if ((addr->has_peer_id == 0U) && (addr->peer_id_len != 0U))
-    {
-        result = LIBP2P_QUIC_ERR_ADDR;
-    }
-    else
-    {
-        /* Valid. */
+        if ((addr->has_peer_id != 0U) &&
+            (quic_addr_peer_id_is_valid(addr->peer_id, addr->peer_id_len) != LIBP2P_QUIC_OK))
+        {
+            result = LIBP2P_QUIC_ERR_ADDR;
+        }
+        else if ((addr->has_peer_id == 0U) && (addr->peer_id_len != 0U))
+        {
+            result = LIBP2P_QUIC_ERR_ADDR;
+        }
+        else
+        {
+            /* Valid. */
+        }
     }
 
     return result;

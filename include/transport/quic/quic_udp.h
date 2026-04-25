@@ -1,10 +1,10 @@
 /**
  * @file quic_udp.h
- * @brief POSIX UDP socket adapter for the packet-driven QUIC endpoint API.
+ * @brief UDP socket adapter for the packet-driven QUIC endpoint API.
  *
  * The core QUIC endpoint remains event-loop agnostic: callers may still feed
  * and drain UDP datagrams manually. This adapter provides a small production
- * bridge for POSIX sockets without exposing ngtcp2 or AWS-LC details.
+ * bridge for OS sockets without exposing ngtcp2 or AWS-LC details.
  */
 
 #ifndef LIBP2P_QUIC_UDP_H
@@ -15,12 +15,14 @@
 
 #include "transport/quic/quic.h"
 
-#define LIBP2P_QUIC_UDP_INVALID_FD (-1)
+typedef uintptr_t libp2p_quic_udp_fd_t;
+
+#define LIBP2P_QUIC_UDP_INVALID_FD ((libp2p_quic_udp_fd_t)UINTPTR_MAX)
 
 /** Caller-owned UDP socket wrapper. */
 typedef struct
 {
-    int fd;
+    libp2p_quic_udp_fd_t fd;
     libp2p_quic_addr_t local_addr;
     uint8_t open;
     uint8_t nonblocking;
@@ -48,9 +50,11 @@ libp2p_quic_err_t libp2p_quic_udp_socket_open(
 void libp2p_quic_udp_socket_close(libp2p_quic_udp_socket_t *socket);
 
 /**
- * Return the underlying file descriptor for integration with poll/kqueue/epoll.
+ * Return the underlying OS socket handle for event-loop integration.
  */
-libp2p_quic_err_t libp2p_quic_udp_socket_fd(const libp2p_quic_udp_socket_t *socket, int *out_fd);
+libp2p_quic_err_t libp2p_quic_udp_socket_fd(
+    const libp2p_quic_udp_socket_t *socket,
+    libp2p_quic_udp_fd_t *out_fd);
 
 /**
  * Return the bound local address.
@@ -66,7 +70,7 @@ libp2p_quic_err_t libp2p_quic_udp_socket_local_addr(
  * LIBP2P_QUIC_ERR_WOULD_BLOCK when no datagram is available.
  */
 libp2p_quic_err_t libp2p_quic_udp_socket_recv(
-    libp2p_quic_udp_socket_t *socket,
+    const libp2p_quic_udp_socket_t *socket,
     libp2p_quic_endpoint_t *endpoint,
     uint8_t *buffer,
     size_t buffer_len,

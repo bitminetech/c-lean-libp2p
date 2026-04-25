@@ -18,6 +18,7 @@
 #include <stdint.h>
 
 #include "transport/quic/quic.h"
+#include "transport/quic/quic_udp.h"
 
 typedef struct libp2p_quic_service libp2p_quic_service_t;
 
@@ -129,9 +130,11 @@ libp2p_quic_err_t libp2p_quic_service_init(
 void libp2p_quic_service_deinit(libp2p_quic_service_t *service);
 
 /**
- * Return the UDP file descriptor owned by the service.
+ * Return the UDP socket handle owned by the service.
  */
-libp2p_quic_err_t libp2p_quic_service_fd(const libp2p_quic_service_t *service, int *out_fd);
+libp2p_quic_err_t libp2p_quic_service_fd(
+    const libp2p_quic_service_t *service,
+    libp2p_quic_udp_fd_t *out_fd);
 
 /**
  * Return the bound local QUIC UDP address.
