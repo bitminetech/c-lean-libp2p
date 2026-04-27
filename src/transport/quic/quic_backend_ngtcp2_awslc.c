@@ -2176,6 +2176,8 @@ static libp2p_quic_err_t quic_backend_endpoint_init(
     size_t event_bytes = 0U;
     libp2p_quic_err_t result = LIBP2P_QUIC_OK;
 
+    (void)memset(&allocator, 0, sizeof(allocator));
+
     if (out_endpoint == NULL)
     {
         result = LIBP2P_QUIC_ERR_INVALID_ARG;
