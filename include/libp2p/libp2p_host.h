@@ -49,7 +49,7 @@
  * Lower values reduce one host's event-loop latency impact. Higher values
  * drain bursts faster when many streams are negotiating at once.
  */
-#define LIBP2P_HOST_DEFAULT_MAX_NEGOTIATIONS_PER_DRIVE 32U
+#define LIBP2P_HOST_DEFAULT_MAX_NEGOTIATION_STEPS_PER_DRIVE 32U
 
 /** Opaque host object stored in caller-provided memory. */
 typedef struct libp2p_host libp2p_host_t;
@@ -335,14 +335,14 @@ typedef struct
     size_t max_pending_dials;
     size_t max_pending_stream_opens;
     size_t event_capacity;
-    size_t max_negotiations_per_drive;
+    size_t max_negotiation_steps_per_drive;
 } libp2p_host_config_t;
 
 /** Drive result counters for observability, fairness, and deterministic tests. */
 typedef struct
 {
     size_t transport_events;
-    size_t negotiations;
+    size_t negotiation_steps;
     size_t protocol_events;
     size_t host_events;
     uint8_t made_progress;
@@ -474,8 +474,8 @@ libp2p_host_err_t libp2p_host_next_deadline(
     libp2p_host_time_us_t *out_deadline_us);
 
 /**
- * Drive transport I/O, timers, negotiations, protocol step functions, and
- * graceful shutdown.
+ * Drive transport I/O, timers, multistream-select negotiation steps, protocol
+ * step functions, and graceful shutdown.
  *
  * READY_APP should be used after local operations such as dial, open_stream,
  * write, reset, finish, close, or protocol registration before start.
