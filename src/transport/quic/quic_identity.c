@@ -193,8 +193,6 @@ static libp2p_quic_err_t quic_identity_der_read_length(
     size_t *value_len,
     size_t *consumed)
 {
-    size_t len_bytes = 0U;
-    size_t index = 0U;
     size_t parsed = 0U;
     libp2p_quic_err_t result = LIBP2P_QUIC_OK;
 
@@ -209,7 +207,7 @@ static libp2p_quic_err_t quic_identity_der_read_length(
     }
     else
     {
-        len_bytes = (size_t)(in[0] & 0x7fU);
+        const size_t len_bytes = (size_t)(in[0] & 0x7fU);
         if ((len_bytes == 0U) || (len_bytes > sizeof(size_t)) || ((1U + len_bytes) > in_len))
         {
             result = LIBP2P_QUIC_ERR_CERTIFICATE_EXTENSION;
@@ -220,7 +218,7 @@ static libp2p_quic_err_t quic_identity_der_read_length(
         }
         else
         {
-            for (index = 0U; index < len_bytes; index++)
+            for (size_t index = 0U; index < len_bytes; index++)
             {
                 parsed = (parsed << 8U) | ((size_t)in[1U + index]);
             }
@@ -385,7 +383,6 @@ static libp2p_quic_err_t quic_identity_pkey_spki_der(
     size_t *out_len)
 {
     uint8_t *cursor = out;
-    int len = 0;
     libp2p_quic_err_t result = LIBP2P_QUIC_OK;
 
     if ((pkey == NULL) || (out == NULL) || (out_len == NULL))
@@ -394,7 +391,7 @@ static libp2p_quic_err_t quic_identity_pkey_spki_der(
     }
     else
     {
-        len = i2d_PUBKEY(pkey, NULL);
+        const int len = i2d_PUBKEY(pkey, NULL);
         if (len <= 0)
         {
             result = LIBP2P_QUIC_ERR_CERTIFICATE;
@@ -639,7 +636,6 @@ static libp2p_quic_err_t quic_identity_signed_key_for_certificate(
     uint8_t signature[LIBP2P_PEER_ID_SECP256K1_SIGNATURE_MAX_BYTES];
     size_t payload_len = 0U;
     size_t signature_len = 0U;
-    libp2p_peer_id_err_t peer_err = LIBP2P_PEER_ID_OK;
     libp2p_quic_err_t result = LIBP2P_QUIC_OK;
 
     if ((host_key == NULL) || (certificate_key == NULL) || (signed_key_der == NULL) ||
@@ -652,7 +648,7 @@ static libp2p_quic_err_t quic_identity_signed_key_for_certificate(
         result = quic_identity_write_pkey_signing_payload(certificate_key, payload, &payload_len);
         if (result == LIBP2P_QUIC_OK)
         {
-            peer_err = libp2p_peer_id_sign_message(
+            const libp2p_peer_id_err_t peer_err = libp2p_peer_id_sign_message(
                 host_key->private_key,
                 host_key->private_key_len,
                 payload,
@@ -692,8 +688,6 @@ static libp2p_quic_err_t quic_identity_write_der_outputs(
 {
     uint8_t *cert_cursor = cert_out;
     uint8_t *key_cursor = key_out;
-    int cert_len = 0;
-    int key_len = 0;
     libp2p_quic_err_t result = LIBP2P_QUIC_OK;
 
     if ((cert == NULL) || (key == NULL) || (cert_written == NULL) || (key_written == NULL))
@@ -702,8 +696,8 @@ static libp2p_quic_err_t quic_identity_write_der_outputs(
     }
     else
     {
-        cert_len = i2d_X509(cert, NULL);
-        key_len = i2d_PrivateKey(key, NULL);
+        const int cert_len = i2d_X509(cert, NULL);
+        const int key_len = i2d_PrivateKey(key, NULL);
         if ((cert_len <= 0) || (key_len <= 0))
         {
             result = LIBP2P_QUIC_ERR_TLS;
@@ -780,12 +774,6 @@ static libp2p_quic_err_t quic_identity_extract_extension(
     libp2p_quic_certificate_report_t *report)
 {
     ASN1_OBJECT *libp2p_oid = NULL;
-    const uint8_t *extension_data = NULL;
-    size_t extension_data_len = 0U;
-    int extension_count = 0;
-    int index = 0;
-    int found_count = 0;
-    int failed = 0;
     libp2p_quic_err_t result = LIBP2P_QUIC_ERR_CERTIFICATE_EXTENSION;
 
     if ((cert == NULL) || (out_signed_key_der == NULL) || (out_signed_key_der_len == NULL))
@@ -801,7 +789,12 @@ static libp2p_quic_err_t quic_identity_extract_extension(
         }
         else
         {
-            extension_count = X509_get_ext_count(cert);
+            const uint8_t *extension_data = NULL;
+            size_t extension_data_len = 0U;
+            const int extension_count = X509_get_ext_count(cert);
+            int found_count = 0;
+            int failed = 0;
+
             if (extension_count < 0)
             {
                 failed = 1;
@@ -812,12 +805,11 @@ static libp2p_quic_err_t quic_identity_extract_extension(
                 failed = 1;
             }
 
-            for (index = 0; (index < extension_count) && (failed == 0); index++)
+            for (int index = 0; (index < extension_count) && (failed == 0); index++)
             {
                 X509_EXTENSION *extension = X509_get_ext(cert, index);
                 ASN1_OBJECT *object = NULL;
                 ASN1_OCTET_STRING *data = NULL;
-                int is_critical = 0;
 
                 if (extension == NULL)
                 {
@@ -825,7 +817,7 @@ static libp2p_quic_err_t quic_identity_extract_extension(
                 }
                 else
                 {
-                    is_critical = X509_EXTENSION_get_critical(extension);
+                    const int is_critical = X509_EXTENSION_get_critical(extension);
                     object = X509_EXTENSION_get_object(extension);
                     if (OBJ_cmp(object, libp2p_oid) == 0)
                     {
@@ -875,10 +867,6 @@ static libp2p_quic_err_t quic_identity_extract_extension(
                 *out_signed_key_der_len = extension_data_len;
                 result = LIBP2P_QUIC_OK;
             }
-            else if (result == LIBP2P_QUIC_ERR_TLS)
-            {
-                result = LIBP2P_QUIC_ERR_TLS;
-            }
             else
             {
                 result = LIBP2P_QUIC_ERR_CERTIFICATE_EXTENSION;
@@ -910,7 +898,6 @@ static libp2p_quic_err_t quic_identity_verify_signed_key(
     size_t raw_public_key_len = 0U;
     size_t peer_id_len = 0U;
     size_t payload_len = 0U;
-    libp2p_peer_id_err_t peer_err = LIBP2P_PEER_ID_OK;
     libp2p_quic_err_t result = LIBP2P_QUIC_OK;
 
     if ((certificate_key == NULL) || (signed_key_der == NULL) || (signed_key_der_len == 0U))
@@ -942,7 +929,7 @@ static libp2p_quic_err_t quic_identity_verify_signed_key(
         }
         if (result == LIBP2P_QUIC_OK)
         {
-            peer_err = libp2p_peer_id_verify_message(
+            const libp2p_peer_id_err_t peer_err = libp2p_peer_id_verify_message(
                 raw_public_key,
                 raw_public_key_len,
                 payload,
@@ -956,7 +943,7 @@ static libp2p_quic_err_t quic_identity_verify_signed_key(
         }
         if (result == LIBP2P_QUIC_OK)
         {
-            peer_err = libp2p_peer_id_from_secp256k1_public_key(
+            const libp2p_peer_id_err_t peer_err = libp2p_peer_id_from_secp256k1_public_key(
                 raw_public_key,
                 raw_public_key_len,
                 peer_id,
@@ -1013,7 +1000,6 @@ static libp2p_quic_err_t quic_identity_verify_peer_certificate_internal(
     uint64_t not_after = 0U;
     const ASN1_BIT_STRING *issuer_uid = NULL;
     const ASN1_BIT_STRING *subject_uid = NULL;
-    int time_status = 0;
     libp2p_quic_err_t result = LIBP2P_QUIC_OK;
 
     if (report != NULL)
@@ -1081,7 +1067,7 @@ static libp2p_quic_err_t quic_identity_verify_peer_certificate_internal(
 
     if (result == LIBP2P_QUIC_OK)
     {
-        time_status =
+        const int time_status =
             quic_identity_cert_time_status(cert, current_unix_seconds, &not_before, &not_after);
         if ((time_status < 0) || ((check_time != 0) && (time_status == 0)))
         {
@@ -1120,7 +1106,6 @@ libp2p_quic_err_t libp2p_quic_host_key_validate(const libp2p_quic_host_key_t *ho
                                                  '-', 'h', 'o', 's', 't', '-', 'k', 'e', 'y'};
     size_t raw_public_key_len = 0U;
     size_t signature_len = 0U;
-    libp2p_peer_id_err_t peer_err = LIBP2P_PEER_ID_OK;
     libp2p_quic_err_t result = LIBP2P_QUIC_OK;
 
     if (host_key == NULL)
@@ -1149,7 +1134,7 @@ libp2p_quic_err_t libp2p_quic_host_key_validate(const libp2p_quic_host_key_t *ho
             &raw_public_key_len);
         if (result == LIBP2P_QUIC_OK)
         {
-            peer_err = libp2p_peer_id_sign_message(
+            const libp2p_peer_id_err_t peer_err = libp2p_peer_id_sign_message(
                 host_key->private_key,
                 host_key->private_key_len,
                 validation_message,
@@ -1161,7 +1146,7 @@ libp2p_quic_err_t libp2p_quic_host_key_validate(const libp2p_quic_host_key_t *ho
         }
         if (result == LIBP2P_QUIC_OK)
         {
-            peer_err = libp2p_peer_id_verify_message(
+            const libp2p_peer_id_err_t peer_err = libp2p_peer_id_verify_message(
                 raw_public_key,
                 raw_public_key_len,
                 validation_message,
@@ -1428,7 +1413,6 @@ libp2p_quic_err_t libp2p_quic_identity_write_signing_payload(
     size_t *written)
 {
     size_t required = 0U;
-    size_t prefix_index = 0U;
     libp2p_quic_err_t result =
         libp2p_quic_identity_signing_payload_size(certificate_public_key_spki_der_len, &required);
 
@@ -1450,7 +1434,8 @@ libp2p_quic_err_t libp2p_quic_identity_write_signing_payload(
 
     if (result == LIBP2P_QUIC_OK)
     {
-        for (prefix_index = 0U; prefix_index < LIBP2P_QUIC_TLS_HANDSHAKE_SIGNING_PREFIX_LEN;
+        for (size_t prefix_index = 0U;
+             prefix_index < LIBP2P_QUIC_TLS_HANDSHAKE_SIGNING_PREFIX_LEN;
              prefix_index++)
         {
             out[prefix_index] = (uint8_t)LIBP2P_QUIC_TLS_HANDSHAKE_SIGNING_PREFIX[prefix_index];

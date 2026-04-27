@@ -310,7 +310,6 @@ libp2p_quic_err_t libp2p_quic_addr_to_multiaddr(
     size_t *written)
 {
     size_t pos = 0U;
-    uint8_t port_value[2] = {0U, 0U};
     int too_small = 0;
     libp2p_quic_err_t result = LIBP2P_QUIC_OK;
 
@@ -342,6 +341,8 @@ libp2p_quic_err_t libp2p_quic_addr_to_multiaddr(
 
     if (result == LIBP2P_QUIC_OK)
     {
+        uint8_t port_value[2];
+
         port_value[0] = (uint8_t)(addr->port >> 8U);
         port_value[1] = (uint8_t)(addr->port & 0xffU);
         result = quic_addr_append_component(
@@ -376,7 +377,10 @@ libp2p_quic_err_t libp2p_quic_addr_to_multiaddr(
             &too_small);
     }
 
-    *written = pos;
+    if (written != NULL)
+    {
+        *written = pos;
+    }
     if ((result == LIBP2P_QUIC_OK) && (too_small != 0))
     {
         result = LIBP2P_QUIC_ERR_BUF_TOO_SMALL;

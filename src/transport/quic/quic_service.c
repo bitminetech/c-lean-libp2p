@@ -100,8 +100,6 @@ static int quic_service_size_mul_overflow(size_t a, size_t b, size_t *out)
 
 static libp2p_quic_err_t quic_service_align_up_size(size_t value, size_t alignment, size_t *out)
 {
-    size_t remainder = 0U;
-    size_t adjustment = 0U;
     libp2p_quic_err_t result = LIBP2P_QUIC_OK;
 
     if ((alignment == 0U) || (out == NULL))
@@ -110,14 +108,14 @@ static libp2p_quic_err_t quic_service_align_up_size(size_t value, size_t alignme
     }
     else
     {
-        remainder = value % alignment;
+        const size_t remainder = value % alignment;
         if (remainder == 0U)
         {
             *out = value;
         }
         else
         {
-            adjustment = alignment - remainder;
+            const size_t adjustment = alignment - remainder;
             if (adjustment > (SIZE_MAX - value))
             {
                 result = LIBP2P_QUIC_ERR_LIMIT;
@@ -137,7 +135,7 @@ static uint8_t *quic_service_storage_bytes(void *storage)
 {
     uint8_t *bytes = NULL;
 
-    (void)memcpy(&bytes, &storage, sizeof(bytes));
+    (void)memcpy((void *)&bytes, (const void *)&storage, sizeof storage);
 
     return bytes;
 }
@@ -146,7 +144,7 @@ static libp2p_quic_service_t *quic_service_storage_service(void *storage)
 {
     libp2p_quic_service_t *service = NULL;
 
-    (void)memcpy(&service, &storage, sizeof(service));
+    (void)memcpy((void *)&service, (const void *)&storage, sizeof storage);
 
     return service;
 }
@@ -155,7 +153,7 @@ static libp2p_quic_service_event_t *quic_service_storage_events(void *storage)
 {
     libp2p_quic_service_event_t *events = NULL;
 
-    (void)memcpy(&events, &storage, sizeof(events));
+    (void)memcpy((void *)&events, (const void *)&storage, sizeof storage);
 
     return events;
 }
@@ -164,7 +162,7 @@ static quic_service_conn_entry_t *quic_service_storage_conns(void *storage)
 {
     quic_service_conn_entry_t *conns = NULL;
 
-    (void)memcpy(&conns, &storage, sizeof(conns));
+    (void)memcpy((void *)&conns, (const void *)&storage, sizeof storage);
 
     return conns;
 }
@@ -406,8 +404,6 @@ static libp2p_quic_err_t quic_service_event_push(
     uint64_t app_error_code,
     uint64_t transport_error_code)
 {
-    size_t pos = 0U;
-    libp2p_quic_service_event_t event;
     libp2p_quic_err_t result = LIBP2P_QUIC_OK;
 
     if ((service == NULL) || (service->events == NULL) || (service->event_capacity == 0U))
@@ -420,13 +416,15 @@ static libp2p_quic_err_t quic_service_event_push(
     }
     else
     {
+        libp2p_quic_service_event_t event;
+
         event.type = type;
         event.conn = conn;
         event.stream = stream;
         event.app_error_code = app_error_code;
         event.transport_error_code = transport_error_code;
 
-        pos = (service->event_head + service->event_len) % service->event_capacity;
+        const size_t pos = (service->event_head + service->event_len) % service->event_capacity;
         service->events[pos] = event;
         service->event_len++;
     }
@@ -438,12 +436,11 @@ static quic_service_conn_entry_t *quic_service_find_conn(
     libp2p_quic_service_t *service,
     const libp2p_quic_conn_t *conn)
 {
-    size_t index = 0U;
     quic_service_conn_entry_t *result = NULL;
 
     if ((service != NULL) && (conn != NULL))
     {
-        for (index = 0U; index < service->conn_count; index++)
+        for (size_t index = 0U; index < service->conn_count; index++)
         {
             if (service->conns[index].conn == conn)
             {
@@ -649,7 +646,6 @@ static libp2p_quic_err_t quic_service_drain_endpoint_events(
 {
     libp2p_quic_event_t event;
     libp2p_quic_err_t err = LIBP2P_QUIC_OK;
-    uint8_t draining = 1U;
 
     if (service == NULL)
     {
@@ -657,6 +653,8 @@ static libp2p_quic_err_t quic_service_drain_endpoint_events(
     }
     else
     {
+        uint8_t draining = 1U;
+
         while ((err == LIBP2P_QUIC_OK) && (draining != 0U))
         {
             err = libp2p_quic_endpoint_next_event(service->endpoint, &event);
@@ -822,7 +820,6 @@ libp2p_quic_err_t libp2p_quic_service_storage_size(
 libp2p_quic_err_t libp2p_quic_service_storage_align(size_t *out_align)
 {
     size_t endpoint_align = 0U;
-    size_t align = QUIC_SERVICE_STORAGE_ALIGN;
     libp2p_quic_err_t result = LIBP2P_QUIC_OK;
 
     if (out_align == NULL)
@@ -834,6 +831,8 @@ libp2p_quic_err_t libp2p_quic_service_storage_align(size_t *out_align)
         result = libp2p_quic_endpoint_storage_align(&endpoint_align);
         if (result == LIBP2P_QUIC_OK)
         {
+            size_t align = QUIC_SERVICE_STORAGE_ALIGN;
+
             if (endpoint_align > align)
             {
                 align = endpoint_align;
@@ -861,6 +860,9 @@ libp2p_quic_err_t libp2p_quic_service_init(
     uint8_t *bytes = quic_service_storage_bytes(storage);
     libp2p_quic_addr_t bound_addr;
     libp2p_quic_err_t result = LIBP2P_QUIC_OK;
+
+    (void)memset(&layout, 0, sizeof(layout));
+    (void)memset(&bound_addr, 0, sizeof(bound_addr));
 
     if (out_service == NULL)
     {
@@ -1148,7 +1150,6 @@ libp2p_quic_err_t libp2p_quic_service_accept_conn(
     libp2p_quic_service_t *service,
     libp2p_quic_conn_t **out_conn)
 {
-    size_t index = 0U;
     libp2p_quic_err_t result = quic_service_validate(service);
 
     if (out_conn != NULL)
@@ -1164,7 +1165,7 @@ libp2p_quic_err_t libp2p_quic_service_accept_conn(
         else
         {
             result = LIBP2P_QUIC_ERR_WOULD_BLOCK;
-            for (index = 0U; index < service->conn_count; index++)
+            for (size_t index = 0U; index < service->conn_count; index++)
             {
                 quic_service_conn_entry_t *entry = &service->conns[index];
 
