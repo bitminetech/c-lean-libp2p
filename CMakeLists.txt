@@ -266,6 +266,13 @@ if(BUILD_TESTING)
         c_lean_libp2p_add_test("${test_name}" "${test_source}")
     endfunction()
 
+    function(c_lean_libp2p_add_host_test suite_name)
+        set(test_name "${suite_name}_libp2p_host")
+        set(test_source "${PROJECT_SOURCE_DIR}/tests/${suite_name}/libp2p/test_host.c")
+
+        c_lean_libp2p_add_test("${test_name}" "${test_source}")
+    endfunction()
+
     foreach(module_name IN LISTS LIBP2P_MULTIFORMATS_MODULES)
         c_lean_libp2p_add_multiformats_test(unit "${module_name}")
         c_lean_libp2p_add_multiformats_test(spec "${module_name}")
@@ -285,4 +292,7 @@ if(BUILD_TESTING)
     c_lean_libp2p_add_quic_test(unit udp)
     c_lean_libp2p_add_quic_test(spec transport)
     c_lean_libp2p_add_quic_test(spec tls_vectors)
+
+    c_lean_libp2p_add_host_test(unit)
+    c_lean_libp2p_add_host_test(spec)
 endif()
