@@ -273,6 +273,13 @@ if(BUILD_TESTING)
         c_lean_libp2p_add_test("${test_name}" "${test_source}")
     endfunction()
 
+    function(c_lean_libp2p_add_protocol_test suite_name protocol_name)
+        set(test_name "${suite_name}_${protocol_name}")
+        set(test_source "${PROJECT_SOURCE_DIR}/tests/${suite_name}/protocol/${protocol_name}/test_${protocol_name}.c")
+
+        c_lean_libp2p_add_test("${test_name}" "${test_source}")
+    endfunction()
+
     foreach(module_name IN LISTS LIBP2P_MULTIFORMATS_MODULES)
         c_lean_libp2p_add_multiformats_test(unit "${module_name}")
         c_lean_libp2p_add_multiformats_test(spec "${module_name}")
@@ -295,4 +302,9 @@ if(BUILD_TESTING)
 
     c_lean_libp2p_add_host_test(unit)
     c_lean_libp2p_add_host_test(spec)
+
+    c_lean_libp2p_add_protocol_test(unit identify)
+    c_lean_libp2p_add_protocol_test(spec identify)
+    c_lean_libp2p_add_protocol_test(unit ping)
+    c_lean_libp2p_add_protocol_test(spec ping)
 endif()
