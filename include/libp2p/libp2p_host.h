@@ -18,7 +18,6 @@
  *
  * Example: register one inbound protocol and run a simple drive loop.
  *
- * @code
  * static const uint8_t identify_id[] = "/ipfs/id/1.0.0";
  *
  * static libp2p_host_err_t identify_open(
@@ -85,11 +84,9 @@
  *         app_handle_host_event(host, &event);
  *     }
  * }
- * @endcode
  *
  * Example: dial a peer, open a protocol-owned stream, write, read, and close.
  *
- * @code
  * static const uint8_t ping_id[] = "/ipfs/ping/1.0.0";
  *
  * static libp2p_host_err_t ping_open(
@@ -180,11 +177,9 @@
  *         app_mark_peer_unreachable(event.user_data, event.reason);
  *     }
  * }
- * @endcode
  *
  * Example: compose two protocols on the same host.
  *
- * @code
  * static const uint8_t identify_id[] = "/ipfs/id/1.0.0";
  * static const uint8_t ping_id[] = "/ipfs/ping/1.0.0";
  * libp2p_host_protocol_t protocols[2];
@@ -206,11 +201,9 @@
  *     (void)libp2p_host_handle(host, &protocols[index]);
  * }
  * (void)libp2p_host_start(host);
- * @endcode
  *
  * Example: integrate the host into an external fd-based event loop.
  *
- * @code
  * libp2p_host_fd_t fd;
  * libp2p_host_interest_t interest;
  * libp2p_host_time_us_t deadline;
@@ -232,7 +225,6 @@
  *
  * ready = app_event_loop_wait(fd, deadline);
  * (void)libp2p_host_drive(host, app_now_us(), ready, NULL);
- * @endcode
  */
 
 #ifndef LIBP2P_HOST_H
