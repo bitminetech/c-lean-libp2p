@@ -284,6 +284,12 @@ typedef struct
 
     libp2p_host_err_t (*next_event)(void *transport, libp2p_host_transport_event_t *out_event);
 
+    libp2p_host_err_t (*listen_multiaddr)(
+        const void *transport,
+        uint8_t *out,
+        size_t out_len,
+        size_t *written);
+
     libp2p_host_err_t (*dial)(
         void *transport,
         const uint8_t *multiaddr,
@@ -295,6 +301,9 @@ typedef struct
 
     libp2p_host_err_t (
         *conn_peer_id)(const void *conn, uint8_t *out, size_t out_len, size_t *written);
+
+    libp2p_host_err_t (
+        *conn_remote_multiaddr)(const void *conn, uint8_t *out, size_t out_len, size_t *written);
 
     libp2p_host_err_t (*conn_peer_identity)(const void *conn, libp2p_host_peer_identity_t *out);
     libp2p_host_err_t (*conn_close)(void *transport, void *conn, uint64_t app_error_code);
@@ -494,6 +503,44 @@ libp2p_host_err_t libp2p_host_drive(
 libp2p_host_err_t libp2p_host_next_event(libp2p_host_t *host, libp2p_host_event_t *out_event);
 
 /**
+ * Return the host's resolved dialable listen multiaddr.
+ *
+ * The returned address is read from the bound transport service and includes
+ * the local /p2p/<peer-id> suffix when the transport can encode one. It is
+ * available after libp2p_host_init(), before or after libp2p_host_start().
+ * For listen configs that use UDP port 0, the returned multiaddr contains the
+ * kernel-assigned port. The IP component is reported as-bound: if the caller
+ * configured a wildcard IP (0.0.0.0 or ::), the returned multiaddr has the
+ * same wildcard IP. Resolving a wildcard to a concrete advertise IP is an
+ * application-level concern; the host does not guess.
+ *
+ * @param[out] written  Bytes written, or required size on
+ *                      LIBP2P_HOST_ERR_BUF_TOO_SMALL.
+ */
+libp2p_host_err_t libp2p_host_listen_multiaddr(
+    const libp2p_host_t *host,
+    uint8_t *out,
+    size_t out_len,
+    size_t *written);
+
+/**
+ * Return the host's registered protocol entries as a borrowed read-only array.
+ *
+ * This intentionally returns a borrowed view rather than copying protocol IDs:
+ * the host registry is already bounded, caller-visible, and owned by the host
+ * for its lifetime. The view works before and after libp2p_host_start(); before
+ * start, later libp2p_host_handle() calls may increase the returned count.
+ *
+ * @param[out] out_protocols  Borrowed array of registered protocols, or NULL
+ *                            when no protocols are registered.
+ * @param[out] out_count      Number of entries in out_protocols.
+ */
+libp2p_host_err_t libp2p_host_registered_protocols(
+    const libp2p_host_t *host,
+    const libp2p_host_protocol_t **out_protocols,
+    size_t *out_count);
+
+/**
  * Start an outbound dial.
  *
  * multiaddr must include an authenticated /p2p component for the expected
@@ -563,6 +610,23 @@ libp2p_host_err_t libp2p_host_conn_peer_id(
     size_t *written);
 
 /**
+ * Return a connection's authenticated remote multiaddr.
+ *
+ * For outbound connections this is the dial target after authentication. For
+ * inbound connections this is derived from the transport's remote endpoint and
+ * the authenticated remote peer ID. The /p2p/<peer-id> suffix is included when
+ * the peer ID is known.
+ *
+ * @param[out] written  Bytes written, or required size on
+ *                      LIBP2P_HOST_ERR_BUF_TOO_SMALL.
+ */
+libp2p_host_err_t libp2p_host_conn_remote_multiaddr(
+    const libp2p_host_conn_t *conn,
+    uint8_t *out,
+    size_t out_len,
+    size_t *written);
+
+/**
  * Return a connection's authenticated remote peer identity.
  */
 libp2p_host_err_t libp2p_host_conn_peer_identity(
@@ -588,6 +652,13 @@ libp2p_host_err_t libp2p_host_stream_set_user_data(libp2p_host_stream_t *stream,
 libp2p_host_err_t libp2p_host_stream_direction(
     const libp2p_host_stream_t *stream,
     libp2p_host_stream_direction_t *out_direction);
+
+/**
+ * Return the authenticated connection that owns a negotiated stream.
+ */
+libp2p_host_err_t libp2p_host_stream_conn(
+    const libp2p_host_stream_t *stream,
+    libp2p_host_conn_t **out_conn);
 
 /**
  * Return protocol-owned stream state.

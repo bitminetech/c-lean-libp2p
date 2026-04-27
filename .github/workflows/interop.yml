@@ -1,0 +1,88 @@
+name: Interop
+
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: '17 8 * * *'
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  transport-cross-impl:
+    name: transport cross-impl (quic-v1)
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          path: c-lean-libp2p
+          submodules: recursive
+
+      - name: Install harness dependencies
+        run: |
+          sudo wget -qO /usr/local/bin/yq https://github.com/mikefarah/yq/releases/download/v4.45.1/yq_linux_amd64
+          sudo chmod +x /usr/local/bin/yq
+
+      - name: Run cross-impl transport matrix
+        id: harness
+        working-directory: c-lean-libp2p/interop/unified-testing/transport
+        run: |
+          ./run.sh \
+            --impl-select "c-lean-libp2p|go-v0.47-pre|rust-v0.56" \
+            --transport-select "quic-v1" \
+            --workers 2 \
+            --yes
+          echo "test_run_dir=$(ls -td .cache/test-run/transport-* | head -n 1)" >> "$GITHUB_OUTPUT"
+
+      - name: Render status summary
+        if: always() && steps.harness.outputs.test_run_dir != ''
+        working-directory: c-lean-libp2p/interop/unified-testing/transport
+        env:
+          TEST_RUN_DIR: ${{ steps.harness.outputs.test_run_dir }}
+        run: |
+          results="${TEST_RUN_DIR}/results.yaml"
+          if [ ! -f "${results}" ]; then
+            echo "No results.yaml at ${results}" >> "$GITHUB_STEP_SUMMARY"
+            exit 0
+          fi
+
+          {
+            echo "## Transport interop results"
+            echo
+            echo "| Dialer | Listener | Status | Handshake+1RTT (ms) | Ping RTT (ms) |"
+            echo "|---|---|---|---|---|"
+          } >> "$GITHUB_STEP_SUMMARY"
+
+          yq eval '
+            .tests[] |
+            "| " + .dialer
+              + " | " + .listener
+              + " | " + .status
+              + " | " + ((.latency.handshake_plus_one_rtt // "n/a") | tostring)
+              + " | " + ((.latency.ping_rtt              // "n/a") | tostring)
+              + " |"
+          ' "${results}" >> "$GITHUB_STEP_SUMMARY"
+
+          {
+            echo
+            echo "Total: $(yq eval '.summary.total'  "${results}")"
+            echo "Passed: $(yq eval '.summary.passed' "${results}")"
+            echo "Failed: $(yq eval '.summary.failed' "${results}")"
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Upload results
+        if: always() && steps.harness.outputs.test_run_dir != ''
+        uses: actions/upload-artifact@v4
+        with:
+          name: transport-results
+          path: |
+            c-lean-libp2p/interop/unified-testing/transport/${{ steps.harness.outputs.test_run_dir }}/results.yaml
+            c-lean-libp2p/interop/unified-testing/transport/${{ steps.harness.outputs.test_run_dir }}/results.md
+            c-lean-libp2p/interop/unified-testing/transport/${{ steps.harness.outputs.test_run_dir }}/results.html
+            c-lean-libp2p/interop/unified-testing/transport/${{ steps.harness.outputs.test_run_dir }}/logs/
+          if-no-files-found: warn
+          retention-days: 30

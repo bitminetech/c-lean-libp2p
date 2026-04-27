@@ -200,8 +200,10 @@ static libp2p_host_err_t host_vtable_validate(const libp2p_host_transport_vtable
         (transport->init == NULL) || (transport->deinit == NULL) || (transport->fd == NULL) ||
         (transport->io_interest == NULL) || (transport->next_deadline == NULL) ||
         (transport->drive == NULL) || (transport->next_event == NULL) ||
-        (transport->dial == NULL) || (transport->open_stream == NULL) ||
-        (transport->conn_peer_id == NULL) || (transport->conn_peer_identity == NULL) ||
+        (transport->listen_multiaddr == NULL) || (transport->dial == NULL) ||
+        (transport->open_stream == NULL) || (transport->conn_peer_id == NULL) ||
+        (transport->conn_remote_multiaddr == NULL) ||
+        (transport->conn_peer_identity == NULL) ||
         (transport->conn_close == NULL) || (transport->stream_read == NULL) ||
         (transport->stream_write == NULL) || (transport->stream_finish == NULL) ||
         (transport->stream_reset == NULL) || (transport->stream_stop_sending == NULL))
@@ -773,6 +775,60 @@ libp2p_host_err_t libp2p_host_next_event(libp2p_host_t *host, libp2p_host_event_
                 {
                     result = LIBP2P_HOST_OK;
                 }
+            }
+        }
+    }
+
+    return result;
+}
+
+libp2p_host_err_t libp2p_host_listen_multiaddr(
+    const libp2p_host_t *host,
+    uint8_t *out,
+    size_t out_len,
+    size_t *written)
+{
+    libp2p_host_err_t result = host_validate_any(host);
+
+    if (result == LIBP2P_HOST_OK)
+    {
+        result = host->config.transport->listen_multiaddr(
+            host->transport,
+            out,
+            out_len,
+            written);
+    }
+
+    return result;
+}
+
+libp2p_host_err_t libp2p_host_registered_protocols(
+    const libp2p_host_t *host,
+    const libp2p_host_protocol_t **out_protocols,
+    size_t *out_count)
+{
+    libp2p_host_err_t result = host_validate_any(host);
+
+    if (out_protocols != NULL)
+    {
+        *out_protocols = NULL;
+    }
+    if (out_count != NULL)
+    {
+        *out_count = 0U;
+    }
+    if (result == LIBP2P_HOST_OK)
+    {
+        if ((out_protocols == NULL) || (out_count == NULL))
+        {
+            result = LIBP2P_HOST_ERR_INVALID_ARG;
+        }
+        else
+        {
+            *out_count = host->protocol_count;
+            if (host->protocol_count != 0U)
+            {
+                *out_protocols = host->protocols;
             }
         }
     }

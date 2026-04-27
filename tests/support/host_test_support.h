@@ -11,12 +11,15 @@
 
 #define HOST_TEST_EVENT_CAP      32U
 #define HOST_TEST_STREAM_BUF_CAP 4096U
+#define HOST_TEST_MULTIADDR_CAP  256U
 
 typedef struct
 {
     uint8_t peer_id[LIBP2P_PEER_ID_MAX_BYTES];
     size_t peer_id_len;
     libp2p_host_peer_identity_t identity;
+    uint8_t remote_multiaddr[HOST_TEST_MULTIADDR_CAP];
+    size_t remote_multiaddr_len;
 } host_test_conn_t;
 
 typedef struct
@@ -44,6 +47,8 @@ typedef struct
     libp2p_host_time_us_t deadline;
     size_t drive_count;
     size_t close_count;
+    uint8_t listen_multiaddr[HOST_TEST_MULTIADDR_CAP];
+    size_t listen_multiaddr_len;
 } host_test_transport_fixture_t;
 
 typedef struct
@@ -95,6 +100,12 @@ static inline void host_test_fixture_init(
     conn->identity.peer_id_len = conn->peer_id_len;
     conn->identity.public_key_message[0] = 8U;
     conn->identity.public_key_message_len = 1U;
+    conn->remote_multiaddr[0] = 4U;
+    conn->remote_multiaddr[1] = 127U;
+    conn->remote_multiaddr[2] = 0U;
+    conn->remote_multiaddr[3] = 0U;
+    conn->remote_multiaddr[4] = 1U;
+    conn->remote_multiaddr_len = 5U;
 }
 
 static inline void host_test_config_init(
@@ -204,13 +215,15 @@ static inline libp2p_host_err_t host_test_init(
     const host_test_transport_config_t *mock_config = (const host_test_transport_config_t *)config;
     host_test_transport_fixture_t **slot = (host_test_transport_fixture_t **)storage;
 
-    (void)listen_multiaddr;
-    (void)listen_multiaddr_len;
     if ((storage == NULL) || (storage_len < sizeof(*slot)) || (mock_config == NULL) ||
-        (mock_config->fixture == NULL) || (out_transport == NULL))
+        (mock_config->fixture == NULL) || (listen_multiaddr == NULL) ||
+        (listen_multiaddr_len > sizeof(mock_config->fixture->listen_multiaddr)) ||
+        (out_transport == NULL))
     {
         return LIBP2P_HOST_ERR_INVALID_ARG;
     }
+    (void)memcpy(mock_config->fixture->listen_multiaddr, listen_multiaddr, listen_multiaddr_len);
+    mock_config->fixture->listen_multiaddr_len = listen_multiaddr_len;
     *slot = mock_config->fixture;
     *out_transport = mock_config->fixture;
     return LIBP2P_HOST_OK;
@@ -300,6 +313,30 @@ static inline libp2p_host_err_t host_test_next_event(
     return LIBP2P_HOST_OK;
 }
 
+static inline libp2p_host_err_t host_test_listen_multiaddr(
+    const void *transport,
+    uint8_t *out,
+    size_t out_len,
+    size_t *written)
+{
+    const host_test_transport_fixture_t *fixture = (const host_test_transport_fixture_t *)transport;
+
+    if ((fixture == NULL) || (written == NULL))
+    {
+        return LIBP2P_HOST_ERR_INVALID_ARG;
+    }
+    *written = fixture->listen_multiaddr_len;
+    if ((out == NULL) || (out_len < fixture->listen_multiaddr_len))
+    {
+        return LIBP2P_HOST_ERR_BUF_TOO_SMALL;
+    }
+    if (fixture->listen_multiaddr_len != 0U)
+    {
+        (void)memcpy(out, fixture->listen_multiaddr, fixture->listen_multiaddr_len);
+    }
+    return LIBP2P_HOST_OK;
+}
+
 static inline libp2p_host_err_t host_test_dial(
     void *transport,
     const uint8_t *multiaddr,
@@ -366,6 +403,30 @@ static inline libp2p_host_err_t host_test_conn_peer_identity(
         return LIBP2P_HOST_ERR_INVALID_ARG;
     }
     *out = mock_conn->identity;
+    return LIBP2P_HOST_OK;
+}
+
+static inline libp2p_host_err_t host_test_conn_remote_multiaddr(
+    const void *conn,
+    uint8_t *out,
+    size_t out_len,
+    size_t *written)
+{
+    const host_test_conn_t *mock_conn = (const host_test_conn_t *)conn;
+
+    if ((mock_conn == NULL) || (written == NULL))
+    {
+        return LIBP2P_HOST_ERR_INVALID_ARG;
+    }
+    *written = mock_conn->remote_multiaddr_len;
+    if ((out == NULL) || (out_len < mock_conn->remote_multiaddr_len))
+    {
+        return LIBP2P_HOST_ERR_BUF_TOO_SMALL;
+    }
+    if (mock_conn->remote_multiaddr_len != 0U)
+    {
+        (void)memcpy(out, mock_conn->remote_multiaddr, mock_conn->remote_multiaddr_len);
+    }
     return LIBP2P_HOST_OK;
 }
 
@@ -507,7 +568,7 @@ static inline libp2p_host_err_t host_test_stream_stop_sending(
 static inline const libp2p_host_transport_vtable_t *host_test_transport(void)
 {
     static const libp2p_host_transport_vtable_t transport =
-        {1U,
+        {2U,
          "mock",
          host_test_storage_size,
          host_test_storage_align,
@@ -518,9 +579,11 @@ static inline const libp2p_host_transport_vtable_t *host_test_transport(void)
          host_test_next_deadline,
          host_test_drive,
          host_test_next_event,
+         host_test_listen_multiaddr,
          host_test_dial,
          host_test_open_stream,
          host_test_conn_peer_id,
+         host_test_conn_remote_multiaddr,
          host_test_conn_peer_identity,
          host_test_conn_close,
          host_test_stream_read,

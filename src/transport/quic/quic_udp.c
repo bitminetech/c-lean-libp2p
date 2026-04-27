@@ -498,6 +498,28 @@ libp2p_quic_err_t libp2p_quic_udp_socket_local_addr(
     return result;
 }
 
+libp2p_quic_err_t libp2p_quic_udp_socket_listen_addr(
+    const libp2p_quic_udp_socket_t *udp_socket,
+    libp2p_quic_addr_t *out_addr)
+{
+    libp2p_quic_err_t result = LIBP2P_QUIC_OK;
+
+    if ((udp_socket == NULL) || (out_addr == NULL))
+    {
+        result = LIBP2P_QUIC_ERR_INVALID_ARG;
+    }
+    else if (udp_socket->open == 0U)
+    {
+        result = LIBP2P_QUIC_ERR_STATE;
+    }
+    else
+    {
+        *out_addr = udp_socket->local_addr;
+    }
+
+    return result;
+}
+
 libp2p_quic_err_t libp2p_quic_udp_socket_recv(
     const libp2p_quic_udp_socket_t *udp_socket,
     libp2p_quic_endpoint_t *endpoint,

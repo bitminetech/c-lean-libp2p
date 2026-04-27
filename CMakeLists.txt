@@ -28,6 +28,7 @@ set(CMAKE_C_EXTENSIONS OFF)
 
 option(BUILD_TESTING "Build c-lean-libp2p tests" ON)
 option(LIBP2P_ENABLE_GCC_ANALYZER "Enable GCC -fanalyzer for c-lean-libp2p project sources" OFF)
+option(LIBP2P_BUILD_INTEROP_BINARY "Build the unified-testing transport interop binary" OFF)
 
 enable_testing()
 
@@ -198,6 +199,33 @@ if(LIBP2P_ENABLE_GCC_ANALYZER)
 endif()
 
 # ---------------------------------------------------------------------------
+# Interop
+# ---------------------------------------------------------------------------
+
+if(LIBP2P_BUILD_INTEROP_BINARY)
+    if(WIN32)
+        message(FATAL_ERROR "LIBP2P_BUILD_INTEROP_BINARY requires POSIX sockets")
+    endif()
+
+    add_executable(
+        c_lean_libp2p_transport_interop
+        "${PROJECT_SOURCE_DIR}/interop/c-lean-libp2p/redis_client.c"
+        "${PROJECT_SOURCE_DIR}/interop/c-lean-libp2p/transport_interop.c"
+    )
+    target_link_libraries(
+        c_lean_libp2p_transport_interop
+        PRIVATE
+            c_lean_libp2p
+    )
+    target_include_directories(
+        c_lean_libp2p_transport_interop
+        PRIVATE
+            "${PROJECT_SOURCE_DIR}/interop/c-lean-libp2p"
+    )
+    c_lean_libp2p_set_output_directories(c_lean_libp2p_transport_interop)
+endif()
+
+# ---------------------------------------------------------------------------
 # Tests
 # ---------------------------------------------------------------------------
 
@@ -301,6 +329,14 @@ if(BUILD_TESTING)
     c_lean_libp2p_add_quic_test(spec tls_vectors)
 
     c_lean_libp2p_add_host_test(unit)
+    c_lean_libp2p_add_test(
+        unit_libp2p_host_accessors
+        "${PROJECT_SOURCE_DIR}/tests/unit/libp2p/test_libp2p_host_accessors.c"
+    )
+    c_lean_libp2p_add_test(
+        unit_libp2p_host_quic_accessors
+        "${PROJECT_SOURCE_DIR}/tests/unit/libp2p/test_libp2p_host_quic_accessors.c"
+    )
     c_lean_libp2p_add_host_test(spec)
 
     c_lean_libp2p_add_protocol_test(unit identify)

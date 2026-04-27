@@ -11,6 +11,7 @@
 #define IDENTIFY_FIELD_PROTOCOL_VERSION 5U
 #define IDENTIFY_FIELD_AGENT_VERSION    6U
 #define IDENTIFY_WIRE_LEN               2U
+#define IDENTIFY_MULTIADDR_BYTES        256U
 
 static int identify_size_add(size_t a, size_t b, size_t *out)
 {
@@ -184,9 +185,8 @@ static libp2p_identify_err_t identify_message_validate_local(
     else if (
         (identify_bytes_present(&message->protocol_version) == 0) ||
         (identify_bytes_present(&message->agent_version) == 0) ||
-        (identify_bytes_present(&message->public_key) == 0) || (message->listen_addr_count == 0U) ||
+        (identify_bytes_present(&message->public_key) == 0) ||
         (message->listen_addr_count > LIBP2P_IDENTIFY_MAX_LISTEN_ADDRS) ||
-        (message->protocol_count == 0U) ||
         (message->protocol_count > LIBP2P_IDENTIFY_MAX_PROTOCOLS))
     {
         result = LIBP2P_IDENTIFY_ERR_INVALID_ARG;
@@ -424,20 +424,118 @@ static int identify_slot_is_reading(const libp2p_identify_t *identify, size_t sl
     return is_reading;
 }
 
-static libp2p_identify_err_t identify_prepare_tx(
+static libp2p_identify_err_t identify_build_tx_message(
     libp2p_identify_t *identify,
-    libp2p_identify_stream_state_t *slot)
+    const libp2p_host_t *host,
+    const libp2p_identify_stream_state_t *slot,
+    libp2p_identify_message_t *message,
+    uint8_t *listen_addr,
+    size_t listen_addr_len,
+    uint8_t *observed_addr,
+    size_t observed_addr_len)
 {
+    const libp2p_host_protocol_t *protocols = NULL;
+    libp2p_host_conn_t *conn = NULL;
+    size_t protocol_count = 0U;
+    size_t written = 0U;
     libp2p_identify_err_t result = LIBP2P_IDENTIFY_OK;
 
-    if ((identify == NULL) || (slot == NULL))
+    if ((identify == NULL) || (host == NULL) || (slot == NULL) || (message == NULL) ||
+        (listen_addr == NULL) || (observed_addr == NULL))
     {
         result = LIBP2P_IDENTIFY_ERR_INVALID_ARG;
     }
     else
     {
+        *message = identify->config.local_message;
+        (void)memset(message->listen_addrs, 0, sizeof(message->listen_addrs));
+        (void)memset(message->protocols, 0, sizeof(message->protocols));
+        (void)memset(&message->observed_addr, 0, sizeof(message->observed_addr));
+        message->listen_addr_count = 0U;
+        message->protocol_count = 0U;
+    }
+    if (result == LIBP2P_IDENTIFY_OK)
+    {
+        result = identify_host_to_err(
+            libp2p_host_listen_multiaddr(host, listen_addr, listen_addr_len, &written));
+        if (result == LIBP2P_IDENTIFY_OK)
+        {
+            message->listen_addrs[0].data = listen_addr;
+            message->listen_addrs[0].len = written;
+            message->listen_addr_count = 1U;
+            result = identify_host_to_err(
+                libp2p_host_registered_protocols(host, &protocols, &protocol_count));
+        }
+    }
+    if ((result == LIBP2P_IDENTIFY_OK) && (protocol_count > LIBP2P_IDENTIFY_MAX_PROTOCOLS))
+    {
+        result = LIBP2P_IDENTIFY_ERR_LIMIT;
+    }
+    if ((result == LIBP2P_IDENTIFY_OK) && (protocol_count != 0U) && (protocols == NULL))
+    {
+        result = LIBP2P_IDENTIFY_ERR_INVALID_ARG;
+    }
+    if (result == LIBP2P_IDENTIFY_OK)
+    {
+        size_t index = 0U;
+
+        for (index = 0U; index < protocol_count; index++)
+        {
+            message->protocols[index].data = protocols[index].id;
+            message->protocols[index].len = protocols[index].id_len;
+        }
+        message->protocol_count = protocol_count;
+        result = identify_host_to_err(libp2p_host_stream_conn(slot->stream, &conn));
+    }
+    if (result == LIBP2P_IDENTIFY_OK)
+    {
+        result = identify_host_to_err(
+            libp2p_host_conn_remote_multiaddr(conn, observed_addr, observed_addr_len, &written));
+    }
+    if (result == LIBP2P_IDENTIFY_OK)
+    {
+        message->observed_addr.data = observed_addr;
+        message->observed_addr.len = written;
+    }
+    if ((result == LIBP2P_IDENTIFY_OK) &&
+        ((message->listen_addr_count == 0U) || (message->protocol_count == 0U)))
+    {
+        result = LIBP2P_IDENTIFY_ERR_INVALID_ARG;
+    }
+    if (result == LIBP2P_IDENTIFY_OK)
+    {
+        result = identify_message_validate_local(message);
+    }
+
+    return result;
+}
+
+static libp2p_identify_err_t identify_prepare_tx(
+    libp2p_identify_t *identify,
+    const libp2p_host_t *host,
+    libp2p_identify_stream_state_t *slot)
+{
+    libp2p_identify_message_t message;
+    uint8_t listen_addr[IDENTIFY_MULTIADDR_BYTES];
+    uint8_t observed_addr[IDENTIFY_MULTIADDR_BYTES];
+    libp2p_identify_err_t result = LIBP2P_IDENTIFY_OK;
+
+    (void)memset(&message, 0, sizeof(message));
+    (void)memset(listen_addr, 0, sizeof(listen_addr));
+    (void)memset(observed_addr, 0, sizeof(observed_addr));
+    result = identify_build_tx_message(
+        identify,
+        host,
+        slot,
+        &message,
+        listen_addr,
+        sizeof(listen_addr),
+        observed_addr,
+        sizeof(observed_addr));
+    if (result == LIBP2P_IDENTIFY_OK)
+    {
         result = libp2p_identify_message_encode(
-            &identify->config.local_message,
+            &message,
             slot->tx,
             sizeof(slot->tx),
             &slot->tx_len);
@@ -709,7 +807,7 @@ static libp2p_host_err_t identify_open_common(
     {
         if ((direction == LIBP2P_HOST_STREAM_INBOUND) && (kind == LIBP2P_IDENTIFY_STREAM_IDENTIFY))
         {
-            err = identify_prepare_tx(identify, slot);
+            err = identify_prepare_tx(identify, host, slot);
             if (err == LIBP2P_IDENTIFY_OK)
             {
                 slot->state = LIBP2P_IDENTIFY_SLOT_WRITING;
@@ -719,7 +817,7 @@ static libp2p_host_err_t identify_open_common(
         else if (
             (direction == LIBP2P_HOST_STREAM_OUTBOUND) && (kind == LIBP2P_IDENTIFY_STREAM_PUSH))
         {
-            err = identify_prepare_tx(identify, slot);
+            err = identify_prepare_tx(identify, host, slot);
             if (err == LIBP2P_IDENTIFY_OK)
             {
                 slot->state = LIBP2P_IDENTIFY_SLOT_WRITING;

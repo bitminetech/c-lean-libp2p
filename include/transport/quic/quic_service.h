@@ -139,6 +139,31 @@ libp2p_quic_err_t libp2p_quic_service_local_addr(
     libp2p_quic_addr_t *out_addr);
 
 /**
+ * Return the local QUIC UDP address the service is bound to.
+ *
+ * The address is reported as-bound: the resolved port is included, and the IP
+ * matches what the service was configured with. If the configured listen
+ * multiaddr used a wildcard IP (0.0.0.0 or ::), the returned address has the
+ * same wildcard IP. Resolving a wildcard to a concrete advertise IP is an
+ * application-level concern; the service does not guess.
+ */
+libp2p_quic_err_t libp2p_quic_service_listen_addr(
+    const libp2p_quic_service_t *service,
+    libp2p_quic_addr_t *out_addr);
+
+/**
+ * Return the service's local authenticated QUIC peer ID.
+ *
+ * @param[out] written  Bytes written, or required size on
+ *                      LIBP2P_QUIC_ERR_BUF_TOO_SMALL.
+ */
+libp2p_quic_err_t libp2p_quic_service_local_peer_id(
+    const libp2p_quic_service_t *service,
+    uint8_t *out,
+    size_t out_len,
+    size_t *written);
+
+/**
  * Return file-descriptor interests for the next external event-loop wait.
  *
  * READ is requested while the service is open. WRITE is requested only when the

@@ -412,6 +412,30 @@ libp2p_host_err_t libp2p_host_conn_peer_id(
     return result;
 }
 
+libp2p_host_err_t libp2p_host_conn_remote_multiaddr(
+    const libp2p_host_conn_t *conn,
+    uint8_t *out,
+    size_t out_len,
+    size_t *written)
+{
+    libp2p_host_err_t result = LIBP2P_HOST_OK;
+
+    if ((conn == NULL) || (conn->host == NULL))
+    {
+        result = LIBP2P_HOST_ERR_INVALID_ARG;
+    }
+    else
+    {
+        result = conn->host->config.transport->conn_remote_multiaddr(
+            conn->transport_conn,
+            out,
+            out_len,
+            written);
+    }
+
+    return result;
+}
+
 libp2p_host_err_t libp2p_host_conn_peer_identity(
     const libp2p_host_conn_t *conn,
     libp2p_host_peer_identity_t *out)
