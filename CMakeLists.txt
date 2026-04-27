@@ -252,6 +252,13 @@ if(BUILD_TESTING)
         c_lean_libp2p_add_test("${test_name}" "${test_source}")
     endfunction()
 
+    function(c_lean_libp2p_add_multiselect_test suite_name)
+        set(test_name "${suite_name}_multiselect")
+        set(test_source "${PROJECT_SOURCE_DIR}/tests/${suite_name}/multiselect/test_multiselect.c")
+
+        c_lean_libp2p_add_test("${test_name}" "${test_source}")
+    endfunction()
+
     function(c_lean_libp2p_add_quic_test suite_name module_name)
         set(test_name "${suite_name}_quic_${module_name}")
         set(test_source "${PROJECT_SOURCE_DIR}/tests/${suite_name}/transport/quic/test_quic_${module_name}.c")
@@ -266,6 +273,9 @@ if(BUILD_TESTING)
 
     c_lean_libp2p_add_peer_id_test(unit)
     c_lean_libp2p_add_peer_id_test(spec)
+
+    c_lean_libp2p_add_multiselect_test(unit)
+    c_lean_libp2p_add_multiselect_test(spec)
 
     c_lean_libp2p_add_quic_test(unit addr)
     c_lean_libp2p_add_quic_test(unit identity)
