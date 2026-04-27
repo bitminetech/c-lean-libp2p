@@ -426,8 +426,8 @@ static int identify_slot_is_reading(const libp2p_identify_t *identify, size_t sl
 
 static libp2p_identify_err_t identify_build_tx_message(
     libp2p_identify_t *identify,
-    libp2p_host_t *host,
-    libp2p_identify_stream_state_t *slot,
+    const libp2p_host_t *host,
+    const libp2p_identify_stream_state_t *slot,
     libp2p_identify_message_t *message,
     uint8_t *listen_addr,
     size_t listen_addr_len,
@@ -458,17 +458,14 @@ static libp2p_identify_err_t identify_build_tx_message(
     {
         result = identify_host_to_err(
             libp2p_host_listen_multiaddr(host, listen_addr, listen_addr_len, &written));
-    }
-    if (result == LIBP2P_IDENTIFY_OK)
-    {
-        message->listen_addrs[0].data = listen_addr;
-        message->listen_addrs[0].len = written;
-        message->listen_addr_count = 1U;
-    }
-    if (result == LIBP2P_IDENTIFY_OK)
-    {
-        result = identify_host_to_err(
-            libp2p_host_registered_protocols(host, &protocols, &protocol_count));
+        if (result == LIBP2P_IDENTIFY_OK)
+        {
+            message->listen_addrs[0].data = listen_addr;
+            message->listen_addrs[0].len = written;
+            message->listen_addr_count = 1U;
+            result = identify_host_to_err(
+                libp2p_host_registered_protocols(host, &protocols, &protocol_count));
+        }
     }
     if ((result == LIBP2P_IDENTIFY_OK) && (protocol_count > LIBP2P_IDENTIFY_MAX_PROTOCOLS))
     {
@@ -488,9 +485,6 @@ static libp2p_identify_err_t identify_build_tx_message(
             message->protocols[index].len = protocols[index].id_len;
         }
         message->protocol_count = protocol_count;
-    }
-    if (result == LIBP2P_IDENTIFY_OK)
-    {
         result = identify_host_to_err(libp2p_host_stream_conn(slot->stream, &conn));
     }
     if (result == LIBP2P_IDENTIFY_OK)
@@ -518,7 +512,7 @@ static libp2p_identify_err_t identify_build_tx_message(
 
 static libp2p_identify_err_t identify_prepare_tx(
     libp2p_identify_t *identify,
-    libp2p_host_t *host,
+    const libp2p_host_t *host,
     libp2p_identify_stream_state_t *slot)
 {
     libp2p_identify_message_t message;

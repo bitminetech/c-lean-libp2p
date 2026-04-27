@@ -272,8 +272,6 @@ static libp2p_quic_err_t quic_udp_sockaddr_to_addr(
 
 static int quic_udp_addr_is_unspecified(const libp2p_quic_addr_t *addr)
 {
-    size_t limit = 0U;
-    size_t index = 0U;
     int result = 1;
 
     if (addr == NULL)
@@ -282,7 +280,9 @@ static int quic_udp_addr_is_unspecified(const libp2p_quic_addr_t *addr)
     }
     else
     {
-        limit = (addr->family == LIBP2P_QUIC_ADDR_IP4) ? 4U : 16U;
+        const size_t limit = (addr->family == LIBP2P_QUIC_ADDR_IP4) ? 4U : 16U;
+        size_t index = 0U;
+
         for (index = 0U; index < limit; index++)
         {
             if (addr->ip[index] != 0U)
@@ -357,6 +357,7 @@ static libp2p_quic_err_t quic_udp_default_route_addr(
             result = quic_udp_errno_to_err(quic_udp_last_error());
         }
     }
+    /* cppcheck-suppress misra-c2012-17.3 */
     if ((result == LIBP2P_QUIC_OK) &&
         (connect(fd, (const struct sockaddr *)&storage, storage_len) != 0))
     {
@@ -620,8 +621,6 @@ libp2p_quic_err_t libp2p_quic_udp_socket_listen_addr(
     const libp2p_quic_udp_socket_t *udp_socket,
     libp2p_quic_addr_t *out_addr)
 {
-    libp2p_quic_addr_t route_addr;
-    libp2p_quic_err_t route_result = LIBP2P_QUIC_OK;
     libp2p_quic_err_t result = LIBP2P_QUIC_OK;
 
     if ((udp_socket == NULL) || (out_addr == NULL))
@@ -638,7 +637,10 @@ libp2p_quic_err_t libp2p_quic_udp_socket_listen_addr(
     }
     if ((result == LIBP2P_QUIC_OK) && (quic_udp_addr_is_unspecified(out_addr) != 0))
     {
-        route_result = quic_udp_default_route_addr(out_addr->family, &route_addr);
+        libp2p_quic_addr_t route_addr;
+        const libp2p_quic_err_t route_result =
+            quic_udp_default_route_addr(out_addr->family, &route_addr);
+
         if ((route_result == LIBP2P_QUIC_OK) &&
             (route_addr.family == out_addr->family) &&
             (quic_udp_addr_is_unspecified(&route_addr) == 0))
