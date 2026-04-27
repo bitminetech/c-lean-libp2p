@@ -979,6 +979,40 @@ libp2p_quic_err_t libp2p_quic_service_local_addr(
     return result;
 }
 
+libp2p_quic_err_t libp2p_quic_service_listen_addr(
+    const libp2p_quic_service_t *service,
+    libp2p_quic_addr_t *out_addr)
+{
+    libp2p_quic_err_t result = quic_service_validate(service);
+
+    if (result == LIBP2P_QUIC_OK)
+    {
+        result = libp2p_quic_udp_socket_listen_addr(&service->socket, out_addr);
+    }
+
+    return result;
+}
+
+libp2p_quic_err_t libp2p_quic_service_local_peer_id(
+    const libp2p_quic_service_t *service,
+    uint8_t *out,
+    size_t out_len,
+    size_t *written)
+{
+    libp2p_quic_err_t result = quic_service_validate(service);
+
+    if (result == LIBP2P_QUIC_OK)
+    {
+        result = libp2p_quic_local_identity_peer_id(
+            &service->config.endpoint.identity,
+            out,
+            out_len,
+            written);
+    }
+
+    return result;
+}
+
 libp2p_quic_err_t libp2p_quic_service_io_interest(
     const libp2p_quic_service_t *service,
     libp2p_quic_service_interest_t *out_interest)

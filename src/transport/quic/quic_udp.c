@@ -270,6 +270,124 @@ static libp2p_quic_err_t quic_udp_sockaddr_to_addr(
     return result;
 }
 
+static int quic_udp_addr_is_unspecified(const libp2p_quic_addr_t *addr)
+{
+    size_t limit = 0U;
+    size_t index = 0U;
+    int result = 1;
+
+    if (addr == NULL)
+    {
+        result = 0;
+    }
+    else
+    {
+        limit = (addr->family == LIBP2P_QUIC_ADDR_IP4) ? 4U : 16U;
+        for (index = 0U; index < limit; index++)
+        {
+            if (addr->ip[index] != 0U)
+            {
+                result = 0;
+                break;
+            }
+        }
+    }
+
+    return result;
+}
+
+static libp2p_quic_err_t quic_udp_default_route_addr(
+    libp2p_quic_addr_family_t family,
+    libp2p_quic_addr_t *out)
+{
+    static const uint8_t probe_ip4[4] = {192U, 0U, 2U, 1U};
+    static const uint8_t probe_ip6[16] = {
+        0x20U, 0x01U, 0x0dU, 0xb8U, 0U, 0U, 0U, 0U,
+        0U,    0U,    0U,    0U,    0U, 0U, 0U, 1U};
+    struct sockaddr_storage storage;
+    quic_udp_socklen_t storage_len = 0;
+    quic_udp_native_fd_t fd = QUIC_UDP_NATIVE_INVALID_FD;
+    int socket_family = AF_INET6;
+#if defined(_WIN32)
+    int platform_started = 0;
+#endif
+    libp2p_quic_addr_t probe;
+    libp2p_quic_err_t result = LIBP2P_QUIC_OK;
+
+    if (out == NULL)
+    {
+        result = LIBP2P_QUIC_ERR_INVALID_ARG;
+    }
+    else if (family == LIBP2P_QUIC_ADDR_IP4)
+    {
+        socket_family = AF_INET;
+        result = libp2p_quic_addr_from_ip4(probe_ip4, 9U, &probe);
+    }
+    else if (family == LIBP2P_QUIC_ADDR_IP6)
+    {
+        socket_family = AF_INET6;
+        result = libp2p_quic_addr_from_ip6(probe_ip6, 9U, &probe);
+    }
+    else
+    {
+        result = LIBP2P_QUIC_ERR_ADDR;
+    }
+
+    if (result == LIBP2P_QUIC_OK)
+    {
+        result = quic_udp_addr_to_sockaddr(&probe, &storage, &storage_len);
+    }
+
+#if defined(_WIN32)
+    if (result == LIBP2P_QUIC_OK)
+    {
+        result = quic_udp_platform_startup();
+        if (result == LIBP2P_QUIC_OK)
+        {
+            platform_started = 1;
+        }
+    }
+#endif
+
+    if (result == LIBP2P_QUIC_OK)
+    {
+        fd = socket(socket_family, SOCK_DGRAM, IPPROTO_UDP);
+        if (fd == QUIC_UDP_NATIVE_INVALID_FD)
+        {
+            result = quic_udp_errno_to_err(quic_udp_last_error());
+        }
+    }
+    if ((result == LIBP2P_QUIC_OK) &&
+        (connect(fd, (const struct sockaddr *)&storage, storage_len) != 0))
+    {
+        result = quic_udp_errno_to_err(quic_udp_last_error());
+    }
+    if (result == LIBP2P_QUIC_OK)
+    {
+        storage_len = (quic_udp_socklen_t)sizeof(storage);
+        if (getsockname(fd, (struct sockaddr *)&storage, &storage_len) != 0)
+        {
+            result = quic_udp_errno_to_err(quic_udp_last_error());
+        }
+    }
+    if (result == LIBP2P_QUIC_OK)
+    {
+        result = quic_udp_sockaddr_to_addr((const struct sockaddr *)&storage, storage_len, out);
+    }
+    if (fd != QUIC_UDP_NATIVE_INVALID_FD)
+    {
+        quic_udp_close_native(fd);
+    }
+#if defined(_WIN32)
+    if (platform_started != 0)
+    {
+        quic_udp_platform_cleanup();
+    }
+#endif
+
+    return result;
+}
+
 static libp2p_quic_err_t quic_udp_set_nonblocking(quic_udp_native_fd_t fd)
 {
     libp2p_quic_err_t result = LIBP2P_QUIC_OK;
@@ -493,6 +611,40 @@ libp2p_quic_err_t libp2p_quic_udp_socket_local_addr(
     else
     {
         *out_addr = udp_socket->local_addr;
+    }
+
+    return result;
+}
+
+libp2p_quic_err_t libp2p_quic_udp_socket_listen_addr(
+    const libp2p_quic_udp_socket_t *udp_socket,
+    libp2p_quic_addr_t *out_addr)
+{
+    libp2p_quic_addr_t route_addr;
+    libp2p_quic_err_t route_result = LIBP2P_QUIC_OK;
+    libp2p_quic_err_t result = LIBP2P_QUIC_OK;
+
+    if ((udp_socket == NULL) || (out_addr == NULL))
+    {
+        result = LIBP2P_QUIC_ERR_INVALID_ARG;
+    }
+    else if (udp_socket->open == 0U)
+    {
+        result = LIBP2P_QUIC_ERR_STATE;
+    }
+    else
+    {
+        *out_addr = udp_socket->local_addr;
+    }
+    if ((result == LIBP2P_QUIC_OK) && (quic_udp_addr_is_unspecified(out_addr) != 0))
+    {
+        route_result = quic_udp_default_route_addr(out_addr->family, &route_addr);
+        if ((route_result == LIBP2P_QUIC_OK) &&
+            (route_addr.family == out_addr->family) &&
+            (quic_udp_addr_is_unspecified(&route_addr) == 0))
+        {
+            (void)memcpy(out_addr->ip, route_addr.ip, sizeof(out_addr->ip));
+        }
     }
 
     return result;

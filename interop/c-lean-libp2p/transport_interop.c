@@ -3,7 +3,6 @@
 #include <errno.h>
 #include <fcntl.h>
 #include <limits.h>
-#include <netinet/in.h>
 #include <poll.h>
 #include <signal.h>
 #include <stddef.h>
@@ -11,7 +10,6 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
-#include <sys/socket.h>
 #include <sys/time.h>
 #include <time.h>
 #include <unistd.h>
@@ -24,7 +22,7 @@
 #include "transport/quic/quic_identity.h"
 #include "transport/quic/quic_service.h"
 
-#define INTEROP_LISTEN_PORT             4001U
+#define INTEROP_LISTEN_PORT             0U
 #define INTEROP_DEFAULT_TIMEOUT_SECONDS 180U
 #define INTEROP_HOST_STORAGE_BYTES      (4U * 1024U * 1024U)
 #define INTEROP_LISTEN_MULTIADDR_BYTES  128U
@@ -692,67 +690,26 @@ static interop_err_t interop_parse_dial_multiaddr(interop_app_t *app, const char
     return result;
 }
 
-static interop_err_t interop_get_redis_local_ip4(
-    const libp2p_interop_redis_client_t *client,
-    uint8_t out_ip4[4])
-{
-    struct sockaddr_storage storage;
-    socklen_t storage_len = (socklen_t)sizeof(storage);
-    const struct sockaddr_in *addr4 = NULL;
-    interop_err_t result = INTEROP_OK;
-
-    if ((client == NULL) || (client->fd < 0) || (out_ip4 == NULL))
-    {
-        result = INTEROP_ERR_REDIS;
-    }
-    else if (getsockname(client->fd, (struct sockaddr *)&storage, &storage_len) != 0)
-    {
-        result = INTEROP_ERR_REDIS;
-    }
-    else if (storage.ss_family != AF_INET)
-    {
-        result = INTEROP_ERR_REDIS;
-    }
-    else
-    {
-        addr4 = (const struct sockaddr_in *)&storage;
-        (void)memcpy(out_ip4, &addr4->sin_addr, 4U);
-    }
-
-    return result;
-}
-
 static interop_err_t interop_listener_multiaddr_text(
     const interop_app_t *app,
-    const uint8_t ip4[4],
     char *out,
     size_t out_len)
 {
-    libp2p_quic_addr_t addr;
     uint8_t multiaddr[INTEROP_DIAL_MULTIADDR_BYTES];
     size_t multiaddr_len = 0U;
     size_t text_len = 0U;
     interop_err_t result = INTEROP_OK;
 
-    if ((app == NULL) || (ip4 == NULL) || (out == NULL) || (out_len == 0U))
+    if ((app == NULL) || (out == NULL) || (out_len == 0U))
     {
         result = INTEROP_ERR_USAGE;
     }
     if ((result == INTEROP_OK) &&
-        (libp2p_quic_addr_from_ip4(ip4, INTEROP_LISTEN_PORT, &addr) != LIBP2P_QUIC_OK))
-    {
-        result = INTEROP_ERR_HOST;
-    }
-    if ((result == INTEROP_OK) && (libp2p_quic_addr_set_peer_id(
-                                       &addr,
-                                       app->identity.host_storage.peer_id,
-                                       app->identity.host_storage.peer_id_len) != LIBP2P_QUIC_OK))
-    {
-        result = INTEROP_ERR_HOST;
-    }
-    if ((result == INTEROP_OK) &&
-        (libp2p_quic_addr_to_multiaddr(&addr, multiaddr, sizeof(multiaddr), &multiaddr_len) !=
-         LIBP2P_QUIC_OK))
+        (libp2p_host_listen_multiaddr(
+             app->host,
+             multiaddr,
+             sizeof(multiaddr),
+             &multiaddr_len) != LIBP2P_HOST_OK))
     {
         result = INTEROP_ERR_HOST;
     }
@@ -968,7 +925,6 @@ static interop_err_t interop_run_listener(interop_app_t *app)
     libp2p_interop_redis_client_t redis;
     char redis_key[INTEROP_REDIS_KEY_BYTES];
     char multiaddr_text[INTEROP_MULTIADDR_TEXT_BYTES];
-    uint8_t ip4[4] = {0U, 0U, 0U, 0U};
     interop_err_t result = INTEROP_OK;
 
     redis.fd = -1;
@@ -981,17 +937,12 @@ static interop_err_t interop_run_listener(interop_app_t *app)
     {
         result = INTEROP_ERR_REDIS;
     }
-    if ((result == INTEROP_OK) && (interop_get_redis_local_ip4(&redis, ip4) != INTEROP_OK))
-    {
-        result = INTEROP_ERR_REDIS;
-    }
     if ((result == INTEROP_OK) && (interop_configure_host(app, INTEROP_LISTEN_PORT) != INTEROP_OK))
     {
         result = INTEROP_ERR_HOST;
     }
     if ((result == INTEROP_OK) &&
-        (interop_listener_multiaddr_text(app, ip4, multiaddr_text, sizeof(multiaddr_text)) !=
-         INTEROP_OK))
+        (interop_listener_multiaddr_text(app, multiaddr_text, sizeof(multiaddr_text)) != INTEROP_OK))
     {
         result = INTEROP_ERR_HOST;
     }

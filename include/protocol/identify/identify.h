@@ -72,6 +72,13 @@ typedef struct
 
 typedef struct
 {
+    /**
+     * Message template used for fields the host cannot derive dynamically.
+     *
+     * protocol_version, agent_version, and public_key are read from this
+     * template. Transmitted listen_addrs, protocols, and observed_addr are
+     * sourced from libp2p_host_t accessors at stream-open time.
+     */
     libp2p_identify_message_t local_message;
 } libp2p_identify_config_t;
 

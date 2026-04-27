@@ -1014,6 +1014,28 @@ libp2p_host_err_t libp2p_host_stream_direction(
     return result;
 }
 
+libp2p_host_err_t libp2p_host_stream_conn(
+    const libp2p_host_stream_t *stream,
+    libp2p_host_conn_t **out_conn)
+{
+    libp2p_host_err_t result = LIBP2P_HOST_OK;
+
+    if (out_conn != NULL)
+    {
+        *out_conn = NULL;
+    }
+    if ((stream == NULL) || (out_conn == NULL))
+    {
+        result = LIBP2P_HOST_ERR_INVALID_ARG;
+    }
+    else
+    {
+        *out_conn = stream->conn;
+    }
+
+    return result;
+}
+
 libp2p_host_err_t libp2p_host_stream_user_data(
     const libp2p_host_stream_t *stream,
     void **out_user_data)

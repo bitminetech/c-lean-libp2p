@@ -329,6 +329,14 @@ if(BUILD_TESTING)
     c_lean_libp2p_add_quic_test(spec tls_vectors)
 
     c_lean_libp2p_add_host_test(unit)
+    c_lean_libp2p_add_test(
+        unit_libp2p_host_accessors
+        "${PROJECT_SOURCE_DIR}/tests/unit/libp2p/test_libp2p_host_accessors.c"
+    )
+    c_lean_libp2p_add_test(
+        unit_libp2p_host_quic_accessors
+        "${PROJECT_SOURCE_DIR}/tests/unit/libp2p/test_libp2p_host_quic_accessors.c"
+    )
     c_lean_libp2p_add_host_test(spec)
 
     c_lean_libp2p_add_protocol_test(unit identify)

@@ -337,6 +337,40 @@ static libp2p_host_err_t host_quic_next_event(
     return result;
 }
 
+static libp2p_host_err_t host_quic_listen_multiaddr(
+    const void *transport,
+    uint8_t *out,
+    size_t out_len,
+    size_t *written)
+{
+    libp2p_quic_addr_t addr;
+    uint8_t local_peer_id[LIBP2P_PEER_ID_MAX_BYTES];
+    size_t local_peer_id_len = 0U;
+    const libp2p_quic_service_t *service = host_quic_service_from_const(transport);
+    libp2p_host_err_t result = LIBP2P_HOST_OK;
+
+    result = host_quic_err(libp2p_quic_service_listen_addr(service, &addr));
+    if (result == LIBP2P_HOST_OK)
+    {
+        result = host_quic_err(libp2p_quic_service_local_peer_id(
+            service,
+            local_peer_id,
+            sizeof(local_peer_id),
+            &local_peer_id_len));
+    }
+    if (result == LIBP2P_HOST_OK)
+    {
+        result = host_quic_err(
+            libp2p_quic_addr_set_peer_id(&addr, local_peer_id, local_peer_id_len));
+    }
+    if (result == LIBP2P_HOST_OK)
+    {
+        result = host_quic_err(libp2p_quic_addr_to_multiaddr(&addr, out, out_len, written));
+    }
+
+    return result;
+}
+
 static libp2p_host_err_t host_quic_dial(
     void *transport,
     const uint8_t *multiaddr,
@@ -397,6 +431,36 @@ static libp2p_host_err_t host_quic_conn_peer_id(
 {
     return host_quic_err(
         libp2p_quic_service_conn_peer_id(host_quic_conn_from_const(conn), out, out_len, written));
+}
+
+static libp2p_host_err_t host_quic_conn_remote_multiaddr(
+    const void *conn,
+    uint8_t *out,
+    size_t out_len,
+    size_t *written)
+{
+    libp2p_quic_addr_t addr;
+    uint8_t peer_id[LIBP2P_PEER_ID_MAX_BYTES];
+    size_t peer_id_len = 0U;
+    const libp2p_quic_conn_t *quic_conn = host_quic_conn_from_const(conn);
+    libp2p_host_err_t result = LIBP2P_HOST_OK;
+
+    result = host_quic_err(libp2p_quic_conn_remote_addr(quic_conn, &addr));
+    if (result == LIBP2P_HOST_OK)
+    {
+        result = host_quic_err(
+            libp2p_quic_service_conn_peer_id(quic_conn, peer_id, sizeof(peer_id), &peer_id_len));
+    }
+    if (result == LIBP2P_HOST_OK)
+    {
+        result = host_quic_err(libp2p_quic_addr_set_peer_id(&addr, peer_id, peer_id_len));
+    }
+    if (result == LIBP2P_HOST_OK)
+    {
+        result = host_quic_err(libp2p_quic_addr_to_multiaddr(&addr, out, out_len, written));
+    }
+
+    return result;
 }
 
 static libp2p_host_err_t host_quic_conn_peer_identity(
@@ -517,7 +581,7 @@ static libp2p_host_err_t host_quic_stream_stop_sending(
 const libp2p_host_transport_vtable_t *libp2p_host_quic_transport(void)
 {
     static const libp2p_host_transport_vtable_t transport =
-        {1U,
+        {2U,
          "quic-v1",
          host_quic_storage_size,
          host_quic_storage_align,
@@ -528,9 +592,11 @@ const libp2p_host_transport_vtable_t *libp2p_host_quic_transport(void)
          host_quic_next_deadline,
          host_quic_drive,
          host_quic_next_event,
+         host_quic_listen_multiaddr,
          host_quic_dial,
          host_quic_open_stream,
          host_quic_conn_peer_id,
+         host_quic_conn_remote_multiaddr,
          host_quic_conn_peer_identity,
          host_quic_conn_close,
          host_quic_stream_read,

@@ -205,6 +205,17 @@ static void identify_test_mock_host_round_trip(void)
             &inbound_stream.write_buf[offset],
             inbound_stream.write_len - offset,
             &local_message) == LIBP2P_IDENTIFY_OK);
+    assert(local_message.protocol_count == 1U);
+    assert(local_message.protocols[0].len == LIBP2P_IDENTIFY_PROTOCOL_ID_LEN);
+    assert(
+        memcmp(
+            local_message.protocols[0].data,
+            LIBP2P_IDENTIFY_PROTOCOL_ID,
+            local_message.protocols[0].len) == 0);
+    assert(local_message.observed_addr.len == conn.remote_multiaddr_len);
+    assert(
+        memcmp(local_message.observed_addr.data, conn.remote_multiaddr, conn.remote_multiaddr_len) ==
+        0);
     assert(inbound_stream.finish_count == 1U);
     assert(libp2p_identify_next_event(&identify, &identify_event) == LIBP2P_IDENTIFY_OK);
     assert(identify_event.type == LIBP2P_IDENTIFY_EVENT_SENT);

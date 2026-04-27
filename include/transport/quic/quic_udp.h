@@ -64,6 +64,18 @@ libp2p_quic_err_t libp2p_quic_udp_socket_local_addr(
     libp2p_quic_addr_t *out_addr);
 
 /**
+ * Return the local address callers should advertise for inbound dials.
+ *
+ * If the socket is bound to a wildcard address, the returned address keeps the
+ * bound port and attempts to replace the wildcard IP with the OS-selected
+ * source address for the default route. If no such address can be resolved, the
+ * bound wildcard address is returned unchanged.
+ */
+libp2p_quic_err_t libp2p_quic_udp_socket_listen_addr(
+    const libp2p_quic_udp_socket_t *socket,
+    libp2p_quic_addr_t *out_addr);
+
+/**
  * Receive one UDP datagram and feed it into an endpoint.
  *
  * buffer is caller-owned scratch storage. A nonblocking socket returns
