@@ -49,7 +49,7 @@
  * Lower values reduce one host's event-loop latency impact. Higher values
  * drain bursts faster when many streams are negotiating at once.
  */
-#define LIBP2P_HOST_DEFAULT_MAX_NEGOTIATION_STEPS_PER_DRIVE 32U
+#define LIBP2P_HOST_DEFAULT_MAX_NEGOTIATION_STEPS 32U
 
 /** Opaque host object stored in caller-provided memory. */
 typedef struct libp2p_host libp2p_host_t;
@@ -335,7 +335,7 @@ typedef struct
     size_t max_pending_dials;
     size_t max_pending_stream_opens;
     size_t event_capacity;
-    size_t max_negotiation_steps_per_drive;
+    size_t max_negotiation_steps;
 } libp2p_host_config_t;
 
 /** Drive result counters for observability, fairness, and deterministic tests. */
