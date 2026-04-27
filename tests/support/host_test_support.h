@@ -24,6 +24,7 @@ typedef struct
     uint8_t read_buf[HOST_TEST_STREAM_BUF_CAP];
     size_t read_len;
     size_t read_pos;
+    int read_fin;
     uint8_t write_buf[HOST_TEST_STREAM_BUF_CAP];
     size_t write_len;
     size_t reset_count;
@@ -405,7 +406,12 @@ static inline libp2p_host_err_t host_test_stream_read(
     if (mock_stream->read_pos == mock_stream->read_len)
     {
         *read_len = 0U;
-        *fin = 0;
+        *fin = mock_stream->read_fin;
+        if (mock_stream->read_fin != 0)
+        {
+            mock_stream->read_fin = 0;
+            return LIBP2P_HOST_OK;
+        }
         return LIBP2P_HOST_ERR_WOULD_BLOCK;
     }
     available = mock_stream->read_len - mock_stream->read_pos;
@@ -413,7 +419,12 @@ static inline libp2p_host_err_t host_test_stream_read(
     (void)memcpy(out, &mock_stream->read_buf[mock_stream->read_pos], count);
     mock_stream->read_pos += count;
     *read_len = count;
-    *fin = 0;
+    *fin =
+        ((mock_stream->read_pos == mock_stream->read_len) && (mock_stream->read_fin != 0)) ? 1 : 0;
+    if (*fin != 0)
+    {
+        mock_stream->read_fin = 0;
+    }
     return LIBP2P_HOST_OK;
 }
 

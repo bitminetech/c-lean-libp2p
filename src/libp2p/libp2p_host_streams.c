@@ -425,6 +425,12 @@ static libp2p_host_err_t host_stream_complete_negotiation(
     stream->neg_state = HOST_NEG_DONE;
     stream->state = HOST_STREAM_OPEN;
     err = host_protocol_open(host, stream, result);
+    if (err == LIBP2P_HOST_OK)
+    {
+        stream->pending_writable = 1U;
+        stream->pending_readable = 1U;
+    }
+
     if (err != LIBP2P_HOST_OK)
     {
         err = host_stream_fail_negotiation(host, stream, LIBP2P_HOST_ERR_PROTOCOL, result);
@@ -1041,6 +1047,32 @@ libp2p_host_err_t libp2p_host_stream_read(
         if ((stream == NULL) || (stream->host != host) || (stream->state != HOST_STREAM_OPEN))
         {
             result = LIBP2P_HOST_ERR_INVALID_ARG;
+        }
+        else if ((out == NULL) || (read_len == NULL) || (fin == NULL))
+        {
+            result = LIBP2P_HOST_ERR_INVALID_ARG;
+        }
+        else if (stream->in_len != 0U)
+        {
+            size_t count = stream->in_len;
+
+            if (count > out_len)
+            {
+                count = out_len;
+            }
+            if (count != 0U)
+            {
+                const size_t remaining = stream->in_len - count;
+
+                (void)memcpy(out, stream->in_frame, count);
+                if (remaining != 0U)
+                {
+                    (void)memmove(stream->in_frame, &stream->in_frame[count], remaining);
+                }
+                stream->in_len = remaining;
+            }
+            *read_len = count;
+            *fin = 0;
         }
         else
         {
