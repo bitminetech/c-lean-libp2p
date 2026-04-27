@@ -7,3 +7,6 @@
 [submodule "external/aws-lc"]
 	path = external/aws-lc
 	url = https://github.com/aws/aws-lc.git
+[submodule "interop/unified-testing"]
+	path = interop/unified-testing
+	url = https://github.com/Pier-Two/unified-testing.git
