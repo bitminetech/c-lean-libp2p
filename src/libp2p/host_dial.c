@@ -43,10 +43,11 @@ libp2p_host_err_t host_dial_mark_evented(libp2p_host_dial_t *dial)
 static libp2p_host_dial_t *host_dial_alloc(libp2p_host_t *host)
 {
     libp2p_host_dial_t *result = NULL;
-    size_t index;
 
     if (host != NULL)
     {
+        size_t index;
+
         for (index = 0U; index < host->dial_capacity; index++)
         {
             if (host->dials[index].state == HOST_DIAL_FREE)

@@ -192,10 +192,11 @@ libp2p_host_err_t host_stream_alloc(
 static libp2p_host_stream_open_t *host_open_alloc(libp2p_host_t *host)
 {
     libp2p_host_stream_open_t *result = NULL;
-    size_t index;
 
     if (host != NULL)
     {
+        size_t index;
+
         for (index = 0U; index < host->open_capacity; index++)
         {
             if (host->opens[index].state == HOST_OPEN_FREE)
@@ -216,7 +217,6 @@ static libp2p_host_err_t host_stream_prepare_message(
     const uint8_t *payload,
     size_t payload_len)
 {
-    libp2p_multistream_select_err_t err;
     libp2p_host_err_t result = LIBP2P_HOST_OK;
 
     if ((stream == NULL) || ((payload == NULL) && (payload_len != 0U)))
@@ -225,7 +225,7 @@ static libp2p_host_err_t host_stream_prepare_message(
     }
     else
     {
-        err = libp2p_multistream_select_message_encode(
+        const libp2p_multistream_select_err_t err = libp2p_multistream_select_message_encode(
             payload,
             payload_len,
             stream->out_frame,
@@ -778,7 +778,6 @@ libp2p_host_err_t host_stream_negotiation_one(
     uint8_t *out_progress)
 {
     libp2p_host_err_t err = LIBP2P_HOST_OK;
-    size_t checked;
 
     if (out_progress != NULL)
     {
@@ -794,7 +793,8 @@ libp2p_host_err_t host_stream_negotiation_one(
     }
     else
     {
-        checked = 0U;
+        size_t checked = 0U;
+
         while ((checked < host->stream_capacity) && (*out_progress == 0U) &&
                (err == LIBP2P_HOST_OK))
         {
@@ -820,7 +820,6 @@ libp2p_host_err_t host_stream_open_retry_one(
     uint8_t *out_progress)
 {
     libp2p_host_err_t err = LIBP2P_HOST_OK;
-    size_t index;
 
     if (out_progress != NULL)
     {
@@ -832,6 +831,8 @@ libp2p_host_err_t host_stream_open_retry_one(
     }
     else
     {
+        size_t index;
+
         for (index = 0U; index < host->open_capacity; index++)
         {
             libp2p_host_stream_open_t *open = &host->opens[index];

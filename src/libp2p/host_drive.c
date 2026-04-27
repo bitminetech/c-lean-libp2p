@@ -323,9 +323,6 @@ libp2p_host_err_t libp2p_host_drive(
     libp2p_host_drive_result_t *out_result)
 {
     libp2p_host_drive_result_t local_result;
-    uint8_t loop_progress;
-    size_t guard;
-    size_t guard_limit;
     libp2p_host_err_t err = host_validate_started(host);
 
     if (out_result != NULL)
@@ -344,10 +341,11 @@ libp2p_host_err_t libp2p_host_drive(
     }
     if (err == LIBP2P_HOST_OK)
     {
-        loop_progress = 1U;
-        guard = 0U;
-        guard_limit = host->event_capacity + host->stream_capacity + host->open_capacity +
-                      host->config.max_negotiation_steps + 8U;
+        uint8_t loop_progress = 1U;
+        size_t guard = 0U;
+        const size_t guard_limit = host->event_capacity + host->stream_capacity +
+                                   host->open_capacity + host->config.max_negotiation_steps + 8U;
+
         while ((loop_progress != 0U) && (err == LIBP2P_HOST_OK) && (guard < guard_limit))
         {
             uint8_t transport_progress = 0U;

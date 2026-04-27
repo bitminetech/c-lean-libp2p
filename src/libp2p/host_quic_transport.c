@@ -62,7 +62,7 @@ static const libp2p_quic_service_config_t *host_quic_config_from_const(const voi
     return out;
 }
 
-static libp2p_quic_service_t *host_quic_service_from_void(const void *ptr)
+static libp2p_quic_service_t *host_quic_service_from_void(void *ptr)
 {
     libp2p_quic_service_t *out = NULL;
 
@@ -80,7 +80,7 @@ static const libp2p_quic_service_t *host_quic_service_from_const(const void *ptr
     return out;
 }
 
-static libp2p_quic_conn_t *host_quic_conn_from_void(const void *ptr)
+static libp2p_quic_conn_t *host_quic_conn_from_void(void *ptr)
 {
     libp2p_quic_conn_t *out = NULL;
 
@@ -98,7 +98,7 @@ static const libp2p_quic_conn_t *host_quic_conn_from_const(const void *ptr)
     return out;
 }
 
-static libp2p_quic_stream_t *host_quic_stream_from_void(const void *ptr)
+static libp2p_quic_stream_t *host_quic_stream_from_void(void *ptr)
 {
     libp2p_quic_stream_t *out = NULL;
 
@@ -289,7 +289,6 @@ static libp2p_host_err_t host_quic_next_event(
     libp2p_quic_service_t *service = host_quic_service_from_void(transport);
     libp2p_quic_service_event_t quic_event;
     libp2p_host_err_t result = LIBP2P_HOST_OK;
-    uint8_t searching = 1U;
 
     if (out_event == NULL)
     {
@@ -297,6 +296,8 @@ static libp2p_host_err_t host_quic_next_event(
     }
     else
     {
+        uint8_t searching = 1U;
+
         (void)memset(out_event, 0, sizeof(*out_event));
         while ((result == LIBP2P_HOST_OK) && (searching != 0U))
         {

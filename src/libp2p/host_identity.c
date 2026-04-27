@@ -109,7 +109,6 @@ static libp2p_host_err_t host_secp256k1_sign(
     size_t *written)
 {
     const libp2p_host_secp256k1_identity_t *identity = host_identity_from_user_data(user_data);
-    libp2p_peer_id_err_t err;
     libp2p_host_err_t result = LIBP2P_HOST_OK;
 
     if ((identity == NULL) || (((message == NULL) && (message_len != 0U))) || (written == NULL))
@@ -118,7 +117,7 @@ static libp2p_host_err_t host_secp256k1_sign(
     }
     else
     {
-        err = libp2p_peer_id_sign_message(
+        const libp2p_peer_id_err_t err = libp2p_peer_id_sign_message(
             identity->private_key,
             identity->private_key_len,
             message,

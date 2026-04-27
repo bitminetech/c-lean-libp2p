@@ -98,7 +98,6 @@ libp2p_host_err_t host_protocol_event_one(
     uint8_t *out_progress)
 {
     libp2p_host_err_t err = LIBP2P_HOST_OK;
-    size_t checked;
 
     if (out_progress != NULL)
     {
@@ -110,7 +109,8 @@ libp2p_host_err_t host_protocol_event_one(
     }
     else
     {
-        checked = 0U;
+        size_t checked = 0U;
+
         while ((checked < host->stream_capacity) && (err == LIBP2P_HOST_OK) &&
                (*out_progress == 0U))
         {
