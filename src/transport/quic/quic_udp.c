@@ -357,11 +357,13 @@ static libp2p_quic_err_t quic_udp_default_route_addr(
             result = quic_udp_errno_to_err(quic_udp_last_error());
         }
     }
-    /* cppcheck-suppress misra-c2012-17.3 */
-    if ((result == LIBP2P_QUIC_OK) &&
-        (connect(fd, (const struct sockaddr *)&storage, storage_len) != 0))
+    if (result == LIBP2P_QUIC_OK)
     {
-        result = quic_udp_errno_to_err(quic_udp_last_error());
+        /* cppcheck-suppress misra-c2012-17.3 */
+        if (connect(fd, (const struct sockaddr *)&storage, storage_len) != 0)
+        {
+            result = quic_udp_errno_to_err(quic_udp_last_error());
+        }
     }
     if (result == LIBP2P_QUIC_OK)
     {
