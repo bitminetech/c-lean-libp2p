@@ -1,6 +1,6 @@
 #include <string.h>
 
-#include "host_internal.h"
+#include "libp2p_host_internal.h"
 #include "libp2p/libp2p_host_secp256k1_identity.h"
 
 libp2p_host_err_t host_map_peer_err(int peer_err)

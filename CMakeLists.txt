@@ -268,7 +268,7 @@ if(BUILD_TESTING)
 
     function(c_lean_libp2p_add_host_test suite_name)
         set(test_name "${suite_name}_libp2p_host")
-        set(test_source "${PROJECT_SOURCE_DIR}/tests/${suite_name}/libp2p/test_host.c")
+        set(test_source "${PROJECT_SOURCE_DIR}/tests/${suite_name}/libp2p/test_libp2p_host.c")
 
         c_lean_libp2p_add_test("${test_name}" "${test_source}")
     endfunction()

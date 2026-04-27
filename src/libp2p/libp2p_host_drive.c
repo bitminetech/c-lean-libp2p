@@ -1,6 +1,6 @@
 #include <string.h>
 
-#include "host_internal.h"
+#include "libp2p_host_internal.h"
 
 static libp2p_host_err_t host_transport_event_conn_established(
     libp2p_host_t *host,

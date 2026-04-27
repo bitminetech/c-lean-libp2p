@@ -1,6 +1,6 @@
 #include <string.h>
 
-#include "host_internal.h"
+#include "libp2p_host_internal.h"
 #include "transport/quic/quic.h"
 #include "transport/quic/quic_addr.h"
 #include "transport/quic/quic_service.h"

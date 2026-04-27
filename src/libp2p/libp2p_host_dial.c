@@ -1,6 +1,6 @@
 #include <string.h>
 
-#include "host_internal.h"
+#include "libp2p_host_internal.h"
 
 libp2p_host_dial_t *host_dial_find(libp2p_host_t *host, const void *transport_attempt)
 {

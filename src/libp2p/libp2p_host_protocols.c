@@ -1,6 +1,6 @@
 #include <string.h>
 
-#include "host_internal.h"
+#include "libp2p_host_internal.h"
 
 libp2p_host_err_t host_protocol_find(
     const libp2p_host_t *host,

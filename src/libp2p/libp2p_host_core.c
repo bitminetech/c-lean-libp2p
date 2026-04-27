@@ -1,7 +1,7 @@
 #include <stdint.h>
 #include <string.h>
 
-#include "host_internal.h"
+#include "libp2p_host_internal.h"
 
 static int host_size_add_overflow(size_t a, size_t b, size_t *out)
 {

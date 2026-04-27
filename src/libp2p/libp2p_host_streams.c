@@ -1,6 +1,6 @@
 #include <string.h>
 
-#include "host_internal.h"
+#include "libp2p_host_internal.h"
 
 static int host_bytes_equal(const uint8_t *a, size_t a_len, const uint8_t *b, size_t b_len)
 {
