@@ -14,7 +14,7 @@
 #include <stdint.h>
 
 /** IETF QUIC version 1, as defined by RFC 9000. */
-#define LIBP2P_QUIC_VERSION_RFC9000 UINT32_C(0x00000001)
+#define LIBP2P_QUIC_VERSION_RFC9000 ((uint32_t)0x00000001U)
 
 /** Mandatory ALPN used by the libp2p QUIC transport. */
 #define LIBP2P_QUIC_ALPN "libp2p"
@@ -31,9 +31,6 @@
 /** Maximum QUIC connection ID length permitted by RFC 9000. */
 #define LIBP2P_QUIC_MAX_CONN_ID_BYTES 20U
 
-/** QUIC stateless reset token length in bytes. */
-#define LIBP2P_QUIC_STATELESS_RESET_TOKEN_BYTES 16U
-
 /** Initial production resource limits for the c-lean-libp2p transport surface. */
 #define LIBP2P_QUIC_DEFAULT_MAX_CONNECTIONS     64U
 #define LIBP2P_QUIC_DEFAULT_MAX_BIDI_STREAMS    128U
@@ -42,11 +39,8 @@
 #define LIBP2P_QUIC_DEFAULT_CONN_WINDOW_BYTES   16777216U
 
 /** Default timers, expressed in microseconds against a monotonic clock. */
-#define LIBP2P_QUIC_DEFAULT_IDLE_TIMEOUT_US      UINT64_C(30000000)
-#define LIBP2P_QUIC_DEFAULT_HANDSHAKE_TIMEOUT_US UINT64_C(10000000)
-
-/** Generic application close code used for graceful local shutdown. */
-#define LIBP2P_QUIC_APP_CLOSE_NO_ERROR UINT64_C(0)
+#define LIBP2P_QUIC_DEFAULT_IDLE_TIMEOUT_US      ((uint64_t)30000000U)
+#define LIBP2P_QUIC_DEFAULT_HANDSHAKE_TIMEOUT_US ((uint64_t)10000000U)
 
 /** Opaque endpoint, connection, and stream handles. */
 typedef struct libp2p_quic_endpoint libp2p_quic_endpoint_t;
@@ -85,13 +79,11 @@ typedef enum
     LIBP2P_QUIC_ERR_INTERNAL
 } libp2p_quic_err_t;
 
-/** Endpoint role. Values may be treated as a bitmask by validators. */
-typedef enum
-{
-    LIBP2P_QUIC_ROLE_CLIENT = 1U,
-    LIBP2P_QUIC_ROLE_SERVER = 2U,
-    LIBP2P_QUIC_ROLE_CLIENT_SERVER = 3U
-} libp2p_quic_role_t;
+/** Endpoint role bits. Values may be ORed by validators. */
+typedef uint32_t libp2p_quic_role_t;
+#define LIBP2P_QUIC_ROLE_CLIENT        (1U << 0U)
+#define LIBP2P_QUIC_ROLE_SERVER        (1U << 1U)
+#define LIBP2P_QUIC_ROLE_CLIENT_SERVER (LIBP2P_QUIC_ROLE_CLIENT | LIBP2P_QUIC_ROLE_SERVER)
 
 /** ECN codepoint carried with a UDP datagram, when the platform exposes it. */
 typedef enum
@@ -123,26 +115,12 @@ typedef enum
     LIBP2P_QUIC_STREAM_RESET
 } libp2p_quic_stream_state_t;
 
-/** QUIC connection ID bytes. */
-typedef struct
-{
-    uint8_t bytes[LIBP2P_QUIC_MAX_CONN_ID_BYTES];
-    size_t len;
-} libp2p_quic_conn_id_t;
-
 /** Immutable byte span. The pointed-to storage remains caller-owned. */
 typedef struct
 {
     const uint8_t *data;
     size_t len;
 } libp2p_quic_const_buffer_t;
-
-/** Mutable byte span. The pointed-to storage remains caller-owned. */
-typedef struct
-{
-    uint8_t *data;
-    size_t len;
-} libp2p_quic_buffer_t;
 
 /**
  * Random byte callback used by endpoint and certificate generation code.
@@ -165,7 +143,7 @@ typedef libp2p_quic_err_t (*libp2p_quic_unix_time_fn_t)(
     uint64_t *out_unix_seconds,
     void *user_data);
 
-/** Allocator hooks used by the QUIC backend. NULL hooks select backend defaults. */
+/** Allocator hooks used by the QUIC backend. All hooks are required at init. */
 typedef void *(*libp2p_quic_malloc_fn_t)(size_t size, void *user_data);
 typedef void *(*libp2p_quic_calloc_fn_t)(size_t nmemb, size_t size, void *user_data);
 typedef void *(*libp2p_quic_realloc_fn_t)(void *ptr, size_t size, void *user_data);

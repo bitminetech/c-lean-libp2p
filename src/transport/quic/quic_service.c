@@ -5,17 +5,17 @@
 
 #include "transport/quic/quic_service.h"
 
-#include <stdalign.h>
 #include <stdint.h>
 #include <string.h>
 
 #include "transport/quic/quic_udp.h"
 
-#define QUIC_SERVICE_MAGIC UINT32_C(0x71535631)
+#define QUIC_SERVICE_MAGIC ((uint32_t)0x71535631U)
 
 #define QUIC_SERVICE_DEFAULT_DATAGRAM_BUDGET 64U
 #define QUIC_SERVICE_EVENTS_PER_CONNECTION   8U
 #define QUIC_SERVICE_EXTRA_EVENTS            16U
+#define QUIC_SERVICE_STORAGE_ALIGN           8U
 
 typedef struct
 {
@@ -66,53 +66,107 @@ struct libp2p_quic_service
 
 static int quic_service_size_add_overflow(size_t a, size_t b, size_t *out)
 {
+    int result = 0;
+
     if (b > (SIZE_MAX - a))
     {
         *out = SIZE_MAX;
-        return 1;
+        result = 1;
+    }
+    else
+    {
+        *out = a + b;
     }
 
-    *out = a + b;
-    return 0;
+    return result;
 }
 
 static int quic_service_size_mul_overflow(size_t a, size_t b, size_t *out)
 {
+    int result = 0;
+
     if ((a != 0U) && (b > (SIZE_MAX / a)))
     {
         *out = SIZE_MAX;
-        return 1;
+        result = 1;
+    }
+    else
+    {
+        *out = a * b;
     }
 
-    *out = a * b;
-    return 0;
+    return result;
 }
 
 static libp2p_quic_err_t quic_service_align_up_size(size_t value, size_t alignment, size_t *out)
 {
     size_t remainder = 0U;
     size_t adjustment = 0U;
+    libp2p_quic_err_t result = LIBP2P_QUIC_OK;
 
     if ((alignment == 0U) || (out == NULL))
     {
-        return LIBP2P_QUIC_ERR_INVALID_ARG;
+        result = LIBP2P_QUIC_ERR_INVALID_ARG;
     }
-
-    remainder = value % alignment;
-    if (remainder == 0U)
+    else
     {
-        *out = value;
-        return LIBP2P_QUIC_OK;
+        remainder = value % alignment;
+        if (remainder == 0U)
+        {
+            *out = value;
+        }
+        else
+        {
+            adjustment = alignment - remainder;
+            if (adjustment > (SIZE_MAX - value))
+            {
+                result = LIBP2P_QUIC_ERR_LIMIT;
+            }
+            else
+            {
+                *out = value + adjustment;
+            }
+        }
+
     }
 
-    adjustment = alignment - remainder;
-    if (adjustment > (SIZE_MAX - value))
-    {
-        return LIBP2P_QUIC_ERR_LIMIT;
-    }
+    return result;
+}
 
-    *out = value + adjustment;
-    return LIBP2P_QUIC_OK;
+static uint8_t *quic_service_storage_bytes(void *storage)
+{
+    uint8_t *bytes = NULL;
+
+    (void)memcpy(&bytes, &storage, sizeof(bytes));
+
+    return bytes;
+}
+
+static libp2p_quic_service_t *quic_service_storage_service(void *storage)
+{
+    libp2p_quic_service_t *service = NULL;
+
+    (void)memcpy(&service, &storage, sizeof(service));
+
+    return service;
+}
+
+static libp2p_quic_service_event_t *quic_service_storage_events(void *storage)
+{
+    libp2p_quic_service_event_t *events = NULL;
+
+    (void)memcpy(&events, &storage, sizeof(events));
+
+    return events;
+}
+
+static quic_service_conn_entry_t *quic_service_storage_conns(void *storage)
+{
+    quic_service_conn_entry_t *conns = NULL;
+
+    (void)memcpy(&conns, &storage, sizeof(conns));
+
+    return conns;
 }
 
 static libp2p_quic_err_t quic_service_reserve(
@@ -127,22 +181,24 @@ static libp2p_quic_err_t quic_service_reserve(
 
     if ((cursor == NULL) || (out_offset == NULL))
     {
-        return LIBP2P_QUIC_ERR_INVALID_ARG;
+        result = LIBP2P_QUIC_ERR_INVALID_ARG;
+    }
+    else
+    {
+        result = quic_service_align_up_size(*cursor, alignment, &aligned);
+        if ((result == LIBP2P_QUIC_OK) &&
+            (quic_service_size_add_overflow(aligned, size, &next) != 0))
+        {
+            result = LIBP2P_QUIC_ERR_LIMIT;
+        }
+        if (result == LIBP2P_QUIC_OK)
+        {
+            *out_offset = aligned;
+            *cursor = next;
+        }
     }
 
-    result = quic_service_align_up_size(*cursor, alignment, &aligned);
-    if (result != LIBP2P_QUIC_OK)
-    {
-        return result;
-    }
-    if (quic_service_size_add_overflow(aligned, size, &next) != 0)
-    {
-        return LIBP2P_QUIC_ERR_LIMIT;
-    }
-
-    *out_offset = aligned;
-    *cursor = next;
-    return LIBP2P_QUIC_OK;
+    return result;
 }
 
 static libp2p_quic_err_t quic_service_derived_event_capacity(
@@ -151,28 +207,30 @@ static libp2p_quic_err_t quic_service_derived_event_capacity(
 {
     size_t per_conn = 0U;
     size_t capacity = 0U;
+    libp2p_quic_err_t result = LIBP2P_QUIC_OK;
 
     if ((config == NULL) || (out_capacity == NULL))
     {
-        return LIBP2P_QUIC_ERR_INVALID_ARG;
+        result = LIBP2P_QUIC_ERR_INVALID_ARG;
     }
-    if (config->event_capacity != 0U)
+    else if (config->event_capacity != 0U)
     {
         *out_capacity = config->event_capacity;
-        return LIBP2P_QUIC_OK;
     }
-
-    if ((quic_service_size_mul_overflow(
-             config->endpoint.max_connections,
-             QUIC_SERVICE_EVENTS_PER_CONNECTION,
-             &per_conn) != 0) ||
-        (quic_service_size_add_overflow(per_conn, QUIC_SERVICE_EXTRA_EVENTS, &capacity) != 0))
+    else if ((quic_service_size_mul_overflow(
+                  config->endpoint.max_connections,
+                  QUIC_SERVICE_EVENTS_PER_CONNECTION,
+                  &per_conn) != 0) ||
+             (quic_service_size_add_overflow(per_conn, QUIC_SERVICE_EXTRA_EVENTS, &capacity) != 0))
     {
-        return LIBP2P_QUIC_ERR_LIMIT;
+        result = LIBP2P_QUIC_ERR_LIMIT;
+    }
+    else
+    {
+        *out_capacity = capacity;
     }
 
-    *out_capacity = capacity;
-    return LIBP2P_QUIC_OK;
+    return result;
 }
 
 static libp2p_quic_err_t quic_service_config_validate(const libp2p_quic_service_config_t *config)
@@ -183,36 +241,35 @@ static libp2p_quic_err_t quic_service_config_validate(const libp2p_quic_service_
 
     if (config == NULL)
     {
-        return LIBP2P_QUIC_ERR_INVALID_ARG;
+        result = LIBP2P_QUIC_ERR_INVALID_ARG;
     }
-    if ((config->max_rx_datagrams_per_drive == 0U) || (config->max_tx_datagrams_per_drive == 0U))
+    else if ((config->max_rx_datagrams_per_drive == 0U) ||
+             (config->max_tx_datagrams_per_drive == 0U))
     {
-        return LIBP2P_QUIC_ERR_INVALID_ARG;
+        result = LIBP2P_QUIC_ERR_INVALID_ARG;
+    }
+    else
+    {
+        result = libp2p_quic_addr_validate(&config->local_addr);
     }
 
-    result = libp2p_quic_addr_validate(&config->local_addr);
-    if (result != LIBP2P_QUIC_OK)
+    if (result == LIBP2P_QUIC_OK)
     {
-        return result;
+        result = libp2p_quic_endpoint_storage_size(&config->endpoint, &endpoint_len);
     }
-    result = libp2p_quic_endpoint_storage_size(&config->endpoint, &endpoint_len);
-    if (result != LIBP2P_QUIC_OK)
+    if (result == LIBP2P_QUIC_OK)
     {
-        return result;
+        result = quic_service_derived_event_capacity(config, &event_capacity);
     }
-    result = quic_service_derived_event_capacity(config, &event_capacity);
-    if (result != LIBP2P_QUIC_OK)
+    if ((result == LIBP2P_QUIC_OK) &&
+        ((endpoint_len == 0U) || (event_capacity == 0U) ||
+         (config->endpoint.max_connections == 0U) ||
+         (config->endpoint.max_datagram_payload_bytes < LIBP2P_QUIC_MIN_INITIAL_DATAGRAM_BYTES)))
     {
-        return result;
-    }
-    if ((endpoint_len == 0U) || (event_capacity == 0U) ||
-        (config->endpoint.max_connections == 0U) ||
-        (config->endpoint.max_datagram_payload_bytes < LIBP2P_QUIC_MIN_INITIAL_DATAGRAM_BYTES))
-    {
-        return LIBP2P_QUIC_ERR_INVALID_ARG;
+        result = LIBP2P_QUIC_ERR_INVALID_ARG;
     }
 
-    return LIBP2P_QUIC_OK;
+    return result;
 }
 
 static libp2p_quic_err_t quic_service_layout(
@@ -225,108 +282,120 @@ static libp2p_quic_err_t quic_service_layout(
 
     if ((config == NULL) || (layout == NULL))
     {
-        return LIBP2P_QUIC_ERR_INVALID_ARG;
+        result = LIBP2P_QUIC_ERR_INVALID_ARG;
+    }
+    else
+    {
+        (void)memset(layout, 0, sizeof(*layout));
+        result = quic_service_config_validate(config);
     }
 
-    (void)memset(layout, 0, sizeof(*layout));
-    result = quic_service_config_validate(config);
-    if (result != LIBP2P_QUIC_OK)
+    if (result == LIBP2P_QUIC_OK)
     {
-        return result;
+        result = libp2p_quic_endpoint_storage_size(&config->endpoint, &layout->endpoint_len);
     }
-    result = libp2p_quic_endpoint_storage_size(&config->endpoint, &layout->endpoint_len);
-    if (result != LIBP2P_QUIC_OK)
+    if (result == LIBP2P_QUIC_OK)
     {
-        return result;
+        result = libp2p_quic_endpoint_storage_align(&layout->endpoint_align);
     }
-    result = libp2p_quic_endpoint_storage_align(&layout->endpoint_align);
-    if (result != LIBP2P_QUIC_OK)
+    if (result == LIBP2P_QUIC_OK)
     {
-        return result;
+        result = quic_service_derived_event_capacity(config, &layout->event_capacity);
     }
-    result = quic_service_derived_event_capacity(config, &layout->event_capacity);
-    if (result != LIBP2P_QUIC_OK)
+    if (result == LIBP2P_QUIC_OK)
     {
-        return result;
-    }
-    layout->conn_capacity = config->endpoint.max_connections;
-    layout->datagram_len = config->endpoint.max_datagram_payload_bytes;
+        layout->conn_capacity = config->endpoint.max_connections;
+        layout->datagram_len = config->endpoint.max_datagram_payload_bytes;
 
-    result = quic_service_reserve(
-        &cursor,
-        alignof(libp2p_quic_service_t),
-        sizeof(libp2p_quic_service_t),
-        &layout->service_offset);
-    if (result != LIBP2P_QUIC_OK)
-    {
-        return result;
+        result = quic_service_reserve(
+            &cursor,
+            QUIC_SERVICE_STORAGE_ALIGN,
+            sizeof(libp2p_quic_service_t),
+            &layout->service_offset);
     }
-    result = quic_service_reserve(
-        &cursor,
-        layout->endpoint_align,
-        layout->endpoint_len,
-        &layout->endpoint_offset);
-    if (result != LIBP2P_QUIC_OK)
+    if (result == LIBP2P_QUIC_OK)
     {
-        return result;
+        result = quic_service_reserve(
+            &cursor,
+            layout->endpoint_align,
+            layout->endpoint_len,
+            &layout->endpoint_offset);
     }
-    if (quic_service_size_mul_overflow(
+    if ((result == LIBP2P_QUIC_OK) &&
+        (quic_service_size_mul_overflow(
             layout->event_capacity,
             sizeof(libp2p_quic_service_event_t),
-            &bytes) != 0)
+            &bytes) != 0))
     {
-        return LIBP2P_QUIC_ERR_LIMIT;
+        result = LIBP2P_QUIC_ERR_LIMIT;
     }
-    result = quic_service_reserve(
-        &cursor,
-        alignof(libp2p_quic_service_event_t),
-        bytes,
-        &layout->events_offset);
-    if (result != LIBP2P_QUIC_OK)
+    if (result == LIBP2P_QUIC_OK)
     {
-        return result;
+        result = quic_service_reserve(
+            &cursor,
+            QUIC_SERVICE_STORAGE_ALIGN,
+            bytes,
+            &layout->events_offset);
     }
-    if (quic_service_size_mul_overflow(
+    if ((result == LIBP2P_QUIC_OK) &&
+        (quic_service_size_mul_overflow(
             layout->conn_capacity,
             sizeof(quic_service_conn_entry_t),
-            &bytes) != 0)
+            &bytes) != 0))
     {
-        return LIBP2P_QUIC_ERR_LIMIT;
+        result = LIBP2P_QUIC_ERR_LIMIT;
     }
-    result = quic_service_reserve(
-        &cursor,
-        alignof(quic_service_conn_entry_t),
-        bytes,
-        &layout->conns_offset);
-    if (result != LIBP2P_QUIC_OK)
+    if (result == LIBP2P_QUIC_OK)
     {
-        return result;
+        result = quic_service_reserve(
+            &cursor,
+            QUIC_SERVICE_STORAGE_ALIGN,
+            bytes,
+            &layout->conns_offset);
     }
-    result =
-        quic_service_reserve(&cursor, alignof(uint8_t), layout->datagram_len, &layout->rx_offset);
-    if (result != LIBP2P_QUIC_OK)
+    if (result == LIBP2P_QUIC_OK)
     {
-        return result;
+        result = quic_service_reserve(
+            &cursor,
+            1U,
+            layout->datagram_len,
+            &layout->rx_offset);
     }
-    result =
-        quic_service_reserve(&cursor, alignof(uint8_t), layout->datagram_len, &layout->tx_offset);
-    if (result != LIBP2P_QUIC_OK)
+    if (result == LIBP2P_QUIC_OK)
     {
-        return result;
+        result = quic_service_reserve(
+            &cursor,
+            1U,
+            layout->datagram_len,
+            &layout->tx_offset);
     }
 
-    layout->total_len = cursor;
-    return LIBP2P_QUIC_OK;
+    if (result == LIBP2P_QUIC_OK)
+    {
+        layout->total_len = cursor;
+    }
+
+    return result;
 }
 
 static libp2p_quic_err_t quic_service_validate(const libp2p_quic_service_t *service)
 {
+    libp2p_quic_err_t result = LIBP2P_QUIC_OK;
+
     if ((service == NULL) || (service->magic != QUIC_SERVICE_MAGIC))
     {
-        return LIBP2P_QUIC_ERR_INVALID_ARG;
+        result = LIBP2P_QUIC_ERR_INVALID_ARG;
+    }
+    else if (service->closed != 0U)
+    {
+        result = LIBP2P_QUIC_ERR_CLOSED;
+    }
+    else
+    {
+        result = LIBP2P_QUIC_OK;
     }
 
-    return service->closed != 0U ? LIBP2P_QUIC_ERR_CLOSED : LIBP2P_QUIC_OK;
+    return result;
 }
 
 static libp2p_quic_err_t quic_service_event_push(
@@ -339,26 +408,30 @@ static libp2p_quic_err_t quic_service_event_push(
 {
     size_t pos = 0U;
     libp2p_quic_service_event_t event;
+    libp2p_quic_err_t result = LIBP2P_QUIC_OK;
 
     if ((service == NULL) || (service->events == NULL) || (service->event_capacity == 0U))
     {
-        return LIBP2P_QUIC_ERR_INVALID_ARG;
+        result = LIBP2P_QUIC_ERR_INVALID_ARG;
     }
-    if (service->event_len == service->event_capacity)
+    else if (service->event_len == service->event_capacity)
     {
-        return LIBP2P_QUIC_ERR_LIMIT;
+        result = LIBP2P_QUIC_ERR_LIMIT;
+    }
+    else
+    {
+        event.type = type;
+        event.conn = conn;
+        event.stream = stream;
+        event.app_error_code = app_error_code;
+        event.transport_error_code = transport_error_code;
+
+        pos = (service->event_head + service->event_len) % service->event_capacity;
+        service->events[pos] = event;
+        service->event_len++;
     }
 
-    event.type = type;
-    event.conn = conn;
-    event.stream = stream;
-    event.app_error_code = app_error_code;
-    event.transport_error_code = transport_error_code;
-
-    pos = (service->event_head + service->event_len) % service->event_capacity;
-    service->events[pos] = event;
-    service->event_len++;
-    return LIBP2P_QUIC_OK;
+    return result;
 }
 
 static quic_service_conn_entry_t *quic_service_find_conn(
@@ -366,20 +439,21 @@ static quic_service_conn_entry_t *quic_service_find_conn(
     const libp2p_quic_conn_t *conn)
 {
     size_t index = 0U;
+    quic_service_conn_entry_t *result = NULL;
 
-    if ((service == NULL) || (conn == NULL))
+    if ((service != NULL) && (conn != NULL))
     {
-        return NULL;
-    }
-    for (index = 0U; index < service->conn_count; index++)
-    {
-        if (service->conns[index].conn == conn)
+        for (index = 0U; index < service->conn_count; index++)
         {
-            return &service->conns[index];
+            if (service->conns[index].conn == conn)
+            {
+                result = &service->conns[index];
+                break;
+            }
         }
     }
 
-    return NULL;
+    return result;
 }
 
 static libp2p_quic_err_t quic_service_track_conn(
@@ -388,32 +462,44 @@ static libp2p_quic_err_t quic_service_track_conn(
     int incoming)
 {
     quic_service_conn_entry_t *entry = NULL;
+    libp2p_quic_err_t result = LIBP2P_QUIC_OK;
 
     if ((service == NULL) || (conn == NULL))
     {
-        return LIBP2P_QUIC_ERR_INVALID_ARG;
+        result = LIBP2P_QUIC_ERR_INVALID_ARG;
     }
-
-    entry = quic_service_find_conn(service, conn);
-    if (entry != NULL)
+    else
     {
-        if (incoming != 0)
+        entry = quic_service_find_conn(service, conn);
+        if (entry != NULL)
         {
-            entry->incoming = 1U;
+            if (incoming != 0)
+            {
+                entry->incoming = 1U;
+            }
         }
-        return LIBP2P_QUIC_OK;
-    }
-    if (service->conn_count == service->conn_capacity)
-    {
-        return LIBP2P_QUIC_ERR_LIMIT;
+        else if (service->conn_count == service->conn_capacity)
+        {
+            result = LIBP2P_QUIC_ERR_LIMIT;
+        }
+        else
+        {
+            entry = &service->conns[service->conn_count];
+            (void)memset(entry, 0, sizeof(*entry));
+            entry->conn = conn;
+            if (incoming != 0)
+            {
+                entry->incoming = 1U;
+            }
+            else
+            {
+                entry->incoming = 0U;
+            }
+            service->conn_count++;
+        }
     }
 
-    entry = &service->conns[service->conn_count];
-    (void)memset(entry, 0, sizeof(*entry));
-    entry->conn = conn;
-    entry->incoming = (uint8_t)(incoming != 0);
-    service->conn_count++;
-    return LIBP2P_QUIC_OK;
+    return result;
 }
 
 static libp2p_quic_err_t quic_service_mark_conn_established(
@@ -423,17 +509,20 @@ static libp2p_quic_err_t quic_service_mark_conn_established(
     quic_service_conn_entry_t *entry = NULL;
     libp2p_quic_err_t result = quic_service_track_conn(service, conn, 0);
 
-    if (result != LIBP2P_QUIC_OK)
+    if (result == LIBP2P_QUIC_OK)
     {
-        return result;
+        entry = quic_service_find_conn(service, conn);
+        if (entry == NULL)
+        {
+            result = LIBP2P_QUIC_ERR_INTERNAL;
+        }
+        else
+        {
+            entry->established = 1U;
+        }
     }
-    entry = quic_service_find_conn(service, conn);
-    if (entry == NULL)
-    {
-        return LIBP2P_QUIC_ERR_INTERNAL;
-    }
-    entry->established = 1U;
-    return LIBP2P_QUIC_OK;
+
+    return result;
 }
 
 static void quic_service_mark_conn_closed(
@@ -456,97 +545,99 @@ static libp2p_quic_err_t quic_service_translate_event(
 
     if ((service == NULL) || (event == NULL))
     {
-        return LIBP2P_QUIC_ERR_INVALID_ARG;
+        result = LIBP2P_QUIC_ERR_INVALID_ARG;
     }
-
-    switch (event->type)
+    else
     {
-    case LIBP2P_QUIC_EVENT_CONN_INCOMING:
-        result = quic_service_track_conn(service, event->conn, 1);
-        if (result == LIBP2P_QUIC_OK)
+        switch (event->type)
         {
+        case LIBP2P_QUIC_EVENT_CONN_INCOMING:
+            result = quic_service_track_conn(service, event->conn, 1);
+            if (result == LIBP2P_QUIC_OK)
+            {
+                result = quic_service_event_push(
+                    service,
+                    LIBP2P_QUIC_SERVICE_EVENT_CONN_INCOMING,
+                    event->conn,
+                    NULL,
+                    event->app_error_code,
+                    event->transport_error_code);
+            }
+            break;
+
+        case LIBP2P_QUIC_EVENT_CONN_ESTABLISHED:
+            result = quic_service_mark_conn_established(service, event->conn);
+            if (result == LIBP2P_QUIC_OK)
+            {
+                result = quic_service_event_push(
+                    service,
+                    LIBP2P_QUIC_SERVICE_EVENT_CONN_ESTABLISHED,
+                    event->conn,
+                    NULL,
+                    event->app_error_code,
+                    event->transport_error_code);
+            }
+            break;
+
+        case LIBP2P_QUIC_EVENT_CONN_CLOSED:
+            quic_service_mark_conn_closed(service, event->conn);
             result = quic_service_event_push(
                 service,
-                LIBP2P_QUIC_SERVICE_EVENT_CONN_INCOMING,
+                LIBP2P_QUIC_SERVICE_EVENT_CONN_CLOSED,
                 event->conn,
                 NULL,
                 event->app_error_code,
                 event->transport_error_code);
-        }
-        break;
+            break;
 
-    case LIBP2P_QUIC_EVENT_CONN_ESTABLISHED:
-        result = quic_service_mark_conn_established(service, event->conn);
-        if (result == LIBP2P_QUIC_OK)
-        {
+        case LIBP2P_QUIC_EVENT_STREAM_INCOMING:
             result = quic_service_event_push(
                 service,
-                LIBP2P_QUIC_SERVICE_EVENT_CONN_ESTABLISHED,
+                LIBP2P_QUIC_SERVICE_EVENT_STREAM_INCOMING,
                 event->conn,
-                NULL,
+                event->stream,
                 event->app_error_code,
                 event->transport_error_code);
+            break;
+
+        case LIBP2P_QUIC_EVENT_STREAM_READABLE:
+            result = quic_service_event_push(
+                service,
+                LIBP2P_QUIC_SERVICE_EVENT_STREAM_READABLE,
+                event->conn,
+                event->stream,
+                event->app_error_code,
+                event->transport_error_code);
+            break;
+
+        case LIBP2P_QUIC_EVENT_STREAM_WRITABLE:
+            result = quic_service_event_push(
+                service,
+                LIBP2P_QUIC_SERVICE_EVENT_STREAM_WRITABLE,
+                event->conn,
+                event->stream,
+                event->app_error_code,
+                event->transport_error_code);
+            break;
+
+        case LIBP2P_QUIC_EVENT_STREAM_CLOSED:
+            result = quic_service_event_push(
+                service,
+                LIBP2P_QUIC_SERVICE_EVENT_STREAM_CLOSED,
+                event->conn,
+                event->stream,
+                event->app_error_code,
+                event->transport_error_code);
+            break;
+
+        case LIBP2P_QUIC_EVENT_TX_DATAGRAM_READY:
+            service->tx_pending = 1U;
+            break;
+
+        case LIBP2P_QUIC_EVENT_NONE:
+        default:
+            break;
         }
-        break;
-
-    case LIBP2P_QUIC_EVENT_CONN_CLOSED:
-        quic_service_mark_conn_closed(service, event->conn);
-        result = quic_service_event_push(
-            service,
-            LIBP2P_QUIC_SERVICE_EVENT_CONN_CLOSED,
-            event->conn,
-            NULL,
-            event->app_error_code,
-            event->transport_error_code);
-        break;
-
-    case LIBP2P_QUIC_EVENT_STREAM_INCOMING:
-        result = quic_service_event_push(
-            service,
-            LIBP2P_QUIC_SERVICE_EVENT_STREAM_INCOMING,
-            event->conn,
-            event->stream,
-            event->app_error_code,
-            event->transport_error_code);
-        break;
-
-    case LIBP2P_QUIC_EVENT_STREAM_READABLE:
-        result = quic_service_event_push(
-            service,
-            LIBP2P_QUIC_SERVICE_EVENT_STREAM_READABLE,
-            event->conn,
-            event->stream,
-            event->app_error_code,
-            event->transport_error_code);
-        break;
-
-    case LIBP2P_QUIC_EVENT_STREAM_WRITABLE:
-        result = quic_service_event_push(
-            service,
-            LIBP2P_QUIC_SERVICE_EVENT_STREAM_WRITABLE,
-            event->conn,
-            event->stream,
-            event->app_error_code,
-            event->transport_error_code);
-        break;
-
-    case LIBP2P_QUIC_EVENT_STREAM_CLOSED:
-        result = quic_service_event_push(
-            service,
-            LIBP2P_QUIC_SERVICE_EVENT_STREAM_CLOSED,
-            event->conn,
-            event->stream,
-            event->app_error_code,
-            event->transport_error_code);
-        break;
-
-    case LIBP2P_QUIC_EVENT_TX_DATAGRAM_READY:
-        service->tx_pending = 1U;
-        break;
-
-    case LIBP2P_QUIC_EVENT_NONE:
-    default:
-        break;
     }
 
     return result;
@@ -558,30 +649,43 @@ static libp2p_quic_err_t quic_service_drain_endpoint_events(
 {
     libp2p_quic_event_t event;
     libp2p_quic_err_t err = LIBP2P_QUIC_OK;
+    uint8_t draining = 1U;
 
     if (service == NULL)
     {
-        return LIBP2P_QUIC_ERR_INVALID_ARG;
+        err = LIBP2P_QUIC_ERR_INVALID_ARG;
     }
-
-    while ((err = libp2p_quic_endpoint_next_event(service->endpoint, &event)) == LIBP2P_QUIC_OK)
+    else
     {
-        if (result != NULL)
+        while ((err == LIBP2P_QUIC_OK) && (draining != 0U))
         {
-            result->endpoint_events++;
-        }
-        err = quic_service_translate_event(service, &event);
-        if (err != LIBP2P_QUIC_OK)
-        {
-            return err;
-        }
-        if ((result != NULL) && (event.type != LIBP2P_QUIC_EVENT_TX_DATAGRAM_READY))
-        {
-            result->service_events++;
+            err = libp2p_quic_endpoint_next_event(service->endpoint, &event);
+            if (err == LIBP2P_QUIC_OK)
+            {
+                if (result != NULL)
+                {
+                    result->endpoint_events++;
+                }
+                err = quic_service_translate_event(service, &event);
+                if ((err == LIBP2P_QUIC_OK) && (result != NULL) &&
+                    (event.type != LIBP2P_QUIC_EVENT_TX_DATAGRAM_READY))
+                {
+                    result->service_events++;
+                }
+            }
+            else
+            {
+                draining = 0U;
+            }
         }
     }
 
-    return err == LIBP2P_QUIC_ERR_WOULD_BLOCK ? LIBP2P_QUIC_OK : err;
+    if (err == LIBP2P_QUIC_ERR_WOULD_BLOCK)
+    {
+        err = LIBP2P_QUIC_OK;
+    }
+
+    return err;
 }
 
 static libp2p_quic_err_t quic_service_drive_rx(
@@ -590,8 +694,13 @@ static libp2p_quic_err_t quic_service_drive_rx(
     libp2p_quic_service_drive_result_t *result)
 {
     size_t index = 0U;
+    libp2p_quic_err_t result_code = LIBP2P_QUIC_OK;
 
-    for (index = 0U; index < service->config.max_rx_datagrams_per_drive; index++)
+    for (index = 0U;
+         (index < service->config.max_rx_datagrams_per_drive) &&
+         (result_code == LIBP2P_QUIC_OK) &&
+         (result->rx_drained == 0U);
+         index++)
     {
         libp2p_quic_err_t err = libp2p_quic_udp_socket_recv(
             &service->socket,
@@ -603,17 +712,18 @@ static libp2p_quic_err_t quic_service_drive_rx(
         {
             result->rx_datagrams++;
             result->made_progress = 1U;
-            continue;
         }
-        if (err == LIBP2P_QUIC_ERR_WOULD_BLOCK)
+        else if (err == LIBP2P_QUIC_ERR_WOULD_BLOCK)
         {
             result->rx_drained = 1U;
-            return LIBP2P_QUIC_OK;
         }
-        return err;
+        else
+        {
+            result_code = err;
+        }
     }
 
-    return LIBP2P_QUIC_OK;
+    return result_code;
 }
 
 static libp2p_quic_err_t quic_service_drive_tx(
@@ -622,8 +732,13 @@ static libp2p_quic_err_t quic_service_drive_tx(
     libp2p_quic_service_drive_result_t *result)
 {
     size_t index = 0U;
+    libp2p_quic_err_t result_code = LIBP2P_QUIC_OK;
 
-    for (index = 0U; index < service->config.max_tx_datagrams_per_drive; index++)
+    for (index = 0U;
+         (index < service->config.max_tx_datagrams_per_drive) &&
+         (result_code == LIBP2P_QUIC_OK) &&
+         (result->tx_drained == 0U);
+         index++)
     {
         libp2p_quic_err_t err = libp2p_quic_udp_socket_send(
             &service->socket,
@@ -636,19 +751,24 @@ static libp2p_quic_err_t quic_service_drive_tx(
             result->tx_datagrams++;
             result->made_progress = 1U;
             service->tx_pending = 1U;
-            continue;
         }
-        if (err == LIBP2P_QUIC_ERR_WOULD_BLOCK)
+        else if (err == LIBP2P_QUIC_ERR_WOULD_BLOCK)
         {
             service->tx_pending = 0U;
             result->tx_drained = 1U;
-            return LIBP2P_QUIC_OK;
         }
-        return err;
+        else
+        {
+            result_code = err;
+        }
     }
 
-    service->tx_pending = 1U;
-    return LIBP2P_QUIC_OK;
+    if ((result_code == LIBP2P_QUIC_OK) && (result->tx_drained == 0U))
+    {
+        service->tx_pending = 1U;
+    }
+
+    return result_code;
 }
 
 libp2p_quic_err_t libp2p_quic_service_config_default(libp2p_quic_service_config_t *config)
@@ -657,20 +777,22 @@ libp2p_quic_err_t libp2p_quic_service_config_default(libp2p_quic_service_config_
 
     if (config == NULL)
     {
-        return LIBP2P_QUIC_ERR_INVALID_ARG;
+        result = LIBP2P_QUIC_ERR_INVALID_ARG;
+    }
+    else
+    {
+        (void)memset(config, 0, sizeof(*config));
+        result = libp2p_quic_endpoint_config_default(&config->endpoint);
+        if (result == LIBP2P_QUIC_OK)
+        {
+            config->nonblocking = 1U;
+            config->event_capacity = 0U;
+            config->max_rx_datagrams_per_drive = QUIC_SERVICE_DEFAULT_DATAGRAM_BUDGET;
+            config->max_tx_datagrams_per_drive = QUIC_SERVICE_DEFAULT_DATAGRAM_BUDGET;
+        }
     }
 
-    (void)memset(config, 0, sizeof(*config));
-    result = libp2p_quic_endpoint_config_default(&config->endpoint);
-    if (result != LIBP2P_QUIC_OK)
-    {
-        return result;
-    }
-    config->nonblocking = 1U;
-    config->event_capacity = 0U;
-    config->max_rx_datagrams_per_drive = QUIC_SERVICE_DEFAULT_DATAGRAM_BUDGET;
-    config->max_tx_datagrams_per_drive = QUIC_SERVICE_DEFAULT_DATAGRAM_BUDGET;
-    return LIBP2P_QUIC_OK;
+    return result;
 }
 
 libp2p_quic_err_t libp2p_quic_service_storage_size(
@@ -682,51 +804,50 @@ libp2p_quic_err_t libp2p_quic_service_storage_size(
 
     if (out_len == NULL)
     {
-        return LIBP2P_QUIC_ERR_INVALID_ARG;
+        result = LIBP2P_QUIC_ERR_INVALID_ARG;
     }
-    *out_len = 0U;
-
-    result = quic_service_layout(config, &layout);
-    if (result != LIBP2P_QUIC_OK)
+    else
     {
-        return result;
+        *out_len = 0U;
+        result = quic_service_layout(config, &layout);
+        if (result == LIBP2P_QUIC_OK)
+        {
+            *out_len = layout.total_len;
+        }
     }
 
-    *out_len = layout.total_len;
-    return LIBP2P_QUIC_OK;
+    return result;
 }
 
 libp2p_quic_err_t libp2p_quic_service_storage_align(size_t *out_align)
 {
     size_t endpoint_align = 0U;
-    size_t align = alignof(libp2p_quic_service_t);
+    size_t align = QUIC_SERVICE_STORAGE_ALIGN;
     libp2p_quic_err_t result = LIBP2P_QUIC_OK;
 
     if (out_align == NULL)
     {
-        return LIBP2P_QUIC_ERR_INVALID_ARG;
+        result = LIBP2P_QUIC_ERR_INVALID_ARG;
+    }
+    else
+    {
+        result = libp2p_quic_endpoint_storage_align(&endpoint_align);
+        if (result == LIBP2P_QUIC_OK)
+        {
+            if (endpoint_align > align)
+            {
+                align = endpoint_align;
+            }
+            if (endpoint_align > align)
+            {
+                align = endpoint_align;
+            }
+
+            *out_align = align;
+        }
     }
 
-    result = libp2p_quic_endpoint_storage_align(&endpoint_align);
-    if (result != LIBP2P_QUIC_OK)
-    {
-        return result;
-    }
-    if (endpoint_align > align)
-    {
-        align = endpoint_align;
-    }
-    if (alignof(libp2p_quic_service_event_t) > align)
-    {
-        align = alignof(libp2p_quic_service_event_t);
-    }
-    if (alignof(quic_service_conn_entry_t) > align)
-    {
-        align = alignof(quic_service_conn_entry_t);
-    }
-
-    *out_align = align;
-    return LIBP2P_QUIC_OK;
+    return result;
 }
 
 libp2p_quic_err_t libp2p_quic_service_init(
@@ -737,102 +858,95 @@ libp2p_quic_err_t libp2p_quic_service_init(
 {
     quic_service_layout_t layout;
     libp2p_quic_service_t *service = NULL;
-    uint8_t *bytes = (uint8_t *)storage;
+    uint8_t *bytes = quic_service_storage_bytes(storage);
     libp2p_quic_addr_t bound_addr;
-    size_t required_align = 0U;
     libp2p_quic_err_t result = LIBP2P_QUIC_OK;
 
     if (out_service == NULL)
     {
-        return LIBP2P_QUIC_ERR_INVALID_ARG;
+        result = LIBP2P_QUIC_ERR_INVALID_ARG;
     }
-    *out_service = NULL;
-
-    result = quic_service_layout(config, &layout);
-    if (result != LIBP2P_QUIC_OK)
+    else
     {
-        return result;
-    }
-    result = libp2p_quic_service_storage_align(&required_align);
-    if (result != LIBP2P_QUIC_OK)
-    {
-        return result;
-    }
-    if ((storage == NULL) || (storage_len < layout.total_len) ||
-        (((uintptr_t)storage % required_align) != 0U))
-    {
-        return LIBP2P_QUIC_ERR_INVALID_ARG;
+        *out_service = NULL;
+        result = quic_service_layout(config, &layout);
     }
 
-    (void)memset(storage, 0, layout.total_len);
-    service = (libp2p_quic_service_t *)&bytes[layout.service_offset];
-    service->magic = QUIC_SERVICE_MAGIC;
-    service->config = *config;
-    service->endpoint_storage = &bytes[layout.endpoint_offset];
-    service->endpoint_storage_len = layout.endpoint_len;
-    service->events = (libp2p_quic_service_event_t *)&bytes[layout.events_offset];
-    service->event_capacity = layout.event_capacity;
-    service->conns = (quic_service_conn_entry_t *)&bytes[layout.conns_offset];
-    service->conn_capacity = layout.conn_capacity;
-    service->rx_buffer = &bytes[layout.rx_offset];
-    service->tx_buffer = &bytes[layout.tx_offset];
-    service->datagram_buffer_len = layout.datagram_len;
+    if ((result == LIBP2P_QUIC_OK) && ((storage == NULL) || (storage_len < layout.total_len)))
+    {
+        result = LIBP2P_QUIC_ERR_INVALID_ARG;
+    }
 
-    result = libp2p_quic_udp_socket_init(&service->socket);
-    if (result != LIBP2P_QUIC_OK)
+    if (result == LIBP2P_QUIC_OK)
     {
-        goto fail;
-    }
-    result = libp2p_quic_endpoint_init(
-        service->endpoint_storage,
-        service->endpoint_storage_len,
-        &service->config.endpoint,
-        &service->endpoint);
-    if (result != LIBP2P_QUIC_OK)
-    {
-        goto fail;
-    }
-    result = libp2p_quic_udp_socket_open(
-        &service->socket,
-        &service->config.local_addr,
-        service->config.nonblocking != 0U);
-    if (result != LIBP2P_QUIC_OK)
-    {
-        goto fail;
-    }
-    result = libp2p_quic_udp_socket_local_addr(&service->socket, &bound_addr);
-    if (result != LIBP2P_QUIC_OK)
-    {
-        goto fail;
-    }
-    result = libp2p_quic_endpoint_bind(service->endpoint, &bound_addr);
-    if (result != LIBP2P_QUIC_OK)
-    {
-        goto fail;
-    }
-    service->config.local_addr = bound_addr;
+        (void)memset(storage, 0, layout.total_len);
+        service = quic_service_storage_service(&bytes[layout.service_offset]);
+        service->magic = QUIC_SERVICE_MAGIC;
+        service->config = *config;
+        service->endpoint_storage = &bytes[layout.endpoint_offset];
+        service->endpoint_storage_len = layout.endpoint_len;
+        service->events = quic_service_storage_events(&bytes[layout.events_offset]);
+        service->event_capacity = layout.event_capacity;
+        service->conns = quic_service_storage_conns(&bytes[layout.conns_offset]);
+        service->conn_capacity = layout.conn_capacity;
+        service->rx_buffer = &bytes[layout.rx_offset];
+        service->tx_buffer = &bytes[layout.tx_offset];
+        service->datagram_buffer_len = layout.datagram_len;
 
-    *out_service = service;
-    return LIBP2P_QUIC_OK;
+        result = libp2p_quic_udp_socket_init(&service->socket);
+    }
 
-fail:
-    libp2p_quic_udp_socket_close(&service->socket);
-    libp2p_quic_endpoint_deinit(service->endpoint);
-    service->magic = 0U;
+    if (result == LIBP2P_QUIC_OK)
+    {
+        result = libp2p_quic_endpoint_init(
+            service->endpoint_storage,
+            service->endpoint_storage_len,
+            &service->config.endpoint,
+            &service->endpoint);
+    }
+    if (result == LIBP2P_QUIC_OK)
+    {
+        result = libp2p_quic_udp_socket_open(
+            &service->socket,
+            &service->config.local_addr,
+            service->config.nonblocking != 0U);
+    }
+    if (result == LIBP2P_QUIC_OK)
+    {
+        result = libp2p_quic_udp_socket_local_addr(&service->socket, &bound_addr);
+    }
+    if (result == LIBP2P_QUIC_OK)
+    {
+        result = libp2p_quic_endpoint_bind(service->endpoint, &bound_addr);
+    }
+
+    if (result == LIBP2P_QUIC_OK)
+    {
+        service->config.local_addr = bound_addr;
+        *out_service = service;
+    }
+    else
+    {
+        if (service != NULL)
+        {
+            libp2p_quic_udp_socket_close(&service->socket);
+            libp2p_quic_endpoint_deinit(service->endpoint);
+            service->magic = 0U;
+        }
+    }
+
     return result;
 }
 
 void libp2p_quic_service_deinit(libp2p_quic_service_t *service)
 {
-    if ((service == NULL) || (service->magic != QUIC_SERVICE_MAGIC))
+    if ((service != NULL) && (service->magic == QUIC_SERVICE_MAGIC))
     {
-        return;
+        libp2p_quic_udp_socket_close(&service->socket);
+        libp2p_quic_endpoint_deinit(service->endpoint);
+        service->closed = 1U;
+        service->magic = 0U;
     }
-
-    libp2p_quic_udp_socket_close(&service->socket);
-    libp2p_quic_endpoint_deinit(service->endpoint);
-    service->closed = 1U;
-    service->magic = 0U;
 }
 
 libp2p_quic_err_t libp2p_quic_service_fd(
@@ -841,11 +955,12 @@ libp2p_quic_err_t libp2p_quic_service_fd(
 {
     libp2p_quic_err_t result = quic_service_validate(service);
 
-    if (result != LIBP2P_QUIC_OK)
+    if (result == LIBP2P_QUIC_OK)
     {
-        return result;
+        result = libp2p_quic_udp_socket_fd(&service->socket, out_fd);
     }
-    return libp2p_quic_udp_socket_fd(&service->socket, out_fd);
+
+    return result;
 }
 
 libp2p_quic_err_t libp2p_quic_service_local_addr(
@@ -854,16 +969,17 @@ libp2p_quic_err_t libp2p_quic_service_local_addr(
 {
     libp2p_quic_err_t result = quic_service_validate(service);
 
-    if (result != LIBP2P_QUIC_OK)
+    if (result == LIBP2P_QUIC_OK)
     {
-        return result;
+        result = libp2p_quic_udp_socket_local_addr(&service->socket, out_addr);
     }
-    return libp2p_quic_udp_socket_local_addr(&service->socket, out_addr);
+
+    return result;
 }
 
 libp2p_quic_err_t libp2p_quic_service_io_interest(
     const libp2p_quic_service_t *service,
-    uint32_t *out_interest)
+    libp2p_quic_service_interest_t *out_interest)
 {
     libp2p_quic_err_t result = quic_service_validate(service);
 
@@ -871,21 +987,23 @@ libp2p_quic_err_t libp2p_quic_service_io_interest(
     {
         *out_interest = LIBP2P_QUIC_SERVICE_INTEREST_NONE;
     }
-    if (result != LIBP2P_QUIC_OK)
+    if (result == LIBP2P_QUIC_OK)
     {
-        return result;
-    }
-    if (out_interest == NULL)
-    {
-        return LIBP2P_QUIC_ERR_INVALID_ARG;
+        if (out_interest == NULL)
+        {
+            result = LIBP2P_QUIC_ERR_INVALID_ARG;
+        }
+        else
+        {
+            *out_interest = LIBP2P_QUIC_SERVICE_INTEREST_READ;
+            if (service->tx_pending != 0U)
+            {
+                *out_interest |= LIBP2P_QUIC_SERVICE_INTEREST_WRITE;
+            }
+        }
     }
 
-    *out_interest = LIBP2P_QUIC_SERVICE_INTEREST_READ;
-    if (service->tx_pending != 0U)
-    {
-        *out_interest |= LIBP2P_QUIC_SERVICE_INTEREST_WRITE;
-    }
-    return LIBP2P_QUIC_OK;
+    return result;
 }
 
 libp2p_quic_err_t libp2p_quic_service_next_deadline(
@@ -894,17 +1012,18 @@ libp2p_quic_err_t libp2p_quic_service_next_deadline(
 {
     libp2p_quic_err_t result = quic_service_validate(service);
 
-    if (result != LIBP2P_QUIC_OK)
+    if (result == LIBP2P_QUIC_OK)
     {
-        return result;
+        result = libp2p_quic_endpoint_next_deadline(service->endpoint, out_deadline_us);
     }
-    return libp2p_quic_endpoint_next_deadline(service->endpoint, out_deadline_us);
+
+    return result;
 }
 
 libp2p_quic_err_t libp2p_quic_service_drive(
     libp2p_quic_service_t *service,
     libp2p_quic_time_us_t now_us,
-    uint32_t ready,
+    libp2p_quic_service_ready_t ready,
     libp2p_quic_service_drive_result_t *out_result)
 {
     libp2p_quic_service_drive_result_t local_result;
@@ -914,62 +1033,48 @@ libp2p_quic_err_t libp2p_quic_service_drive(
     {
         (void)memset(out_result, 0, sizeof(*out_result));
     }
-    if (result != LIBP2P_QUIC_OK)
+    if ((result == LIBP2P_QUIC_OK) && ((ready & ~(LIBP2P_QUIC_SERVICE_READY_ALL)) != 0U))
     {
-        return result;
-    }
-    if ((ready & ~((uint32_t)LIBP2P_QUIC_SERVICE_READY_ALL)) != 0U)
-    {
-        return LIBP2P_QUIC_ERR_INVALID_ARG;
+        result = LIBP2P_QUIC_ERR_INVALID_ARG;
     }
 
-    (void)memset(&local_result, 0, sizeof(local_result));
+    if (result == LIBP2P_QUIC_OK)
+    {
+        (void)memset(&local_result, 0, sizeof(local_result));
 
-    result = quic_service_drain_endpoint_events(service, &local_result);
-    if (result != LIBP2P_QUIC_OK)
-    {
-        return result;
-    }
-    if ((ready & (uint32_t)LIBP2P_QUIC_SERVICE_READY_READ) != 0U)
-    {
-        result = quic_service_drive_rx(service, now_us, &local_result);
-        if (result != LIBP2P_QUIC_OK)
-        {
-            return result;
-        }
-    }
-    result = libp2p_quic_endpoint_poll(service->endpoint, now_us);
-    if (result != LIBP2P_QUIC_OK)
-    {
-        return result;
-    }
-    result = quic_service_drain_endpoint_events(service, &local_result);
-    if (result != LIBP2P_QUIC_OK)
-    {
-        return result;
-    }
-    if (((ready &
-          ((uint32_t)LIBP2P_QUIC_SERVICE_READY_WRITE | (uint32_t)LIBP2P_QUIC_SERVICE_READY_TIMER |
-           (uint32_t)LIBP2P_QUIC_SERVICE_READY_APP)) != 0U) ||
-        (service->tx_pending != 0U))
-    {
-        result = quic_service_drive_tx(service, now_us, &local_result);
-        if (result != LIBP2P_QUIC_OK)
-        {
-            return result;
-        }
         result = quic_service_drain_endpoint_events(service, &local_result);
-        if (result != LIBP2P_QUIC_OK)
+        if ((result == LIBP2P_QUIC_OK) && ((ready & LIBP2P_QUIC_SERVICE_READY_READ) != 0U))
         {
-            return result;
+            result = quic_service_drive_rx(service, now_us, &local_result);
+        }
+        if (result == LIBP2P_QUIC_OK)
+        {
+            result = libp2p_quic_endpoint_poll(service->endpoint, now_us);
+        }
+        if (result == LIBP2P_QUIC_OK)
+        {
+            result = quic_service_drain_endpoint_events(service, &local_result);
+        }
+        if ((result == LIBP2P_QUIC_OK) &&
+            ((((ready &
+                (LIBP2P_QUIC_SERVICE_READY_WRITE | LIBP2P_QUIC_SERVICE_READY_TIMER |
+                 LIBP2P_QUIC_SERVICE_READY_APP)) != 0U) ||
+              (service->tx_pending != 0U))))
+        {
+            result = quic_service_drive_tx(service, now_us, &local_result);
+            if (result == LIBP2P_QUIC_OK)
+            {
+                result = quic_service_drain_endpoint_events(service, &local_result);
+            }
+        }
+
+        if ((result == LIBP2P_QUIC_OK) && (out_result != NULL))
+        {
+            *out_result = local_result;
         }
     }
 
-    if (out_result != NULL)
-    {
-        *out_result = local_result;
-    }
-    return LIBP2P_QUIC_OK;
+    return result;
 }
 
 libp2p_quic_err_t libp2p_quic_service_next_event(
@@ -978,25 +1083,27 @@ libp2p_quic_err_t libp2p_quic_service_next_event(
 {
     libp2p_quic_err_t result = quic_service_validate(service);
 
-    if (result != LIBP2P_QUIC_OK)
+    if (result == LIBP2P_QUIC_OK)
     {
-        return result;
-    }
-    if (out_event == NULL)
-    {
-        return LIBP2P_QUIC_ERR_INVALID_ARG;
-    }
-    if (service->event_len == 0U)
-    {
-        (void)memset(out_event, 0, sizeof(*out_event));
-        out_event->type = LIBP2P_QUIC_SERVICE_EVENT_NONE;
-        return LIBP2P_QUIC_ERR_WOULD_BLOCK;
+        if (out_event == NULL)
+        {
+            result = LIBP2P_QUIC_ERR_INVALID_ARG;
+        }
+        else if (service->event_len == 0U)
+        {
+            (void)memset(out_event, 0, sizeof(*out_event));
+            out_event->type = LIBP2P_QUIC_SERVICE_EVENT_NONE;
+            result = LIBP2P_QUIC_ERR_WOULD_BLOCK;
+        }
+        else
+        {
+            *out_event = service->events[service->event_head];
+            service->event_head = (service->event_head + 1U) % service->event_capacity;
+            service->event_len--;
+        }
     }
 
-    *out_event = service->events[service->event_head];
-    service->event_head = (service->event_head + 1U) % service->event_capacity;
-    service->event_len--;
-    return LIBP2P_QUIC_OK;
+    return result;
 }
 
 libp2p_quic_err_t libp2p_quic_service_dial(
@@ -1012,29 +1119,29 @@ libp2p_quic_err_t libp2p_quic_service_dial(
     {
         *out_conn = NULL;
     }
-    if (result != LIBP2P_QUIC_OK)
+    if (result == LIBP2P_QUIC_OK)
     {
-        return result;
-    }
-    if ((remote_addr == NULL) || (out_conn == NULL))
-    {
-        return LIBP2P_QUIC_ERR_INVALID_ARG;
+        if ((remote_addr == NULL) || (out_conn == NULL))
+        {
+            result = LIBP2P_QUIC_ERR_INVALID_ARG;
+        }
+        else
+        {
+            dial_config.remote_addr = *remote_addr;
+            dial_config.user_data = user_data;
+            result = libp2p_quic_endpoint_dial(service->endpoint, &dial_config, out_conn);
+            if (result == LIBP2P_QUIC_OK)
+            {
+                result = quic_service_track_conn(service, *out_conn, 0);
+            }
+            if (result == LIBP2P_QUIC_OK)
+            {
+                service->tx_pending = 1U;
+            }
+        }
     }
 
-    dial_config.remote_addr = *remote_addr;
-    dial_config.user_data = user_data;
-    result = libp2p_quic_endpoint_dial(service->endpoint, &dial_config, out_conn);
-    if (result != LIBP2P_QUIC_OK)
-    {
-        return result;
-    }
-    result = quic_service_track_conn(service, *out_conn, 0);
-    if (result != LIBP2P_QUIC_OK)
-    {
-        return result;
-    }
-    service->tx_pending = 1U;
-    return LIBP2P_QUIC_OK;
+    return result;
 }
 
 libp2p_quic_err_t libp2p_quic_service_accept_conn(
@@ -1048,44 +1155,48 @@ libp2p_quic_err_t libp2p_quic_service_accept_conn(
     {
         *out_conn = NULL;
     }
-    if (result != LIBP2P_QUIC_OK)
+    if (result == LIBP2P_QUIC_OK)
     {
-        return result;
-    }
-    if (out_conn == NULL)
-    {
-        return LIBP2P_QUIC_ERR_INVALID_ARG;
-    }
-
-    for (index = 0U; index < service->conn_count; index++)
-    {
-        quic_service_conn_entry_t *entry = &service->conns[index];
-
-        if ((entry->conn != NULL) && (entry->incoming != 0U) && (entry->established != 0U) &&
-            (entry->accepted == 0U) && (entry->closed == 0U))
+        if (out_conn == NULL)
         {
-            entry->accepted = 1U;
-            *out_conn = entry->conn;
-            return LIBP2P_QUIC_OK;
+            result = LIBP2P_QUIC_ERR_INVALID_ARG;
+        }
+        else
+        {
+            result = LIBP2P_QUIC_ERR_WOULD_BLOCK;
+            for (index = 0U; index < service->conn_count; index++)
+            {
+                quic_service_conn_entry_t *entry = &service->conns[index];
+
+                if ((entry->conn != NULL) && (entry->incoming != 0U) &&
+                    (entry->established != 0U) && (entry->accepted == 0U) &&
+                    (entry->closed == 0U))
+                {
+                    entry->accepted = 1U;
+                    *out_conn = entry->conn;
+                    result = LIBP2P_QUIC_OK;
+                    break;
+                }
+            }
         }
     }
 
-    return LIBP2P_QUIC_ERR_WOULD_BLOCK;
+    return result;
 }
 
 libp2p_quic_err_t libp2p_quic_service_close(libp2p_quic_service_t *service, uint64_t app_error_code)
 {
     libp2p_quic_err_t result = quic_service_validate(service);
 
-    if (result != LIBP2P_QUIC_OK)
-    {
-        return result;
-    }
-    result = libp2p_quic_endpoint_close(service->endpoint, app_error_code);
     if (result == LIBP2P_QUIC_OK)
     {
-        service->tx_pending = 1U;
+        result = libp2p_quic_endpoint_close(service->endpoint, app_error_code);
+        if (result == LIBP2P_QUIC_OK)
+        {
+            service->tx_pending = 1U;
+        }
     }
+
     return result;
 }
 
@@ -1105,15 +1216,15 @@ libp2p_quic_err_t libp2p_quic_service_conn_close(
 {
     libp2p_quic_err_t result = quic_service_validate(service);
 
-    if (result != LIBP2P_QUIC_OK)
-    {
-        return result;
-    }
-    result = libp2p_quic_conn_close(conn, app_error_code);
     if (result == LIBP2P_QUIC_OK)
     {
-        service->tx_pending = 1U;
+        result = libp2p_quic_conn_close(conn, app_error_code);
+        if (result == LIBP2P_QUIC_OK)
+        {
+            service->tx_pending = 1U;
+        }
     }
+
     return result;
 }
 
@@ -1124,15 +1235,15 @@ libp2p_quic_err_t libp2p_quic_service_open_stream(
 {
     libp2p_quic_err_t result = quic_service_validate(service);
 
-    if (result != LIBP2P_QUIC_OK)
-    {
-        return result;
-    }
-    result = libp2p_quic_conn_open_bidi_stream(conn, out_stream);
     if (result == LIBP2P_QUIC_OK)
     {
-        service->tx_pending = 1U;
+        result = libp2p_quic_conn_open_bidi_stream(conn, out_stream);
+        if (result == LIBP2P_QUIC_OK)
+        {
+            service->tx_pending = 1U;
+        }
     }
+
     return result;
 }
 
@@ -1153,15 +1264,15 @@ libp2p_quic_err_t libp2p_quic_service_stream_read(
 {
     libp2p_quic_err_t result = quic_service_validate(service);
 
-    if (result != LIBP2P_QUIC_OK)
-    {
-        return result;
-    }
-    result = libp2p_quic_stream_read(stream, out, out_len, read_len, fin);
     if (result == LIBP2P_QUIC_OK)
     {
-        service->tx_pending = 1U;
+        result = libp2p_quic_stream_read(stream, out, out_len, read_len, fin);
+        if (result == LIBP2P_QUIC_OK)
+        {
+            service->tx_pending = 1U;
+        }
     }
+
     return result;
 }
 
@@ -1175,15 +1286,15 @@ libp2p_quic_err_t libp2p_quic_service_stream_write(
 {
     libp2p_quic_err_t result = quic_service_validate(service);
 
-    if (result != LIBP2P_QUIC_OK)
-    {
-        return result;
-    }
-    result = libp2p_quic_stream_write(stream, data, data_len, fin, accepted);
     if (result == LIBP2P_QUIC_OK)
     {
-        service->tx_pending = 1U;
+        result = libp2p_quic_stream_write(stream, data, data_len, fin, accepted);
+        if (result == LIBP2P_QUIC_OK)
+        {
+            service->tx_pending = 1U;
+        }
     }
+
     return result;
 }
 
@@ -1193,15 +1304,15 @@ libp2p_quic_err_t libp2p_quic_service_stream_finish(
 {
     libp2p_quic_err_t result = quic_service_validate(service);
 
-    if (result != LIBP2P_QUIC_OK)
-    {
-        return result;
-    }
-    result = libp2p_quic_stream_finish(stream);
     if (result == LIBP2P_QUIC_OK)
     {
-        service->tx_pending = 1U;
+        result = libp2p_quic_stream_finish(stream);
+        if (result == LIBP2P_QUIC_OK)
+        {
+            service->tx_pending = 1U;
+        }
     }
+
     return result;
 }
 
@@ -1212,15 +1323,15 @@ libp2p_quic_err_t libp2p_quic_service_stream_reset(
 {
     libp2p_quic_err_t result = quic_service_validate(service);
 
-    if (result != LIBP2P_QUIC_OK)
-    {
-        return result;
-    }
-    result = libp2p_quic_stream_reset(stream, app_error_code);
     if (result == LIBP2P_QUIC_OK)
     {
-        service->tx_pending = 1U;
+        result = libp2p_quic_stream_reset(stream, app_error_code);
+        if (result == LIBP2P_QUIC_OK)
+        {
+            service->tx_pending = 1U;
+        }
     }
+
     return result;
 }
 
@@ -1231,14 +1342,14 @@ libp2p_quic_err_t libp2p_quic_service_stream_stop_sending(
 {
     libp2p_quic_err_t result = quic_service_validate(service);
 
-    if (result != LIBP2P_QUIC_OK)
-    {
-        return result;
-    }
-    result = libp2p_quic_stream_stop_sending(stream, app_error_code);
     if (result == LIBP2P_QUIC_OK)
     {
-        service->tx_pending = 1U;
+        result = libp2p_quic_stream_stop_sending(stream, app_error_code);
+        if (result == LIBP2P_QUIC_OK)
+        {
+            service->tx_pending = 1U;
+        }
     }
+
     return result;
 }

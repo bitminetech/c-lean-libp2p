@@ -107,7 +107,7 @@ typedef struct
 /**
  * Fill config with production defaults.
  *
- * The caller must set identity certificate material, random_fn, and
+ * The caller must set identity certificate material, allocator, random_fn, and
  * unix_time_fn before initialization.
  */
 libp2p_quic_err_t libp2p_quic_endpoint_config_default(libp2p_quic_endpoint_config_t *config);

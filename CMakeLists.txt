@@ -123,6 +123,7 @@ target_compile_definitions(
     c_lean_libp2p_project_defaults
     INTERFACE
         $<$<C_COMPILER_ID:MSVC>:_CRT_SECURE_NO_WARNINGS>
+        $<$<PLATFORM_ID:Windows>:WIN32_LEAN_AND_MEAN>
 )
 target_include_directories(
     c_lean_libp2p_project_defaults

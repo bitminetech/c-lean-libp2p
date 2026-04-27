@@ -52,6 +52,42 @@ typedef struct
     uint64_t last_transport_error_code;
 } quic_test_events_t;
 
+static inline void *quic_test_malloc(size_t size, void *user_data)
+{
+    (void)user_data;
+    return malloc(size);
+}
+
+static inline void *quic_test_calloc(size_t nmemb, size_t size, void *user_data)
+{
+    (void)user_data;
+    return calloc(nmemb, size);
+}
+
+static inline void *quic_test_realloc(void *ptr, size_t size, void *user_data)
+{
+    (void)user_data;
+    return realloc(ptr, size);
+}
+
+static inline void quic_test_free(void *ptr, void *user_data)
+{
+    (void)user_data;
+    free(ptr);
+}
+
+static inline libp2p_quic_allocator_t quic_test_allocator(void)
+{
+    libp2p_quic_allocator_t allocator;
+
+    allocator.malloc_fn = quic_test_malloc;
+    allocator.calloc_fn = quic_test_calloc;
+    allocator.realloc_fn = quic_test_realloc;
+    allocator.free_fn = quic_test_free;
+    allocator.user_data = NULL;
+    return allocator;
+}
+
 static inline int quic_test_hex_nibble(char character, uint8_t *value)
 {
     if ((character >= '0') && (character <= '9'))
@@ -231,6 +267,8 @@ static inline void quic_test_pair_init(
 
     assert(libp2p_quic_endpoint_config_default(&client_config) == LIBP2P_QUIC_OK);
     assert(libp2p_quic_endpoint_config_default(&server_config) == LIBP2P_QUIC_OK);
+    client_config.allocator = quic_test_allocator();
+    server_config.allocator = quic_test_allocator();
     client_config.role = LIBP2P_QUIC_ROLE_CLIENT;
     server_config.role = LIBP2P_QUIC_ROLE_SERVER;
     client_config.identity = *identity;

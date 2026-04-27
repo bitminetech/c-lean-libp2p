@@ -17,47 +17,57 @@ static const libp2p_quic_backend_vtable_t *quic_backend(void)
 
 static libp2p_quic_err_t quic_backend_validate(const libp2p_quic_backend_vtable_t *backend)
 {
+    libp2p_quic_err_t result = LIBP2P_QUIC_OK;
+
     if ((backend == NULL) || (backend->abi_version != LIBP2P_QUIC_BACKEND_ABI_VERSION))
     {
-        return LIBP2P_QUIC_ERR_BACKEND;
+        result = LIBP2P_QUIC_ERR_BACKEND;
     }
-    if ((backend->endpoint_storage_size == NULL) || (backend->endpoint_storage_align == NULL) ||
-        (backend->endpoint_init == NULL) || (backend->endpoint_deinit == NULL) ||
-        (backend->endpoint_bind == NULL) || (backend->endpoint_dial == NULL) ||
-        (backend->endpoint_recv_datagram == NULL) || (backend->endpoint_next_datagram == NULL) ||
-        (backend->endpoint_poll == NULL) || (backend->endpoint_next_deadline == NULL) ||
-        (backend->endpoint_next_event == NULL) || (backend->endpoint_close == NULL) ||
-        (backend->conn_state == NULL) || (backend->conn_peer_id == NULL) ||
-        (backend->conn_peer_identity == NULL) || (backend->conn_local_addr == NULL) ||
-        (backend->conn_remote_addr == NULL) || (backend->conn_close == NULL))
+    else if ((backend->endpoint_storage_size == NULL) || (backend->endpoint_storage_align == NULL) ||
+             (backend->endpoint_init == NULL) || (backend->endpoint_deinit == NULL) ||
+             (backend->endpoint_bind == NULL) || (backend->endpoint_dial == NULL) ||
+             (backend->endpoint_recv_datagram == NULL) || (backend->endpoint_next_datagram == NULL) ||
+             (backend->endpoint_poll == NULL) || (backend->endpoint_next_deadline == NULL) ||
+             (backend->endpoint_next_event == NULL) || (backend->endpoint_close == NULL) ||
+             (backend->conn_state == NULL) || (backend->conn_peer_id == NULL) ||
+             (backend->conn_peer_identity == NULL) || (backend->conn_local_addr == NULL) ||
+             (backend->conn_remote_addr == NULL) || (backend->conn_close == NULL))
     {
-        return LIBP2P_QUIC_ERR_BACKEND;
+        result = LIBP2P_QUIC_ERR_BACKEND;
+    }
+    else
+    {
+        result = LIBP2P_QUIC_OK;
     }
 
-    return LIBP2P_QUIC_OK;
+    return result;
 }
 
 libp2p_quic_err_t libp2p_quic_endpoint_config_default(libp2p_quic_endpoint_config_t *config)
 {
+    libp2p_quic_err_t result = LIBP2P_QUIC_OK;
+
     if (config == NULL)
     {
-        return LIBP2P_QUIC_ERR_INVALID_ARG;
+        result = LIBP2P_QUIC_ERR_INVALID_ARG;
+    }
+    else
+    {
+        (void)memset(config, 0, sizeof(*config));
+        config->role = LIBP2P_QUIC_ROLE_CLIENT_SERVER;
+        config->max_connections = LIBP2P_QUIC_DEFAULT_MAX_CONNECTIONS;
+        config->max_incoming_connections = LIBP2P_QUIC_DEFAULT_MAX_CONNECTIONS;
+        config->max_outgoing_connections = LIBP2P_QUIC_DEFAULT_MAX_CONNECTIONS;
+        config->max_bidi_streams = LIBP2P_QUIC_DEFAULT_MAX_BIDI_STREAMS;
+        config->max_uni_streams = LIBP2P_QUIC_DEFAULT_MAX_UNI_STREAMS;
+        config->max_datagram_payload_bytes = LIBP2P_QUIC_DEFAULT_MAX_DATAGRAM_BYTES;
+        config->initial_conn_window_bytes = LIBP2P_QUIC_DEFAULT_CONN_WINDOW_BYTES;
+        config->initial_stream_window_bytes = LIBP2P_QUIC_DEFAULT_STREAM_WINDOW_BYTES;
+        config->idle_timeout_us = LIBP2P_QUIC_DEFAULT_IDLE_TIMEOUT_US;
+        config->handshake_timeout_us = LIBP2P_QUIC_DEFAULT_HANDSHAKE_TIMEOUT_US;
     }
 
-    (void)memset(config, 0, sizeof(*config));
-    config->role = LIBP2P_QUIC_ROLE_CLIENT_SERVER;
-    config->max_connections = LIBP2P_QUIC_DEFAULT_MAX_CONNECTIONS;
-    config->max_incoming_connections = LIBP2P_QUIC_DEFAULT_MAX_CONNECTIONS;
-    config->max_outgoing_connections = LIBP2P_QUIC_DEFAULT_MAX_CONNECTIONS;
-    config->max_bidi_streams = LIBP2P_QUIC_DEFAULT_MAX_BIDI_STREAMS;
-    config->max_uni_streams = LIBP2P_QUIC_DEFAULT_MAX_UNI_STREAMS;
-    config->max_datagram_payload_bytes = LIBP2P_QUIC_DEFAULT_MAX_DATAGRAM_BYTES;
-    config->initial_conn_window_bytes = LIBP2P_QUIC_DEFAULT_CONN_WINDOW_BYTES;
-    config->initial_stream_window_bytes = LIBP2P_QUIC_DEFAULT_STREAM_WINDOW_BYTES;
-    config->idle_timeout_us = LIBP2P_QUIC_DEFAULT_IDLE_TIMEOUT_US;
-    config->handshake_timeout_us = LIBP2P_QUIC_DEFAULT_HANDSHAKE_TIMEOUT_US;
-
-    return LIBP2P_QUIC_OK;
+    return result;
 }
 
 libp2p_quic_err_t libp2p_quic_endpoint_storage_size(
@@ -67,12 +77,12 @@ libp2p_quic_err_t libp2p_quic_endpoint_storage_size(
     const libp2p_quic_backend_vtable_t *backend = quic_backend();
     libp2p_quic_err_t result = quic_backend_validate(backend);
 
-    if (result != LIBP2P_QUIC_OK)
+    if (result == LIBP2P_QUIC_OK)
     {
-        return result;
+        result = backend->endpoint_storage_size(config, out_len);
     }
 
-    return backend->endpoint_storage_size(config, out_len);
+    return result;
 }
 
 libp2p_quic_err_t libp2p_quic_endpoint_storage_align(size_t *out_align)
@@ -80,12 +90,12 @@ libp2p_quic_err_t libp2p_quic_endpoint_storage_align(size_t *out_align)
     const libp2p_quic_backend_vtable_t *backend = quic_backend();
     libp2p_quic_err_t result = quic_backend_validate(backend);
 
-    if (result != LIBP2P_QUIC_OK)
+    if (result == LIBP2P_QUIC_OK)
     {
-        return result;
+        result = backend->endpoint_storage_align(out_align);
     }
 
-    return backend->endpoint_storage_align(out_align);
+    return result;
 }
 
 libp2p_quic_err_t libp2p_quic_endpoint_init(
@@ -97,12 +107,12 @@ libp2p_quic_err_t libp2p_quic_endpoint_init(
     const libp2p_quic_backend_vtable_t *backend = quic_backend();
     libp2p_quic_err_t result = quic_backend_validate(backend);
 
-    if (result != LIBP2P_QUIC_OK)
+    if (result == LIBP2P_QUIC_OK)
     {
-        return result;
+        result = backend->endpoint_init(storage, storage_len, config, out_endpoint);
     }
 
-    return backend->endpoint_init(storage, storage_len, config, out_endpoint);
+    return result;
 }
 
 void libp2p_quic_endpoint_deinit(libp2p_quic_endpoint_t *endpoint)
@@ -122,12 +132,12 @@ libp2p_quic_err_t libp2p_quic_endpoint_bind(
     const libp2p_quic_backend_vtable_t *backend = quic_backend();
     libp2p_quic_err_t result = quic_backend_validate(backend);
 
-    if (result != LIBP2P_QUIC_OK)
+    if (result == LIBP2P_QUIC_OK)
     {
-        return result;
+        result = backend->endpoint_bind(endpoint, local_addr);
     }
 
-    return backend->endpoint_bind(endpoint, local_addr);
+    return result;
 }
 
 libp2p_quic_err_t libp2p_quic_endpoint_dial(
@@ -138,12 +148,12 @@ libp2p_quic_err_t libp2p_quic_endpoint_dial(
     const libp2p_quic_backend_vtable_t *backend = quic_backend();
     libp2p_quic_err_t result = quic_backend_validate(backend);
 
-    if (result != LIBP2P_QUIC_OK)
+    if (result == LIBP2P_QUIC_OK)
     {
-        return result;
+        result = backend->endpoint_dial(endpoint, config, out_conn);
     }
 
-    return backend->endpoint_dial(endpoint, config, out_conn);
+    return result;
 }
 
 libp2p_quic_err_t libp2p_quic_endpoint_recv_datagram(
@@ -154,12 +164,12 @@ libp2p_quic_err_t libp2p_quic_endpoint_recv_datagram(
     const libp2p_quic_backend_vtable_t *backend = quic_backend();
     libp2p_quic_err_t result = quic_backend_validate(backend);
 
-    if (result != LIBP2P_QUIC_OK)
+    if (result == LIBP2P_QUIC_OK)
     {
-        return result;
+        result = backend->endpoint_recv_datagram(endpoint, datagram, now_us);
     }
 
-    return backend->endpoint_recv_datagram(endpoint, datagram, now_us);
+    return result;
 }
 
 libp2p_quic_err_t libp2p_quic_endpoint_next_datagram(
@@ -170,12 +180,12 @@ libp2p_quic_err_t libp2p_quic_endpoint_next_datagram(
     const libp2p_quic_backend_vtable_t *backend = quic_backend();
     libp2p_quic_err_t result = quic_backend_validate(backend);
 
-    if (result != LIBP2P_QUIC_OK)
+    if (result == LIBP2P_QUIC_OK)
     {
-        return result;
+        result = backend->endpoint_next_datagram(endpoint, datagram, now_us);
     }
 
-    return backend->endpoint_next_datagram(endpoint, datagram, now_us);
+    return result;
 }
 
 libp2p_quic_err_t libp2p_quic_endpoint_poll(
@@ -185,12 +195,12 @@ libp2p_quic_err_t libp2p_quic_endpoint_poll(
     const libp2p_quic_backend_vtable_t *backend = quic_backend();
     libp2p_quic_err_t result = quic_backend_validate(backend);
 
-    if (result != LIBP2P_QUIC_OK)
+    if (result == LIBP2P_QUIC_OK)
     {
-        return result;
+        result = backend->endpoint_poll(endpoint, now_us);
     }
 
-    return backend->endpoint_poll(endpoint, now_us);
+    return result;
 }
 
 libp2p_quic_err_t libp2p_quic_endpoint_next_deadline(
@@ -200,12 +210,12 @@ libp2p_quic_err_t libp2p_quic_endpoint_next_deadline(
     const libp2p_quic_backend_vtable_t *backend = quic_backend();
     libp2p_quic_err_t result = quic_backend_validate(backend);
 
-    if (result != LIBP2P_QUIC_OK)
+    if (result == LIBP2P_QUIC_OK)
     {
-        return result;
+        result = backend->endpoint_next_deadline(endpoint, out_deadline_us);
     }
 
-    return backend->endpoint_next_deadline(endpoint, out_deadline_us);
+    return result;
 }
 
 libp2p_quic_err_t libp2p_quic_endpoint_next_event(
@@ -215,12 +225,12 @@ libp2p_quic_err_t libp2p_quic_endpoint_next_event(
     const libp2p_quic_backend_vtable_t *backend = quic_backend();
     libp2p_quic_err_t result = quic_backend_validate(backend);
 
-    if (result != LIBP2P_QUIC_OK)
+    if (result == LIBP2P_QUIC_OK)
     {
-        return result;
+        result = backend->endpoint_next_event(endpoint, out_event);
     }
 
-    return backend->endpoint_next_event(endpoint, out_event);
+    return result;
 }
 
 libp2p_quic_err_t libp2p_quic_endpoint_close(
@@ -230,12 +240,12 @@ libp2p_quic_err_t libp2p_quic_endpoint_close(
     const libp2p_quic_backend_vtable_t *backend = quic_backend();
     libp2p_quic_err_t result = quic_backend_validate(backend);
 
-    if (result != LIBP2P_QUIC_OK)
+    if (result == LIBP2P_QUIC_OK)
     {
-        return result;
+        result = backend->endpoint_close(endpoint, app_error_code);
     }
 
-    return backend->endpoint_close(endpoint, app_error_code);
+    return result;
 }
 
 libp2p_quic_err_t libp2p_quic_conn_state(
@@ -245,12 +255,12 @@ libp2p_quic_err_t libp2p_quic_conn_state(
     const libp2p_quic_backend_vtable_t *backend = quic_backend();
     libp2p_quic_err_t result = quic_backend_validate(backend);
 
-    if (result != LIBP2P_QUIC_OK)
+    if (result == LIBP2P_QUIC_OK)
     {
-        return result;
+        result = backend->conn_state(conn, out_state);
     }
 
-    return backend->conn_state(conn, out_state);
+    return result;
 }
 
 libp2p_quic_err_t libp2p_quic_conn_peer_id(
@@ -262,12 +272,12 @@ libp2p_quic_err_t libp2p_quic_conn_peer_id(
     const libp2p_quic_backend_vtable_t *backend = quic_backend();
     libp2p_quic_err_t result = quic_backend_validate(backend);
 
-    if (result != LIBP2P_QUIC_OK)
+    if (result == LIBP2P_QUIC_OK)
     {
-        return result;
+        result = backend->conn_peer_id(conn, out, out_len, written);
     }
 
-    return backend->conn_peer_id(conn, out, out_len, written);
+    return result;
 }
 
 libp2p_quic_err_t libp2p_quic_conn_peer_identity(
@@ -277,12 +287,12 @@ libp2p_quic_err_t libp2p_quic_conn_peer_identity(
     const libp2p_quic_backend_vtable_t *backend = quic_backend();
     libp2p_quic_err_t result = quic_backend_validate(backend);
 
-    if (result != LIBP2P_QUIC_OK)
+    if (result == LIBP2P_QUIC_OK)
     {
-        return result;
+        result = backend->conn_peer_identity(conn, out);
     }
 
-    return backend->conn_peer_identity(conn, out);
+    return result;
 }
 
 libp2p_quic_err_t libp2p_quic_conn_local_addr(
@@ -292,12 +302,12 @@ libp2p_quic_err_t libp2p_quic_conn_local_addr(
     const libp2p_quic_backend_vtable_t *backend = quic_backend();
     libp2p_quic_err_t result = quic_backend_validate(backend);
 
-    if (result != LIBP2P_QUIC_OK)
+    if (result == LIBP2P_QUIC_OK)
     {
-        return result;
+        result = backend->conn_local_addr(conn, out);
     }
 
-    return backend->conn_local_addr(conn, out);
+    return result;
 }
 
 libp2p_quic_err_t libp2p_quic_conn_remote_addr(
@@ -307,12 +317,12 @@ libp2p_quic_err_t libp2p_quic_conn_remote_addr(
     const libp2p_quic_backend_vtable_t *backend = quic_backend();
     libp2p_quic_err_t result = quic_backend_validate(backend);
 
-    if (result != LIBP2P_QUIC_OK)
+    if (result == LIBP2P_QUIC_OK)
     {
-        return result;
+        result = backend->conn_remote_addr(conn, out);
     }
 
-    return backend->conn_remote_addr(conn, out);
+    return result;
 }
 
 libp2p_quic_err_t libp2p_quic_conn_close(libp2p_quic_conn_t *conn, uint64_t app_error_code)
@@ -320,10 +330,10 @@ libp2p_quic_err_t libp2p_quic_conn_close(libp2p_quic_conn_t *conn, uint64_t app_
     const libp2p_quic_backend_vtable_t *backend = quic_backend();
     libp2p_quic_err_t result = quic_backend_validate(backend);
 
-    if (result != LIBP2P_QUIC_OK)
+    if (result == LIBP2P_QUIC_OK)
     {
-        return result;
+        result = backend->conn_close(conn, app_error_code);
     }
 
-    return backend->conn_close(conn, app_error_code);
+    return result;
 }

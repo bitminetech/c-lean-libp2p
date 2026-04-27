@@ -23,25 +23,20 @@
 typedef struct libp2p_quic_service libp2p_quic_service_t;
 
 /** Event-loop readiness bits passed to libp2p_quic_service_drive(). */
-typedef enum
-{
-    LIBP2P_QUIC_SERVICE_READY_NONE = 0U,
-    LIBP2P_QUIC_SERVICE_READY_READ = 1U << 0U,
-    LIBP2P_QUIC_SERVICE_READY_WRITE = 1U << 1U,
-    LIBP2P_QUIC_SERVICE_READY_TIMER = 1U << 2U,
-    LIBP2P_QUIC_SERVICE_READY_APP = 1U << 3U,
-    LIBP2P_QUIC_SERVICE_READY_ALL = LIBP2P_QUIC_SERVICE_READY_READ |
-                                    LIBP2P_QUIC_SERVICE_READY_WRITE |
-                                    LIBP2P_QUIC_SERVICE_READY_TIMER | LIBP2P_QUIC_SERVICE_READY_APP
-} libp2p_quic_service_ready_t;
+typedef uint32_t libp2p_quic_service_ready_t;
+#define LIBP2P_QUIC_SERVICE_READY_READ  (1U << 0U)
+#define LIBP2P_QUIC_SERVICE_READY_WRITE (1U << 1U)
+#define LIBP2P_QUIC_SERVICE_READY_TIMER (1U << 2U)
+#define LIBP2P_QUIC_SERVICE_READY_APP   (1U << 3U)
+#define LIBP2P_QUIC_SERVICE_READY_ALL \
+    (LIBP2P_QUIC_SERVICE_READY_READ | LIBP2P_QUIC_SERVICE_READY_WRITE | \
+     LIBP2P_QUIC_SERVICE_READY_TIMER | LIBP2P_QUIC_SERVICE_READY_APP)
 
 /** File-descriptor interests requested by the service. */
-typedef enum
-{
-    LIBP2P_QUIC_SERVICE_INTEREST_NONE = 0U,
-    LIBP2P_QUIC_SERVICE_INTEREST_READ = 1U << 0U,
-    LIBP2P_QUIC_SERVICE_INTEREST_WRITE = 1U << 1U
-} libp2p_quic_service_interest_t;
+typedef uint32_t libp2p_quic_service_interest_t;
+#define LIBP2P_QUIC_SERVICE_INTEREST_NONE  0U
+#define LIBP2P_QUIC_SERVICE_INTEREST_READ  (1U << 0U)
+#define LIBP2P_QUIC_SERVICE_INTEREST_WRITE (1U << 1U)
 
 /** Client-facing service events. */
 typedef enum
@@ -151,7 +146,7 @@ libp2p_quic_err_t libp2p_quic_service_local_addr(
  */
 libp2p_quic_err_t libp2p_quic_service_io_interest(
     const libp2p_quic_service_t *service,
-    uint32_t *out_interest);
+    libp2p_quic_service_interest_t *out_interest);
 
 /**
  * Return the next absolute monotonic service deadline.
@@ -170,7 +165,7 @@ libp2p_quic_err_t libp2p_quic_service_next_deadline(
 libp2p_quic_err_t libp2p_quic_service_drive(
     libp2p_quic_service_t *service,
     libp2p_quic_time_us_t now_us,
-    uint32_t ready,
+    libp2p_quic_service_ready_t ready,
     libp2p_quic_service_drive_result_t *out_result);
 
 /**

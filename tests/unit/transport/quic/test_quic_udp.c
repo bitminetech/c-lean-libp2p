@@ -55,6 +55,8 @@ static void quic_udp_fixture_init(quic_udp_fixture_t *fixture)
 
     assert(libp2p_quic_endpoint_config_default(&client_config) == LIBP2P_QUIC_OK);
     assert(libp2p_quic_endpoint_config_default(&server_config) == LIBP2P_QUIC_OK);
+    client_config.allocator = quic_test_allocator();
+    server_config.allocator = quic_test_allocator();
     client_config.role = LIBP2P_QUIC_ROLE_CLIENT;
     server_config.role = LIBP2P_QUIC_ROLE_SERVER;
     client_config.identity = fixture->identity.identity;

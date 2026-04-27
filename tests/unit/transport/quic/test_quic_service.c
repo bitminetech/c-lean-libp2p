@@ -55,6 +55,7 @@ static void quic_service_init_one(
 
     assert(libp2p_quic_service_config_default(&config) == LIBP2P_QUIC_OK);
     config.endpoint.role = role;
+    config.endpoint.allocator = quic_test_allocator();
     config.endpoint.identity = *identity;
     config.endpoint.random_fn = quic_test_random;
     config.endpoint.random_user_data = random_state;
@@ -249,7 +250,7 @@ static void quic_service_test_runtime_driver_and_stream_api(void)
     size_t peer_id_len = 0U;
     size_t accepted = 0U;
     size_t read_len = 0U;
-    uint32_t interest = 0U;
+    libp2p_quic_service_interest_t interest = LIBP2P_QUIC_SERVICE_INTEREST_NONE;
     libp2p_quic_udp_fd_t fd = LIBP2P_QUIC_UDP_INVALID_FD;
     int fin = 0;
     size_t round = 0U;

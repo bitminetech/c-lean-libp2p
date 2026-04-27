@@ -11,17 +11,21 @@
 
 static libp2p_quic_err_t quic_addr_peer_id_is_valid(const uint8_t *peer_id, size_t peer_id_len)
 {
-    char text[1];
-    size_t written = 0U;
-    libp2p_peer_id_err_t err = LIBP2P_PEER_ID_OK;
+    libp2p_quic_err_t result = LIBP2P_QUIC_OK;
 
     if ((peer_id == NULL) || (peer_id_len == 0U) || (peer_id_len > LIBP2P_PEER_ID_MAX_BYTES))
     {
-        return LIBP2P_QUIC_ERR_INVALID_ARG;
+        result = LIBP2P_QUIC_ERR_INVALID_ARG;
+    }
+    else
+    {
+        char text[1];
+        size_t written = 0U;
+        libp2p_peer_id_err_t err = libp2p_peer_id_to_string(peer_id, peer_id_len, text, 0U, &written);
+        result = (err == LIBP2P_PEER_ID_ERR_BUF_TOO_SMALL) ? LIBP2P_QUIC_OK : LIBP2P_QUIC_ERR_ADDR;
     }
 
-    err = libp2p_peer_id_to_string(peer_id, peer_id_len, text, 0U, &written);
-    return (err == LIBP2P_PEER_ID_ERR_BUF_TOO_SMALL) ? LIBP2P_QUIC_OK : LIBP2P_QUIC_ERR_ADDR;
+    return result;
 }
 
 static void quic_addr_clear(libp2p_quic_addr_t *out)
@@ -40,18 +44,23 @@ static libp2p_quic_err_t quic_addr_append_component(
 {
     const libp2p_multiaddr_err_t err =
         libp2p_multiaddr_append_component(code, value, value_len, out, out_len, pos);
+    libp2p_quic_err_t result = LIBP2P_QUIC_OK;
 
     if (err == LIBP2P_MULTIADDR_OK)
     {
-        return LIBP2P_QUIC_OK;
+        result = LIBP2P_QUIC_OK;
     }
-    if (err == LIBP2P_MULTIADDR_ERR_BUF_TOO_SMALL)
+    else if (err == LIBP2P_MULTIADDR_ERR_BUF_TOO_SMALL)
     {
         *too_small = 1;
-        return LIBP2P_QUIC_OK;
+        result = LIBP2P_QUIC_OK;
+    }
+    else
+    {
+        result = LIBP2P_QUIC_ERR_ADDR;
     }
 
-    return LIBP2P_QUIC_ERR_ADDR;
+    return result;
 }
 
 libp2p_quic_err_t libp2p_quic_addr_from_ip4(
@@ -59,17 +68,21 @@ libp2p_quic_err_t libp2p_quic_addr_from_ip4(
     uint16_t port,
     libp2p_quic_addr_t *out)
 {
+    libp2p_quic_err_t result = LIBP2P_QUIC_OK;
+
     if ((ip4 == NULL) || (out == NULL))
     {
-        return LIBP2P_QUIC_ERR_INVALID_ARG;
+        result = LIBP2P_QUIC_ERR_INVALID_ARG;
+    }
+    else
+    {
+        quic_addr_clear(out);
+        out->family = LIBP2P_QUIC_ADDR_IP4;
+        (void)memcpy(out->ip, ip4, 4U);
+        out->port = port;
     }
 
-    quic_addr_clear(out);
-    out->family = LIBP2P_QUIC_ADDR_IP4;
-    (void)memcpy(out->ip, ip4, 4U);
-    out->port = port;
-
-    return LIBP2P_QUIC_OK;
+    return result;
 }
 
 libp2p_quic_err_t libp2p_quic_addr_from_ip6(
@@ -77,17 +90,21 @@ libp2p_quic_err_t libp2p_quic_addr_from_ip6(
     uint16_t port,
     libp2p_quic_addr_t *out)
 {
+    libp2p_quic_err_t result = LIBP2P_QUIC_OK;
+
     if ((ip6 == NULL) || (out == NULL))
     {
-        return LIBP2P_QUIC_ERR_INVALID_ARG;
+        result = LIBP2P_QUIC_ERR_INVALID_ARG;
+    }
+    else
+    {
+        quic_addr_clear(out);
+        out->family = LIBP2P_QUIC_ADDR_IP6;
+        (void)memcpy(out->ip, ip6, 16U);
+        out->port = port;
     }
 
-    quic_addr_clear(out);
-    out->family = LIBP2P_QUIC_ADDR_IP6;
-    (void)memcpy(out->ip, ip6, 16U);
-    out->port = port;
-
-    return LIBP2P_QUIC_OK;
+    return result;
 }
 
 libp2p_quic_err_t libp2p_quic_addr_set_peer_id(
@@ -146,6 +163,10 @@ libp2p_quic_err_t libp2p_quic_addr_validate(const libp2p_quic_addr_t *addr)
             }
         }
     }
+    else
+    {
+        result = LIBP2P_QUIC_OK;
+    }
     if (result == LIBP2P_QUIC_OK)
     {
         if ((addr->has_peer_id != 0U) &&
@@ -159,7 +180,7 @@ libp2p_quic_err_t libp2p_quic_addr_validate(const libp2p_quic_addr_t *addr)
         }
         else
         {
-            /* Valid. */
+            result = LIBP2P_QUIC_OK;
         }
     }
 
@@ -171,91 +192,115 @@ libp2p_quic_err_t libp2p_quic_addr_from_multiaddr(
     size_t multiaddr_len,
     libp2p_quic_addr_t *out)
 {
-    libp2p_multiaddr_cursor_t cursor;
-    uint64_t code = 0U;
-    const uint8_t *value = NULL;
-    size_t value_len = 0U;
-    uint8_t saw_ip = 0U;
-    uint8_t saw_udp = 0U;
-    uint8_t saw_quic = 0U;
-    libp2p_quic_addr_t parsed;
-    libp2p_multiaddr_err_t err = LIBP2P_MULTIADDR_OK;
+    libp2p_quic_err_t result = LIBP2P_QUIC_OK;
 
     if ((multiaddr == NULL) || (multiaddr_len == 0U) || (out == NULL))
     {
-        return LIBP2P_QUIC_ERR_INVALID_ARG;
+        result = LIBP2P_QUIC_ERR_INVALID_ARG;
     }
-
-    quic_addr_clear(&parsed);
-    cursor.buf = multiaddr;
-    cursor.buf_len = multiaddr_len;
-    cursor.offset = 0U;
-
-    while ((err = libp2p_multiaddr_next_component(&cursor, &code, &value, &value_len)) ==
-           LIBP2P_MULTIADDR_OK)
+    else
     {
-        if (code == LIBP2P_MULTIADDR_CODE_IP4)
+        libp2p_multiaddr_cursor_t cursor;
+        uint64_t code = 0U;
+        const uint8_t *value = NULL;
+        size_t value_len = 0U;
+        uint8_t saw_ip = 0U;
+        uint8_t saw_udp = 0U;
+        uint8_t saw_quic = 0U;
+        uint8_t parsing = 1U;
+        libp2p_quic_addr_t parsed;
+        libp2p_multiaddr_err_t err = LIBP2P_MULTIADDR_OK;
+
+        quic_addr_clear(&parsed);
+        cursor.buf = multiaddr;
+        cursor.buf_len = multiaddr_len;
+        cursor.offset = 0U;
+
+        while ((result == LIBP2P_QUIC_OK) && (parsing != 0U))
         {
-            if ((saw_ip != 0U) || (saw_udp != 0U) || (saw_quic != 0U) || (value_len != 4U))
+            err = libp2p_multiaddr_next_component(&cursor, &code, &value, &value_len);
+            if (err != LIBP2P_MULTIADDR_OK)
             {
-                return LIBP2P_QUIC_ERR_ADDR;
+                parsing = 0U;
             }
-            parsed.family = LIBP2P_QUIC_ADDR_IP4;
-            (void)memcpy(parsed.ip, value, 4U);
-            saw_ip = 1U;
-        }
-        else if (code == LIBP2P_MULTIADDR_CODE_IP6)
-        {
-            if ((saw_ip != 0U) || (saw_udp != 0U) || (saw_quic != 0U) || (value_len != 16U))
+            else if (code == LIBP2P_MULTIADDR_CODE_IP4)
             {
-                return LIBP2P_QUIC_ERR_ADDR;
+                if ((saw_ip != 0U) || (saw_udp != 0U) || (saw_quic != 0U) || (value_len != 4U))
+                {
+                    result = LIBP2P_QUIC_ERR_ADDR;
+                }
+                else
+                {
+                    parsed.family = LIBP2P_QUIC_ADDR_IP4;
+                    (void)memcpy(parsed.ip, value, 4U);
+                    saw_ip = 1U;
+                }
             }
-            parsed.family = LIBP2P_QUIC_ADDR_IP6;
-            (void)memcpy(parsed.ip, value, 16U);
-            saw_ip = 1U;
-        }
-        else if (code == LIBP2P_MULTIADDR_CODE_UDP)
-        {
-            if ((saw_ip == 0U) || (saw_udp != 0U) || (saw_quic != 0U) || (value_len != 2U))
+            else if (code == LIBP2P_MULTIADDR_CODE_IP6)
             {
-                return LIBP2P_QUIC_ERR_ADDR;
+                if ((saw_ip != 0U) || (saw_udp != 0U) || (saw_quic != 0U) || (value_len != 16U))
+                {
+                    result = LIBP2P_QUIC_ERR_ADDR;
+                }
+                else
+                {
+                    parsed.family = LIBP2P_QUIC_ADDR_IP6;
+                    (void)memcpy(parsed.ip, value, 16U);
+                    saw_ip = 1U;
+                }
             }
-            parsed.port = (uint16_t)((((uint16_t)value[0]) << 8U) | ((uint16_t)value[1]));
-            saw_udp = 1U;
-        }
-        else if (code == LIBP2P_MULTIADDR_CODE_QUIC_V1)
-        {
-            if ((saw_ip == 0U) || (saw_udp == 0U) || (saw_quic != 0U) || (value_len != 0U))
+            else if (code == LIBP2P_MULTIADDR_CODE_UDP)
             {
-                return LIBP2P_QUIC_ERR_ADDR;
+                if ((saw_ip == 0U) || (saw_udp != 0U) || (saw_quic != 0U) || (value_len != 2U))
+                {
+                    result = LIBP2P_QUIC_ERR_ADDR;
+                }
+                else
+                {
+                    parsed.port = (uint16_t)((((uint16_t)value[0]) << 8U) | ((uint16_t)value[1]));
+                    saw_udp = 1U;
+                }
             }
-            saw_quic = 1U;
-        }
-        else if (code == LIBP2P_MULTIADDR_CODE_P2P)
-        {
-            if ((saw_quic == 0U) || (parsed.has_peer_id != 0U) ||
-                (libp2p_quic_addr_set_peer_id(&parsed, value, value_len) != LIBP2P_QUIC_OK))
+            else if (code == LIBP2P_MULTIADDR_CODE_QUIC_V1)
             {
-                return LIBP2P_QUIC_ERR_ADDR;
+                if ((saw_ip == 0U) || (saw_udp == 0U) || (saw_quic != 0U) || (value_len != 0U))
+                {
+                    result = LIBP2P_QUIC_ERR_ADDR;
+                }
+                else
+                {
+                    saw_quic = 1U;
+                }
+            }
+            else if (code == LIBP2P_MULTIADDR_CODE_P2P)
+            {
+                if ((saw_quic == 0U) || (parsed.has_peer_id != 0U) ||
+                    (libp2p_quic_addr_set_peer_id(&parsed, value, value_len) != LIBP2P_QUIC_OK))
+                {
+                    result = LIBP2P_QUIC_ERR_ADDR;
+                }
+            }
+            else
+            {
+                result = LIBP2P_QUIC_ERR_ADDR;
             }
         }
-        else
+
+        if ((result == LIBP2P_QUIC_OK) && (err != LIBP2P_MULTIADDR_ERR_END))
         {
-            return LIBP2P_QUIC_ERR_ADDR;
+            result = LIBP2P_QUIC_ERR_ADDR;
+        }
+        if ((result == LIBP2P_QUIC_OK) && ((saw_ip == 0U) || (saw_udp == 0U) || (saw_quic == 0U)))
+        {
+            result = LIBP2P_QUIC_ERR_ADDR;
+        }
+        if (result == LIBP2P_QUIC_OK)
+        {
+            *out = parsed;
         }
     }
 
-    if (err != LIBP2P_MULTIADDR_ERR_END)
-    {
-        return LIBP2P_QUIC_ERR_ADDR;
-    }
-    if ((saw_ip == 0U) || (saw_udp == 0U) || (saw_quic == 0U))
-    {
-        return LIBP2P_QUIC_ERR_ADDR;
-    }
-
-    *out = parsed;
-    return LIBP2P_QUIC_OK;
+    return result;
 }
 
 libp2p_quic_err_t libp2p_quic_addr_to_multiaddr(
@@ -265,7 +310,7 @@ libp2p_quic_err_t libp2p_quic_addr_to_multiaddr(
     size_t *written)
 {
     size_t pos = 0U;
-    uint8_t port_value[2];
+    uint8_t port_value[2] = {0U, 0U};
     int too_small = 0;
     libp2p_quic_err_t result = LIBP2P_QUIC_OK;
 
@@ -275,29 +320,30 @@ libp2p_quic_err_t libp2p_quic_addr_to_multiaddr(
     }
     if ((addr == NULL) || (written == NULL))
     {
-        return LIBP2P_QUIC_ERR_INVALID_ARG;
+        result = LIBP2P_QUIC_ERR_INVALID_ARG;
     }
-    result = libp2p_quic_addr_validate(addr);
-    if (result != LIBP2P_QUIC_OK)
+    if (result == LIBP2P_QUIC_OK)
     {
-        return result;
+        result = libp2p_quic_addr_validate(addr);
     }
-
-    result = quic_addr_append_component(
-        (addr->family == LIBP2P_QUIC_ADDR_IP4) ? LIBP2P_MULTIADDR_CODE_IP4
-                                               : LIBP2P_MULTIADDR_CODE_IP6,
-        addr->ip,
-        (addr->family == LIBP2P_QUIC_ADDR_IP4) ? 4U : 16U,
-        out,
-        out_len,
-        &pos,
-        &too_small);
-
-    port_value[0] = (uint8_t)(addr->port >> 8U);
-    port_value[1] = (uint8_t)(addr->port & 0xffU);
 
     if (result == LIBP2P_QUIC_OK)
     {
+        result = quic_addr_append_component(
+            (addr->family == LIBP2P_QUIC_ADDR_IP4) ? LIBP2P_MULTIADDR_CODE_IP4
+                                                   : LIBP2P_MULTIADDR_CODE_IP6,
+            addr->ip,
+            (addr->family == LIBP2P_QUIC_ADDR_IP4) ? 4U : 16U,
+            out,
+            out_len,
+            &pos,
+            &too_small);
+    }
+
+    if (result == LIBP2P_QUIC_OK)
+    {
+        port_value[0] = (uint8_t)(addr->port >> 8U);
+        port_value[1] = (uint8_t)(addr->port & 0xffU);
         result = quic_addr_append_component(
             LIBP2P_MULTIADDR_CODE_UDP,
             port_value,
@@ -331,12 +377,12 @@ libp2p_quic_err_t libp2p_quic_addr_to_multiaddr(
     }
 
     *written = pos;
-    if (result != LIBP2P_QUIC_OK)
+    if ((result == LIBP2P_QUIC_OK) && (too_small != 0))
     {
-        return result;
+        result = LIBP2P_QUIC_ERR_BUF_TOO_SMALL;
     }
 
-    return (too_small == 0) ? LIBP2P_QUIC_OK : LIBP2P_QUIC_ERR_BUF_TOO_SMALL;
+    return result;
 }
 
 int libp2p_quic_addr_equal(
@@ -344,30 +390,36 @@ int libp2p_quic_addr_equal(
     const libp2p_quic_addr_t *b,
     int compare_peer_id)
 {
-    size_t ip_len = 0U;
+    int result = 1;
 
     if ((a == NULL) || (b == NULL) || (a->family != b->family) || (a->port != b->port))
     {
-        return 0;
+        result = 0;
     }
-
-    ip_len = (a->family == LIBP2P_QUIC_ADDR_IP4) ? 4U : 16U;
-    if (memcmp(a->ip, b->ip, ip_len) != 0)
+    else
     {
-        return 0;
+        size_t ip_len = (a->family == LIBP2P_QUIC_ADDR_IP4) ? 4U : 16U;
+        if (memcmp(a->ip, b->ip, ip_len) != 0)
+        {
+            result = 0;
+        }
+
+        if ((result != 0) && (compare_peer_id != 0))
+        {
+            if ((a->has_peer_id != b->has_peer_id) || (a->peer_id_len != b->peer_id_len))
+            {
+                result = 0;
+            }
+            else if ((a->has_peer_id != 0U) && (memcmp(a->peer_id, b->peer_id, a->peer_id_len) != 0))
+            {
+                result = 0;
+            }
+            else
+            {
+                result = 1;
+            }
+        }
     }
 
-    if (compare_peer_id != 0)
-    {
-        if ((a->has_peer_id != b->has_peer_id) || (a->peer_id_len != b->peer_id_len))
-        {
-            return 0;
-        }
-        if ((a->has_peer_id != 0U) && (memcmp(a->peer_id, b->peer_id, a->peer_id_len) != 0))
-        {
-            return 0;
-        }
-    }
-
-    return 1;
+    return result;
 }

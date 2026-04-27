@@ -34,9 +34,6 @@
 #define LIBP2P_QUIC_CERTIFICATE_KEY_DER_MAX_BYTES 2048U
 #define LIBP2P_QUIC_SIGNED_PUBLIC_KEY_MAX_BYTES   512U
 
-/** TLS 1.3 version value used by AWS-LC/BoringSSL APIs. */
-#define LIBP2P_QUIC_TLS_VERSION_1_3 UINT16_C(0x0304)
-
 /** Supported libp2p host-key subset for c-lean-libp2p. */
 typedef enum
 {

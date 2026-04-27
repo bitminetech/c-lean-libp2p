@@ -90,6 +90,42 @@ static libp2p_quic_err_t quic_endpoint_test_time(uint64_t *out_unix_seconds, voi
     return LIBP2P_QUIC_OK;
 }
 
+static void *quic_endpoint_test_malloc(size_t size, void *user_data)
+{
+    (void)user_data;
+    return malloc(size);
+}
+
+static void *quic_endpoint_test_calloc(size_t nmemb, size_t size, void *user_data)
+{
+    (void)user_data;
+    return calloc(nmemb, size);
+}
+
+static void *quic_endpoint_test_realloc(void *ptr, size_t size, void *user_data)
+{
+    (void)user_data;
+    return realloc(ptr, size);
+}
+
+static void quic_endpoint_test_free(void *ptr, void *user_data)
+{
+    (void)user_data;
+    free(ptr);
+}
+
+static libp2p_quic_allocator_t quic_endpoint_test_allocator(void)
+{
+    libp2p_quic_allocator_t allocator;
+
+    allocator.malloc_fn = quic_endpoint_test_malloc;
+    allocator.calloc_fn = quic_endpoint_test_calloc;
+    allocator.realloc_fn = quic_endpoint_test_realloc;
+    allocator.free_fn = quic_endpoint_test_free;
+    allocator.user_data = NULL;
+    return allocator;
+}
+
 static void quic_endpoint_load_host_key(
     uint8_t private_key[32],
     uint8_t public_key_message[37],
@@ -174,6 +210,8 @@ static void quic_endpoint_init_pair(
 
     assert(libp2p_quic_endpoint_config_default(&client_config) == LIBP2P_QUIC_OK);
     assert(libp2p_quic_endpoint_config_default(&server_config) == LIBP2P_QUIC_OK);
+    client_config.allocator = quic_endpoint_test_allocator();
+    server_config.allocator = quic_endpoint_test_allocator();
     client_random = 1U;
     server_random = 131U;
     client_config.role = LIBP2P_QUIC_ROLE_CLIENT;
