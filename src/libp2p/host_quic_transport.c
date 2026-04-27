@@ -57,7 +57,7 @@ static const libp2p_quic_service_config_t *host_quic_config_from_const(const voi
 {
     libp2p_quic_service_config_t *out = NULL;
 
-    (void)memcpy((void *)&out, (const void *)&ptr, sizeof out);
+    (void)memcpy((void *)&out, (const void *)&ptr, sizeof ptr);
 
     return out;
 }
@@ -66,7 +66,7 @@ static libp2p_quic_service_t *host_quic_service_from_void(const void *ptr)
 {
     libp2p_quic_service_t *out = NULL;
 
-    (void)memcpy((void *)&out, (const void *)&ptr, sizeof out);
+    (void)memcpy((void *)&out, (const void *)&ptr, sizeof ptr);
 
     return out;
 }
@@ -75,7 +75,7 @@ static const libp2p_quic_service_t *host_quic_service_from_const(const void *ptr
 {
     libp2p_quic_service_t *out = NULL;
 
-    (void)memcpy((void *)&out, (const void *)&ptr, sizeof out);
+    (void)memcpy((void *)&out, (const void *)&ptr, sizeof ptr);
 
     return out;
 }
@@ -84,7 +84,7 @@ static libp2p_quic_conn_t *host_quic_conn_from_void(const void *ptr)
 {
     libp2p_quic_conn_t *out = NULL;
 
-    (void)memcpy((void *)&out, (const void *)&ptr, sizeof out);
+    (void)memcpy((void *)&out, (const void *)&ptr, sizeof ptr);
 
     return out;
 }
@@ -93,7 +93,7 @@ static const libp2p_quic_conn_t *host_quic_conn_from_const(const void *ptr)
 {
     libp2p_quic_conn_t *out = NULL;
 
-    (void)memcpy((void *)&out, (const void *)&ptr, sizeof out);
+    (void)memcpy((void *)&out, (const void *)&ptr, sizeof ptr);
 
     return out;
 }
@@ -102,7 +102,7 @@ static libp2p_quic_stream_t *host_quic_stream_from_void(const void *ptr)
 {
     libp2p_quic_stream_t *out = NULL;
 
-    (void)memcpy((void *)&out, (const void *)&ptr, sizeof out);
+    (void)memcpy((void *)&out, (const void *)&ptr, sizeof ptr);
 
     return out;
 }
@@ -402,7 +402,7 @@ static libp2p_host_err_t host_quic_conn_peer_identity(
     const void *conn,
     libp2p_host_peer_identity_t *out)
 {
-    libp2p_quic_peer_identity_t quic_identity;
+    libp2p_quic_peer_identity_t quic_identity = {0};
     libp2p_host_err_t result = LIBP2P_HOST_OK;
 
     if (out == NULL)
@@ -411,7 +411,6 @@ static libp2p_host_err_t host_quic_conn_peer_identity(
     }
     else
     {
-        (void)memset(&quic_identity, 0, sizeof(quic_identity));
         result = host_quic_err(
             libp2p_quic_conn_peer_identity(host_quic_conn_from_const(conn), &quic_identity));
     }

@@ -95,7 +95,7 @@ static libp2p_host_secp256k1_identity_t *host_identity_from_user_data(void *user
 {
     libp2p_host_secp256k1_identity_t *identity = NULL;
 
-    (void)memcpy((void *)&identity, (const void *)&user_data, sizeof identity);
+    (void)memcpy((void *)&identity, (const void *)&user_data, sizeof user_data);
 
     return identity;
 }
