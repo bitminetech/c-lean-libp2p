@@ -64,12 +64,12 @@ libp2p_quic_err_t libp2p_quic_udp_socket_local_addr(
     libp2p_quic_addr_t *out_addr);
 
 /**
- * Return the local address callers should advertise for inbound dials.
+ * Return the local address the socket is bound to.
  *
- * If the socket is bound to a wildcard address, the returned address keeps the
- * bound port and attempts to replace the wildcard IP with the OS-selected
- * source address for the default route. If no such address can be resolved, the
- * bound wildcard address is returned unchanged.
+ * The address is reported as-bound: if the caller bound the socket to a
+ * wildcard address (0.0.0.0 or ::), the returned address has the same wildcard
+ * IP. The library does not guess which interface the caller intends to
+ * advertise; that is an application-level decision.
  */
 libp2p_quic_err_t libp2p_quic_udp_socket_listen_addr(
     const libp2p_quic_udp_socket_t *socket,

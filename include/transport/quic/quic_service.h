@@ -139,12 +139,13 @@ libp2p_quic_err_t libp2p_quic_service_local_addr(
     libp2p_quic_addr_t *out_addr);
 
 /**
- * Return the local QUIC UDP address to advertise for inbound dials.
+ * Return the local QUIC UDP address the service is bound to.
  *
- * The returned address preserves the bound port. For wildcard binds it may
- * substitute the wildcard IP with the OS-selected source address for the
- * default route, falling back to libp2p_quic_service_local_addr() semantics
- * when no concrete address is available.
+ * The address is reported as-bound: the resolved port is included, and the IP
+ * matches what the service was configured with. If the configured listen
+ * multiaddr used a wildcard IP (0.0.0.0 or ::), the returned address has the
+ * same wildcard IP. Resolving a wildcard to a concrete advertise IP is an
+ * application-level concern; the service does not guess.
  */
 libp2p_quic_err_t libp2p_quic_service_listen_addr(
     const libp2p_quic_service_t *service,

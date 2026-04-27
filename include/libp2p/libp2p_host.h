@@ -509,10 +509,10 @@ libp2p_host_err_t libp2p_host_next_event(libp2p_host_t *host, libp2p_host_event_
  * the local /p2p/<peer-id> suffix when the transport can encode one. It is
  * available after libp2p_host_init(), before or after libp2p_host_start().
  * For listen configs that use UDP port 0, the returned multiaddr contains the
- * kernel-assigned port. For wildcard IP binds, transports may replace the
- * wildcard IP with an OS-selected advertise address while preserving the
- * actual bound port; if no concrete address is available, the wildcard address
- * is returned.
+ * kernel-assigned port. The IP component is reported as-bound: if the caller
+ * configured a wildcard IP (0.0.0.0 or ::), the returned multiaddr has the
+ * same wildcard IP. Resolving a wildcard to a concrete advertise IP is an
+ * application-level concern; the host does not guess.
  *
  * @param[out] written  Bytes written, or required size on
  *                      LIBP2P_HOST_ERR_BUF_TOO_SMALL.

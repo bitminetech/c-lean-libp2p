@@ -3,6 +3,7 @@
 #include <errno.h>
 #include <fcntl.h>
 #include <limits.h>
+#include <netinet/in.h>
 #include <poll.h>
 #include <signal.h>
 #include <stddef.h>
@@ -10,6 +11,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <sys/socket.h>
 #include <sys/time.h>
 #include <time.h>
 #include <unistd.h>
@@ -23,6 +25,7 @@
 #include "transport/quic/quic_service.h"
 
 #define INTEROP_LISTEN_PORT             0U
+#define INTEROP_LISTEN_IP_TEXT_BYTES    16U
 #define INTEROP_DEFAULT_TIMEOUT_SECONDS 180U
 #define INTEROP_HOST_STORAGE_BYTES      (4U * 1024U * 1024U)
 #define INTEROP_LISTEN_MULTIADDR_BYTES  128U
@@ -541,14 +544,62 @@ static interop_err_t interop_make_redis_key(const interop_env_t *env, char *out,
     return result;
 }
 
-static interop_err_t interop_configure_host(interop_app_t *app, uint16_t listen_port)
+static interop_err_t interop_redis_local_ip4_text(
+    const libp2p_interop_redis_client_t *client,
+    char *out,
+    size_t out_len)
+{
+    struct sockaddr_storage storage;
+    socklen_t storage_len = (socklen_t)sizeof(storage);
+    const struct sockaddr_in *addr4 = NULL;
+    const uint8_t *ip = NULL;
+    int written = 0;
+    interop_err_t result = INTEROP_OK;
+
+    if ((client == NULL) || (client->fd < 0) || (out == NULL) || (out_len == 0U))
+    {
+        result = INTEROP_ERR_REDIS;
+    }
+    else if (getsockname(client->fd, (struct sockaddr *)&storage, &storage_len) != 0)
+    {
+        result = INTEROP_ERR_REDIS;
+    }
+    else if (storage.ss_family != AF_INET)
+    {
+        result = INTEROP_ERR_REDIS;
+    }
+    else
+    {
+        addr4 = (const struct sockaddr_in *)&storage;
+        ip = (const uint8_t *)&addr4->sin_addr;
+        written = snprintf(
+            out,
+            out_len,
+            "%u.%u.%u.%u",
+            (unsigned int)ip[0],
+            (unsigned int)ip[1],
+            (unsigned int)ip[2],
+            (unsigned int)ip[3]);
+        if ((written <= 0) || ((size_t)written >= out_len))
+        {
+            result = INTEROP_ERR_REDIS;
+        }
+    }
+
+    return result;
+}
+
+static interop_err_t interop_configure_host(
+    interop_app_t *app,
+    const char *listen_ip_text,
+    uint16_t listen_port)
 {
     char listen_text[80];
     int text_len = 0;
     size_t storage_len = 0U;
     interop_err_t result = INTEROP_OK;
 
-    if (app == NULL)
+    if ((app == NULL) || (listen_ip_text == NULL))
     {
         result = INTEROP_ERR_USAGE;
     }
@@ -557,7 +608,8 @@ static interop_err_t interop_configure_host(interop_app_t *app, uint16_t listen_
         text_len = snprintf(
             listen_text,
             sizeof(listen_text),
-            "/ip4/0.0.0.0/udp/%u/quic-v1",
+            "/ip4/%s/udp/%u/quic-v1",
+            listen_ip_text,
             (unsigned int)listen_port);
         if ((text_len <= 0) || ((size_t)text_len >= sizeof(listen_text)))
         {
@@ -925,6 +977,7 @@ static interop_err_t interop_run_listener(interop_app_t *app)
     libp2p_interop_redis_client_t redis;
     char redis_key[INTEROP_REDIS_KEY_BYTES];
     char multiaddr_text[INTEROP_MULTIADDR_TEXT_BYTES];
+    char listen_ip_text[INTEROP_LISTEN_IP_TEXT_BYTES];
     interop_err_t result = INTEROP_OK;
 
     redis.fd = -1;
@@ -937,7 +990,14 @@ static interop_err_t interop_run_listener(interop_app_t *app)
     {
         result = INTEROP_ERR_REDIS;
     }
-    if ((result == INTEROP_OK) && (interop_configure_host(app, INTEROP_LISTEN_PORT) != INTEROP_OK))
+    if ((result == INTEROP_OK) &&
+        (interop_redis_local_ip4_text(&redis, listen_ip_text, sizeof(listen_ip_text)) !=
+         INTEROP_OK))
+    {
+        result = INTEROP_ERR_REDIS;
+    }
+    if ((result == INTEROP_OK) &&
+        (interop_configure_host(app, listen_ip_text, INTEROP_LISTEN_PORT) != INTEROP_OK))
     {
         result = INTEROP_ERR_HOST;
     }
@@ -1031,7 +1091,8 @@ static interop_err_t interop_run_dialer(interop_app_t *app)
         interop_log(app, "dialer failed to parse listener address");
         result = INTEROP_ERR_PROTOCOL;
     }
-    if ((result == INTEROP_OK) && (interop_configure_host(app, 0U) != INTEROP_OK))
+    if ((result == INTEROP_OK) &&
+        (interop_configure_host(app, "0.0.0.0", 0U) != INTEROP_OK))
     {
         result = INTEROP_ERR_HOST;
     }
