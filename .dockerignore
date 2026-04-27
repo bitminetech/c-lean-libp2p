@@ -1,0 +1,5 @@
+.git
+build
+build-*
+interop/unified-testing/.cache
+interop/unified-testing/results

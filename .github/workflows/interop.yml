@@ -1,0 +1,37 @@
+name: Interop
+
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: '17 8 * * *'
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  transport-loopback:
+    name: transport loopback
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          path: c-lean-libp2p
+          submodules: recursive
+
+      - name: Install harness dependencies
+        run: |
+          sudo wget -qO /usr/local/bin/yq https://github.com/mikefarah/yq/releases/download/v4.45.1/yq_linux_amd64
+          sudo chmod +x /usr/local/bin/yq
+
+      - name: Run c-lean-libp2p QUIC loopback
+        working-directory: c-lean-libp2p/interop/unified-testing/transport
+        run: |
+          ./run.sh \
+            --impl-select "c-lean-libp2p" \
+            --transport-select "quic-v1" \
+            --workers 1 \
+            --yes
