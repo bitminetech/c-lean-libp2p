@@ -38,6 +38,16 @@
 #define QUIC_BACKEND_ACTIVE_CID_LIMIT       8U
 #define QUIC_BACKEND_STREAM_SEND_MULTIPLIER 2U
 
+/* Character constants remain valid static initializers for MSVC's C compiler. */
+static const uint8_t quic_backend_libp2p_alpn[sizeof(LIBP2P_QUIC_ALPN)] = {
+    (uint8_t)LIBP2P_QUIC_ALPN_LEN,
+    (uint8_t)'l',
+    (uint8_t)'i',
+    (uint8_t)'b',
+    (uint8_t)'p',
+    (uint8_t)'2',
+    (uint8_t)'p'};
+
 typedef struct quic_backend_stream_vec quic_backend_stream_vec_t;
 
 struct libp2p_quic_stream
@@ -611,14 +621,6 @@ static int quic_backend_alpn_select_cb(
     unsigned in_len,
     void *arg)
 {
-    static const uint8_t libp2p_alpn[] = {
-        (uint8_t)LIBP2P_QUIC_ALPN_LEN,
-        (uint8_t)LIBP2P_QUIC_ALPN[0],
-        (uint8_t)LIBP2P_QUIC_ALPN[1],
-        (uint8_t)LIBP2P_QUIC_ALPN[2],
-        (uint8_t)LIBP2P_QUIC_ALPN[3],
-        (uint8_t)LIBP2P_QUIC_ALPN[4],
-        (uint8_t)LIBP2P_QUIC_ALPN[5]};
     uint8_t *selected = NULL;
     uint8_t selected_len = 0U;
     int result = 0;
@@ -629,8 +631,8 @@ static int quic_backend_alpn_select_cb(
     result = SSL_select_next_proto(
         &selected,
         &selected_len,
-        libp2p_alpn,
-        sizeof(libp2p_alpn),
+        quic_backend_libp2p_alpn,
+        (unsigned)sizeof(quic_backend_libp2p_alpn),
         in,
         in_len);
     if (result != OPENSSL_NPN_NEGOTIATED)
@@ -840,14 +842,6 @@ static SSL_CTX *quic_backend_ssl_ctx_new(libp2p_quic_endpoint_t *endpoint, libp2
 
 static libp2p_quic_err_t quic_backend_ssl_new_for_conn(libp2p_quic_conn_t *conn)
 {
-    static const uint8_t libp2p_alpn[] = {
-        (uint8_t)LIBP2P_QUIC_ALPN_LEN,
-        (uint8_t)LIBP2P_QUIC_ALPN[0],
-        (uint8_t)LIBP2P_QUIC_ALPN[1],
-        (uint8_t)LIBP2P_QUIC_ALPN[2],
-        (uint8_t)LIBP2P_QUIC_ALPN[3],
-        (uint8_t)LIBP2P_QUIC_ALPN[4],
-        (uint8_t)LIBP2P_QUIC_ALPN[5]};
     SSL_CTX *ctx = NULL;
     libp2p_quic_err_t result = LIBP2P_QUIC_OK;
 
@@ -877,7 +871,10 @@ static libp2p_quic_err_t quic_backend_ssl_new_for_conn(libp2p_quic_conn_t *conn)
         else
         {
             SSL_set_connect_state(conn->ssl);
-            if (SSL_set_alpn_protos(conn->ssl, libp2p_alpn, sizeof(libp2p_alpn)) != 0)
+            if (SSL_set_alpn_protos(
+                    conn->ssl,
+                    quic_backend_libp2p_alpn,
+                    sizeof(quic_backend_libp2p_alpn)) != 0)
             {
                 result = LIBP2P_QUIC_ERR_TLS;
             }

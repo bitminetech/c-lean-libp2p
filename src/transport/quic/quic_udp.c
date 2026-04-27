@@ -574,6 +574,8 @@ libp2p_quic_err_t libp2p_quic_udp_socket_send(
     libp2p_quic_tx_datagram_t datagram;
     libp2p_quic_err_t result = LIBP2P_QUIC_OK;
 
+    (void)memset(&datagram, 0, sizeof(datagram));
+
     if ((udp_socket == NULL) || (endpoint == NULL) || (buffer == NULL) || (buffer_len == 0U))
     {
         result = LIBP2P_QUIC_ERR_INVALID_ARG;
@@ -588,7 +590,6 @@ libp2p_quic_err_t libp2p_quic_udp_socket_send(
     }
     else
     {
-        (void)memset(&datagram, 0, sizeof(datagram));
         datagram.data = buffer;
         datagram.data_cap = buffer_len;
     }

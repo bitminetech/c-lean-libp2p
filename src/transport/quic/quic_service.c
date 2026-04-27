@@ -861,6 +861,9 @@ libp2p_quic_err_t libp2p_quic_service_init(
     libp2p_quic_addr_t bound_addr;
     libp2p_quic_err_t result = LIBP2P_QUIC_OK;
 
+    (void)memset(&layout, 0, sizeof(layout));
+    (void)memset(&bound_addr, 0, sizeof(bound_addr));
+
     if (out_service == NULL)
     {
         result = LIBP2P_QUIC_ERR_INVALID_ARG;
