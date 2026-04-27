@@ -44,6 +44,22 @@ static quic_udp_native_fd_t quic_udp_to_native_fd(libp2p_quic_udp_fd_t fd)
 #endif
 }
 
+static int quic_udp_fd_is_native_valid(libp2p_quic_udp_fd_t fd)
+{
+    int result = 1;
+
+#if defined(_WIN32)
+    if (fd == LIBP2P_QUIC_UDP_INVALID_FD)
+#else
+    if ((fd == LIBP2P_QUIC_UDP_INVALID_FD) || (fd > (libp2p_quic_udp_fd_t)INT_MAX))
+#endif
+    {
+        result = 0;
+    }
+
+    return result;
+}
+
 static libp2p_quic_udp_fd_t quic_udp_from_native_fd(quic_udp_native_fd_t fd)
 {
 #if defined(_WIN32)
@@ -427,7 +443,7 @@ void libp2p_quic_udp_socket_close(libp2p_quic_udp_socket_t *udp_socket)
 {
     if (udp_socket != NULL)
     {
-        if (udp_socket->fd != LIBP2P_QUIC_UDP_INVALID_FD)
+        if (quic_udp_fd_is_native_valid(udp_socket->fd) != 0)
         {
             quic_udp_close_native(quic_udp_to_native_fd(udp_socket->fd));
 #if defined(_WIN32)
@@ -448,7 +464,7 @@ libp2p_quic_err_t libp2p_quic_udp_socket_fd(
     {
         result = LIBP2P_QUIC_ERR_INVALID_ARG;
     }
-    else if ((udp_socket->open == 0U) || (udp_socket->fd == LIBP2P_QUIC_UDP_INVALID_FD))
+    else if ((udp_socket->open == 0U) || (quic_udp_fd_is_native_valid(udp_socket->fd) == 0))
     {
         result = LIBP2P_QUIC_ERR_STATE;
     }
@@ -470,7 +486,7 @@ libp2p_quic_err_t libp2p_quic_udp_socket_local_addr(
     {
         result = LIBP2P_QUIC_ERR_INVALID_ARG;
     }
-    else if ((udp_socket->open == 0U) || (udp_socket->fd == LIBP2P_QUIC_UDP_INVALID_FD))
+    else if ((udp_socket->open == 0U) || (quic_udp_fd_is_native_valid(udp_socket->fd) == 0))
     {
         result = LIBP2P_QUIC_ERR_STATE;
     }
@@ -499,7 +515,7 @@ libp2p_quic_err_t libp2p_quic_udp_socket_recv(
     {
         result = LIBP2P_QUIC_ERR_INVALID_ARG;
     }
-    else if ((udp_socket->open == 0U) || (udp_socket->fd == LIBP2P_QUIC_UDP_INVALID_FD))
+    else if ((udp_socket->open == 0U) || (quic_udp_fd_is_native_valid(udp_socket->fd) == 0))
     {
         result = LIBP2P_QUIC_ERR_STATE;
     }
@@ -562,7 +578,7 @@ libp2p_quic_err_t libp2p_quic_udp_socket_send(
     {
         result = LIBP2P_QUIC_ERR_INVALID_ARG;
     }
-    else if ((udp_socket->open == 0U) || (udp_socket->fd == LIBP2P_QUIC_UDP_INVALID_FD))
+    else if ((udp_socket->open == 0U) || (quic_udp_fd_is_native_valid(udp_socket->fd) == 0))
     {
         result = LIBP2P_QUIC_ERR_STATE;
     }
