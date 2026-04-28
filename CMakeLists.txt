@@ -156,6 +156,25 @@ file(
 
 list(SORT LIBP2P_SOURCE_FILES)
 
+set(
+    LIBP2P_GOSSIPSUB_SOURCE_FILES
+    "${PROJECT_SOURCE_DIR}/src/protocol/gossipsub/gossipsub_api.c"
+    "${PROJECT_SOURCE_DIR}/src/protocol/gossipsub/gossipsub_codec.c"
+    "${PROJECT_SOURCE_DIR}/src/protocol/gossipsub/gossipsub_config.c"
+    "${PROJECT_SOURCE_DIR}/src/protocol/gossipsub/gossipsub_host.c"
+    "${PROJECT_SOURCE_DIR}/src/protocol/gossipsub/gossipsub_rx.c"
+    "${PROJECT_SOURCE_DIR}/src/protocol/gossipsub/gossipsub_state.c"
+    "${PROJECT_SOURCE_DIR}/src/protocol/gossipsub/gossipsub_tx.c"
+    "${PROJECT_SOURCE_DIR}/src/protocol/gossipsub/gossipsub_util.c"
+)
+foreach(_libp2p_gossipsub_source IN LISTS LIBP2P_GOSSIPSUB_SOURCE_FILES)
+    if(NOT EXISTS "${_libp2p_gossipsub_source}")
+        message(FATAL_ERROR "Missing gossipsub source: ${_libp2p_gossipsub_source}")
+    endif()
+endforeach()
+list(APPEND LIBP2P_SOURCE_FILES ${LIBP2P_GOSSIPSUB_SOURCE_FILES})
+list(REMOVE_DUPLICATES LIBP2P_SOURCE_FILES)
+
 add_library(c_lean_libp2p STATIC ${LIBP2P_SOURCE_FILES})
 target_link_libraries(
     c_lean_libp2p
