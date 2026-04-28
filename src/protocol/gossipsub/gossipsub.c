@@ -312,11 +312,16 @@ static libp2p_gossipsub_err_t gossipsub_reserve(
     return result;
 }
 
+static void gossipsub_pointer_store(void *destination, const void *value)
+{
+    (void)memcpy(destination, (const void *)&value, sizeof value);
+}
+
 static uint8_t *gossipsub_storage_bytes(const void *storage)
 {
     uint8_t *result = NULL;
 
-    (void)memcpy((void *)&result, (const void *)&storage, sizeof result);
+    gossipsub_pointer_store((void *)&result, storage);
 
     return result;
 }
@@ -325,7 +330,7 @@ static libp2p_gossipsub_t *gossipsub_storage_router(const void *storage)
 {
     libp2p_gossipsub_t *result = NULL;
 
-    (void)memcpy((void *)&result, (const void *)&storage, sizeof result);
+    gossipsub_pointer_store((void *)&result, storage);
 
     return result;
 }
@@ -466,12 +471,12 @@ static libp2p_gossipsub_err_t gossipsub_host_to_err(libp2p_host_err_t err)
     return result;
 }
 
-static libp2p_gossipsub_t *gossipsub_from_protocol_user_data(const void *user_data)
+static libp2p_gossipsub_t *gossipsub_from_protocol_user_data(void *user_data)
 {
     gossipsub_protocol_user_data_t *data = NULL;
     libp2p_gossipsub_t *result = NULL;
 
-    (void)memcpy((void *)&data, (const void *)&user_data, sizeof data);
+    (void)memcpy((void *)&data, (const void *)&user_data, sizeof user_data);
     if (data != NULL)
     {
         result = data->gossipsub;
@@ -481,12 +486,12 @@ static libp2p_gossipsub_t *gossipsub_from_protocol_user_data(const void *user_da
 }
 
 static libp2p_gossipsub_protocol_version_t gossipsub_version_from_protocol_user_data(
-    const void *user_data)
+    void *user_data)
 {
     gossipsub_protocol_user_data_t *data = NULL;
     libp2p_gossipsub_protocol_version_t result = LIBP2P_GOSSIPSUB_VERSION_NONE;
 
-    (void)memcpy((void *)&data, (const void *)&user_data, sizeof data);
+    (void)memcpy((void *)&data, (const void *)&user_data, sizeof user_data);
     if (data != NULL)
     {
         result = data->version;
@@ -3131,65 +3136,34 @@ libp2p_gossipsub_err_t libp2p_gossipsub_init(
         (void)memset(storage, 0, layout.total);
         gossipsub = gossipsub_storage_router(storage);
         storage_ptr = gossipsub_storage_at(storage, layout.stream_rx_offset);
-        (void)memcpy((void *)&rx_base, (const void *)&storage_ptr, sizeof rx_base);
+        gossipsub_pointer_store((void *)&rx_base, storage_ptr);
         gossipsub->config = *config;
         gossipsub->storage_base = gossipsub_storage_bytes(storage);
         gossipsub->storage_len = storage_len;
         storage_ptr = gossipsub_storage_at(storage, layout.topics_offset);
-        (void)memcpy(
-            (void *)&gossipsub->topics,
-            (const void *)&storage_ptr,
-            sizeof gossipsub->topics);
+        gossipsub_pointer_store((void *)&gossipsub->topics, storage_ptr);
         storage_ptr = gossipsub_storage_at(storage, layout.peers_offset);
-        (void)
-            memcpy((void *)&gossipsub->peers, (const void *)&storage_ptr, sizeof gossipsub->peers);
+        gossipsub_pointer_store((void *)&gossipsub->peers, storage_ptr);
         storage_ptr = gossipsub_storage_at(storage, layout.peer_topics_offset);
-        (void)memcpy(
-            (void *)&gossipsub->peer_topics,
-            (const void *)&storage_ptr,
-            sizeof gossipsub->peer_topics);
+        gossipsub_pointer_store((void *)&gossipsub->peer_topics, storage_ptr);
         storage_ptr = gossipsub_storage_at(storage, layout.streams_offset);
-        (void)memcpy(
-            (void *)&gossipsub->streams,
-            (const void *)&storage_ptr,
-            sizeof gossipsub->streams);
+        gossipsub_pointer_store((void *)&gossipsub->streams, storage_ptr);
         storage_ptr = gossipsub_storage_at(storage, layout.tx_queue_offset);
-        (void)memcpy(
-            (void *)&gossipsub->tx_queue,
-            (const void *)&storage_ptr,
-            sizeof gossipsub->tx_queue);
+        gossipsub_pointer_store((void *)&gossipsub->tx_queue, storage_ptr);
         storage_ptr = gossipsub_storage_at(storage, layout.tx_buffer_offset);
-        (void)memcpy(
-            (void *)&gossipsub->tx_buffer,
-            (const void *)&storage_ptr,
-            sizeof gossipsub->tx_buffer);
+        gossipsub_pointer_store((void *)&gossipsub->tx_buffer, storage_ptr);
         storage_ptr = gossipsub_storage_at(storage, layout.mcache_offset);
-        (void)memcpy(
-            (void *)&gossipsub->mcache,
-            (const void *)&storage_ptr,
-            sizeof gossipsub->mcache);
+        gossipsub_pointer_store((void *)&gossipsub->mcache, storage_ptr);
         storage_ptr = gossipsub_storage_at(storage, layout.mcache_data_offset);
-        (void)memcpy(
-            (void *)&gossipsub->mcache_data,
-            (const void *)&storage_ptr,
-            sizeof gossipsub->mcache_data);
+        gossipsub_pointer_store((void *)&gossipsub->mcache_data, storage_ptr);
         storage_ptr = gossipsub_storage_at(storage, layout.seen_offset);
-        (void)memcpy((void *)&gossipsub->seen, (const void *)&storage_ptr, sizeof gossipsub->seen);
+        gossipsub_pointer_store((void *)&gossipsub->seen, storage_ptr);
         storage_ptr = gossipsub_storage_at(storage, layout.validations_offset);
-        (void)memcpy(
-            (void *)&gossipsub->validations,
-            (const void *)&storage_ptr,
-            sizeof gossipsub->validations);
+        gossipsub_pointer_store((void *)&gossipsub->validations, storage_ptr);
         storage_ptr = gossipsub_storage_at(storage, layout.idontwant_offset);
-        (void)memcpy(
-            (void *)&gossipsub->idontwant,
-            (const void *)&storage_ptr,
-            sizeof gossipsub->idontwant);
+        gossipsub_pointer_store((void *)&gossipsub->idontwant, storage_ptr);
         storage_ptr = gossipsub_storage_at(storage, layout.events_offset);
-        (void)memcpy(
-            (void *)&gossipsub->events,
-            (const void *)&storage_ptr,
-            sizeof gossipsub->events);
+        gossipsub_pointer_store((void *)&gossipsub->events, storage_ptr);
         gossipsub->protocol_user_data[0].gossipsub = gossipsub;
         gossipsub->protocol_user_data[0].version = LIBP2P_GOSSIPSUB_VERSION_12;
         gossipsub->protocol_user_data[1].gossipsub = gossipsub;
@@ -3340,12 +3314,9 @@ static gossipsub_peer_state_t *gossipsub_find_peer(
 {
     gossipsub_peer_state_t *result = NULL;
 
-    if (out_index != NULL)
-    {
-        *out_index = gossipsub->config.capacity.max_peers;
-    }
     if ((gossipsub != NULL) && (peer_id != NULL) && (out_index != NULL))
     {
+        *out_index = gossipsub->config.capacity.max_peers;
         for (size_t index = 0U; index < gossipsub->config.capacity.max_peers; index++)
         {
             if ((gossipsub->peers[index].used == GOSSIPSUB_PEER_USED) &&
@@ -3617,6 +3588,7 @@ static void gossipsub_seen_add(
     uint64_t now_us)
 {
     if ((gossipsub != NULL) && (message_id != NULL) &&
+        (gossipsub->config.capacity.seen_entries != 0U) &&
         (message_id_len <= gossipsub->config.limits.max_message_id_bytes))
     {
         size_t target = 0U;
@@ -3783,6 +3755,7 @@ static void gossipsub_peer_idontwant_add(
     uint64_t now_us)
 {
     if ((gossipsub != NULL) && (message_id != NULL) &&
+        (gossipsub->config.capacity.idontwant_entries != 0U) &&
         (message_id_len <= gossipsub->config.limits.max_message_id_bytes))
     {
         size_t target = 0U;
@@ -4452,6 +4425,15 @@ static libp2p_gossipsub_err_t gossipsub_stream_decode_available(
 
     (void)memset(&storage, 0, sizeof(storage));
     (void)memset(&rpc, 0, sizeof(rpc));
+    (void)memset(subs, 0, sizeof(subs));
+    (void)memset(publish, 0, sizeof(publish));
+    (void)memset(ihave, 0, sizeof(ihave));
+    (void)memset(iwant, 0, sizeof(iwant));
+    (void)memset(graft, 0, sizeof(graft));
+    (void)memset(prune, 0, sizeof(prune));
+    (void)memset(idontwant, 0, sizeof(idontwant));
+    (void)memset(ids, 0, sizeof(ids));
+    (void)memset(peers, 0, sizeof(peers));
     storage.subscriptions = subs;
     storage.subscription_capacity = LIBP2P_GOSSIPSUB_DEFAULT_MAX_SUBSCRIPTIONS_PER_RPC;
     storage.publish = publish;
@@ -5317,8 +5299,7 @@ libp2p_gossipsub_err_t libp2p_gossipsub_peer_protocol_version(
     }
     else
     {
-        (void)
-            memcpy((void *)&mutable_gossipsub, (const void *)&gossipsub, sizeof(mutable_gossipsub));
+        (void)memcpy((void *)&mutable_gossipsub, (const void *)&gossipsub, sizeof gossipsub);
         peer = gossipsub_find_peer(mutable_gossipsub, peer_id, peer_id_len, &peer_index);
         if (peer == NULL)
         {
@@ -5436,7 +5417,7 @@ static libp2p_host_err_t gossipsub_protocol_on_event(
         result = gossipsub_host_to_err(libp2p_host_stream_user_data(stream, &user_data));
         if (result == LIBP2P_GOSSIPSUB_OK)
         {
-            (void)memcpy((void *)&stream_state, (const void *)&user_data, sizeof(stream_state));
+            (void)memcpy((void *)&stream_state, (const void *)&user_data, sizeof user_data);
             if (stream_state == NULL)
             {
                 result = LIBP2P_GOSSIPSUB_ERR_STATE;
