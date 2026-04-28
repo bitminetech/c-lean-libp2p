@@ -159,7 +159,12 @@ list(SORT LIBP2P_SOURCE_FILES)
 set(
     LIBP2P_GOSSIPSUB_SOURCE_FILES
     "${PROJECT_SOURCE_DIR}/src/protocol/gossipsub/gossipsub_api.c"
-    "${PROJECT_SOURCE_DIR}/src/protocol/gossipsub/gossipsub_codec.c"
+    "${PROJECT_SOURCE_DIR}/src/protocol/gossipsub/gossipsub_codec_control.c"
+    "${PROJECT_SOURCE_DIR}/src/protocol/gossipsub/gossipsub_codec_control_advert.c"
+    "${PROJECT_SOURCE_DIR}/src/protocol/gossipsub/gossipsub_codec_control_payload.c"
+    "${PROJECT_SOURCE_DIR}/src/protocol/gossipsub/gossipsub_codec_message.c"
+    "${PROJECT_SOURCE_DIR}/src/protocol/gossipsub/gossipsub_codec_rpc.c"
+    "${PROJECT_SOURCE_DIR}/src/protocol/gossipsub/gossipsub_codec_wire.c"
     "${PROJECT_SOURCE_DIR}/src/protocol/gossipsub/gossipsub_config.c"
     "${PROJECT_SOURCE_DIR}/src/protocol/gossipsub/gossipsub_host.c"
     "${PROJECT_SOURCE_DIR}/src/protocol/gossipsub/gossipsub_rx.c"
