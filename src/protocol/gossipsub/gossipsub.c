@@ -4893,7 +4893,6 @@ libp2p_gossipsub_err_t libp2p_gossipsub_open_peer(
 {
     const uint8_t *protocol_id = NULL;
     size_t protocol_id_len = 0U;
-    libp2p_gossipsub_protocol_version_t version = preferred_version;
     libp2p_gossipsub_err_t result = LIBP2P_GOSSIPSUB_OK;
 
     if ((gossipsub == NULL) || (host == NULL) || (conn == NULL) || (out_open == NULL))
@@ -4902,6 +4901,8 @@ libp2p_gossipsub_err_t libp2p_gossipsub_open_peer(
     }
     else
     {
+        libp2p_gossipsub_protocol_version_t version = preferred_version;
+
         if (version == LIBP2P_GOSSIPSUB_VERSION_NONE)
         {
             version = gossipsub->config.preferred_protocol;
