@@ -236,6 +236,7 @@ static void gossipsub_test_quic_loopback_publish_and_idontwant(void)
     size_t server_storage_len = 0U;
     size_t round = 0U;
     int opened = 0;
+    int saw_subscription = 0;
     int published = 0;
     int saw_message = 0;
     int saw_idontwant = 0;
@@ -328,7 +329,16 @@ static void gossipsub_test_quic_loopback_publish_and_idontwant(void)
                     &open) == LIBP2P_GOSSIPSUB_OK);
             opened = 1;
         }
-        if ((opened != 0) && (published == 0) && (round > 100U))
+        while (libp2p_gossipsub_next_event(client_gossipsub, &event) == LIBP2P_GOSSIPSUB_OK)
+        {
+            if ((event.type == LIBP2P_GOSSIPSUB_EVENT_SUBSCRIPTION) &&
+                (event.topic.len == (sizeof(topic) - 1U)) &&
+                (memcmp(event.topic.data, topic, sizeof(topic) - 1U) == 0))
+            {
+                saw_subscription = 1;
+            }
+        }
+        if ((opened != 0) && (saw_subscription != 0) && (published == 0))
         {
             (void)memset(&publish, 0, sizeof(publish));
             publish.topic.data = topic;
