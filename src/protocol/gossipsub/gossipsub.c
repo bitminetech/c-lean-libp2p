@@ -3336,6 +3336,36 @@ static gossipsub_peer_state_t *gossipsub_find_peer(
     return result;
 }
 
+static const gossipsub_peer_state_t *gossipsub_find_peer_const(
+    const libp2p_gossipsub_t *gossipsub,
+    const uint8_t *peer_id,
+    size_t peer_id_len,
+    size_t *out_index)
+{
+    const gossipsub_peer_state_t *result = NULL;
+
+    if ((gossipsub != NULL) && (peer_id != NULL) && (out_index != NULL))
+    {
+        *out_index = gossipsub->config.capacity.max_peers;
+        for (size_t index = 0U; index < gossipsub->config.capacity.max_peers; index++)
+        {
+            if ((gossipsub->peers[index].used == GOSSIPSUB_PEER_USED) &&
+                (gossipsub_bytes_equal(
+                     gossipsub->peers[index].peer_id,
+                     gossipsub->peers[index].peer_id_len,
+                     peer_id,
+                     peer_id_len) != 0))
+            {
+                result = &gossipsub->peers[index];
+                *out_index = index;
+                break;
+            }
+        }
+    }
+
+    return result;
+}
+
 static libp2p_gossipsub_err_t gossipsub_peer_from_conn(
     libp2p_gossipsub_t *gossipsub,
     libp2p_host_conn_t *conn,
@@ -5284,7 +5314,6 @@ libp2p_gossipsub_err_t libp2p_gossipsub_peer_protocol_version(
     size_t peer_id_len,
     libp2p_gossipsub_protocol_version_t *out_version)
 {
-    libp2p_gossipsub_t *mutable_gossipsub = NULL;
     size_t peer_index = 0U;
     const gossipsub_peer_state_t *peer = NULL;
     libp2p_gossipsub_err_t result = LIBP2P_GOSSIPSUB_OK;
@@ -5299,8 +5328,7 @@ libp2p_gossipsub_err_t libp2p_gossipsub_peer_protocol_version(
     }
     else
     {
-        (void)memcpy((void *)&mutable_gossipsub, (const void *)&gossipsub, sizeof gossipsub);
-        peer = gossipsub_find_peer(mutable_gossipsub, peer_id, peer_id_len, &peer_index);
+        peer = gossipsub_find_peer_const(gossipsub, peer_id, peer_id_len, &peer_index);
         if (peer == NULL)
         {
             result = LIBP2P_GOSSIPSUB_ERR_NOT_FOUND;
