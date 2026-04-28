@@ -4,6 +4,14 @@ on:
   workflow_dispatch:
   schedule:
     - cron: '17 8 * * *'
+  pull_request:
+    paths:
+      - 'CMakeLists.txt'
+      - 'src/**'
+      - 'include/**'
+      - 'interop/**'
+      - 'external/**'
+      - '.github/workflows/interop.yml'
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
@@ -27,6 +35,34 @@ jobs:
           sudo wget -qO /usr/local/bin/yq https://github.com/mikefarah/yq/releases/download/v4.45.1/yq_linux_amd64
           sudo chmod +x /usr/local/bin/yq
 
+      - name: Cache harness snapshot zips
+        uses: actions/cache@v4
+        with:
+          path: c-lean-libp2p/interop/unified-testing/transport/.cache/snapshots
+          key: interop-snapshots-${{ hashFiles('c-lean-libp2p/interop/unified-testing/transport/images.yaml') }}-v1
+          restore-keys: |
+            interop-snapshots-
+
+      - name: Cache prebuilt impl Docker images
+        id: impl-images-cache
+        uses: actions/cache@v4
+        with:
+          path: /tmp/impl-images.tar
+          key: interop-impl-images-${{ hashFiles('c-lean-libp2p/interop/unified-testing/transport/images.yaml', 'c-lean-libp2p/interop/unified-testing/transport/images/go/**', 'c-lean-libp2p/interop/unified-testing/transport/images/rust/**', 'c-lean-libp2p/interop/unified-testing/lib/redis-proxy/**') }}-v1
+
+      - name: Free disk space (image rebuild path)
+        if: steps.impl-images-cache.outputs.cache-hit != 'true'
+        run: |
+          df -h /
+          docker system prune -af
+          df -h /
+
+      - name: Load cached impl Docker images
+        if: steps.impl-images-cache.outputs.cache-hit == 'true'
+        run: |
+          docker load -i /tmp/impl-images.tar
+          docker images
+
       - name: Run cross-impl transport matrix
         id: harness
         working-directory: c-lean-libp2p/interop/unified-testing/transport
@@ -37,6 +73,15 @@ jobs:
             --workers 2 \
             --yes
           echo "test_run_dir=$(ls -td .cache/test-run/transport-* | head -n 1)" >> "$GITHUB_OUTPUT"
+
+      - name: Save impl Docker images for cache
+        if: steps.impl-images-cache.outputs.cache-hit != 'true' && steps.harness.outcome == 'success'
+        run: |
+          docker save \
+            transport-implementations-go-v0.47-pre \
+            transport-implementations-rust-v0.56 \
+            libp2p-redis-proxy \
+            -o /tmp/impl-images.tar
 
       - name: Render status summary
         if: always() && steps.harness.outputs.test_run_dir != ''
