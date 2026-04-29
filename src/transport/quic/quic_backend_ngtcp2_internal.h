@@ -213,19 +213,12 @@ QUIC_BACKEND_INTERNAL libp2p_quic_err_t quic_backend_copy_measure(
 QUIC_BACKEND_INTERNAL void quic_backend_debug_bytes(
     const libp2p_quic_conn_t *conn,
     libp2p_quic_debug_event_type_t type,
-    const uint8_t *data,
+    const void *data,
     size_t data_len);
 
 QUIC_BACKEND_INTERNAL void quic_backend_debug_text(
     const libp2p_quic_conn_t *conn,
     const char *message);
-
-QUIC_BACKEND_INTERNAL void quic_backend_debug_format(
-    const libp2p_quic_conn_t *conn,
-    const char *format,
-    int first,
-    int second,
-    size_t third);
 
 QUIC_BACKEND_INTERNAL libp2p_quic_err_t quic_backend_ngtcp2_err(int rv);
 

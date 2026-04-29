@@ -24,6 +24,34 @@
 #define OPENSSL_NPN_NEGOTIATED 1
 #endif
 
+#ifndef SSL_CB_READ
+#define SSL_CB_READ 0x04
+#endif
+
+#ifndef SSL_CB_WRITE
+#define SSL_CB_WRITE 0x08
+#endif
+
+#ifndef SSL_CB_ALERT
+#define SSL_CB_ALERT 0x4000
+#endif
+
+#ifndef SSL_CB_READ_ALERT
+#define SSL_CB_READ_ALERT (SSL_CB_ALERT | SSL_CB_READ)
+#endif
+
+#ifndef SSL_CB_WRITE_ALERT
+#define SSL_CB_WRITE_ALERT (SSL_CB_ALERT | SSL_CB_WRITE)
+#endif
+
+#ifndef SSL_CB_HANDSHAKE_START
+#define SSL_CB_HANDSHAKE_START 0x10
+#endif
+
+#ifndef SSL_CB_HANDSHAKE_DONE
+#define SSL_CB_HANDSHAKE_DONE 0x20
+#endif
+
 #ifndef AF_INET
 #define AF_INET 2
 #endif

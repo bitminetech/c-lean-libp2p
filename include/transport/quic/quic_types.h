@@ -154,7 +154,7 @@ typedef libp2p_quic_err_t (
  */
 typedef void (*libp2p_quic_debug_fn_t)(
     libp2p_quic_debug_event_type_t type,
-    const uint8_t *data,
+    const void *data,
     size_t data_len,
     void *user_data);
 

@@ -29,11 +29,7 @@ static void quic_backend_qlog_write_cb(
 
     if ((data != NULL) && (datalen != 0U))
     {
-        quic_backend_debug_bytes(
-            conn,
-            LIBP2P_QUIC_DEBUG_EVENT_QLOG,
-            (const uint8_t *)data,
-            datalen);
+        quic_backend_debug_bytes(conn, LIBP2P_QUIC_DEBUG_EVENT_QLOG, data, datalen);
     }
     if ((flags & NGTCP2_QLOG_WRITE_FLAG_FIN) != 0U)
     {
@@ -404,12 +400,7 @@ quic_backend_handle_conn_error(libp2p_quic_conn_t *conn, int rv)
 
     if (rv != 0)
     {
-        quic_backend_debug_format(
-            conn,
-            "ngtcp2 connection error rv=%d type=%d code=%zu",
-            rv,
-            0,
-            0U);
+        quic_backend_debug_text(conn, "ngtcp2 connection error");
         if (quic_backend_conn_error_is_endpoint_error(rv) != 0U)
         {
             result = quic_backend_ngtcp2_err(rv);

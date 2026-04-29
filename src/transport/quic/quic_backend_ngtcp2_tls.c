@@ -87,8 +87,8 @@ static enum ssl_verify_result_t quic_backend_ssl_verify_cb(SSL *ssl, uint8_t *ou
     ngtcp2_crypto_conn_ref *conn_ref = NULL;
     libp2p_quic_conn_t *conn = NULL;
     libp2p_quic_endpoint_t *endpoint = NULL;
-    const STACK_OF(CRYPTO_BUFFER) *chain = NULL;
-    CRYPTO_BUFFER *leaf = NULL;
+    const struct stack_st_CRYPTO_BUFFER *chain = NULL;
+    const CRYPTO_BUFFER *leaf = NULL;
     libp2p_quic_const_buffer_t certificate;
     uint64_t now = 0U;
     libp2p_quic_err_t result = LIBP2P_QUIC_OK;
@@ -156,12 +156,7 @@ static enum ssl_verify_result_t quic_backend_ssl_verify_cb(SSL *ssl, uint8_t *ou
                 *out_alert = (result == LIBP2P_QUIC_ERR_CERTIFICATE_TIME)
                                  ? SSL_AD_CERTIFICATE_EXPIRED
                                  : SSL_AD_BAD_CERTIFICATE;
-                quic_backend_debug_format(
-                    conn,
-                    "tls peer certificate rejected err=%d alert=%d len=%zu",
-                    (int)result,
-                    (int)*out_alert,
-                    0U);
+                quic_backend_debug_text(conn, "tls peer certificate rejected");
             }
         }
         else
@@ -226,34 +221,17 @@ static libp2p_quic_conn_t *quic_backend_ssl_conn(const SSL *ssl)
 
 static void quic_backend_ssl_info_cb(const SSL *ssl, int type, int value)
 {
-    libp2p_quic_conn_t *conn = quic_backend_ssl_conn(ssl);
+    const libp2p_quic_conn_t *conn = quic_backend_ssl_conn(ssl);
 
-    if ((type & SSL_CB_HANDSHAKE_START) != 0)
+    if (((unsigned int)type & (unsigned int)SSL_CB_HANDSHAKE_START) != 0U)
     {
         quic_backend_debug_text(conn, "tls handshake start");
     }
-    if ((type & SSL_CB_HANDSHAKE_DONE) != 0)
+    if (((unsigned int)type & (unsigned int)SSL_CB_HANDSHAKE_DONE) != 0U)
     {
         quic_backend_debug_text(conn, "tls handshake done");
     }
-    if ((type & SSL_CB_READ_ALERT) != 0)
-    {
-        quic_backend_debug_format(
-            conn,
-            "tls read alert level=%d alert=%d len=%zu",
-            value >> 8,
-            value & 0xFF,
-            0U);
-    }
-    if ((type & SSL_CB_WRITE_ALERT) != 0)
-    {
-        quic_backend_debug_format(
-            conn,
-            "tls write alert level=%d alert=%d len=%zu",
-            value >> 8,
-            value & 0xFF,
-            0U);
-    }
+    (void)value;
 }
 
 static void quic_backend_ssl_msg_cb(
@@ -265,23 +243,16 @@ static void quic_backend_ssl_msg_cb(
     SSL *ssl,
     void *arg)
 {
-    libp2p_quic_conn_t *conn = quic_backend_ssl_conn(ssl);
+    const libp2p_quic_conn_t *conn = quic_backend_ssl_conn(ssl);
 
+    (void)is_write;
+    (void)version;
+    (void)content_type;
     (void)arg;
-    quic_backend_debug_format(
-        conn,
-        "tls message write=%d content_type=%d len=%zu",
-        is_write,
-        content_type,
-        len);
-    quic_backend_debug_format(conn, "tls message version=%d state=%d len=%zu", version, 0, len);
+    quic_backend_debug_text(conn, "tls message");
     if ((buf != NULL) && (len != 0U))
     {
-        quic_backend_debug_bytes(
-            conn,
-            LIBP2P_QUIC_DEBUG_EVENT_TLS_MESSAGE,
-            (const uint8_t *)buf,
-            len);
+        quic_backend_debug_bytes(conn, LIBP2P_QUIC_DEBUG_EVENT_TLS_MESSAGE, buf, len);
     }
 }
 

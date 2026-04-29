@@ -13,12 +13,9 @@
 #endif
 
 #include <stdint.h>
-#include <stdio.h>
 #include <string.h>
 
 #include "quic_backend_ngtcp2_internal.h"
-
-#define QUIC_BACKEND_DEBUG_TEXT_BYTES 256U
 
 QUIC_BACKEND_INTERNAL libp2p_quic_err_t
 quic_backend_validate_endpoint(const libp2p_quic_endpoint_t *endpoint)
@@ -336,7 +333,7 @@ QUIC_BACKEND_INTERNAL libp2p_quic_err_t quic_backend_copy_measure(
 QUIC_BACKEND_INTERNAL void quic_backend_debug_bytes(
     const libp2p_quic_conn_t *conn,
     libp2p_quic_debug_event_type_t type,
-    const uint8_t *data,
+    const void *data,
     size_t data_len)
 {
     if ((conn != NULL) && (conn->endpoint != NULL) && (conn->endpoint->config.debug_fn != NULL) &&
@@ -353,36 +350,7 @@ QUIC_BACKEND_INTERNAL void quic_backend_debug_text(
 {
     if (message != NULL)
     {
-        quic_backend_debug_bytes(
-            conn,
-            LIBP2P_QUIC_DEBUG_EVENT_TEXT,
-            (const uint8_t *)message,
-            strlen(message));
-    }
-}
-
-QUIC_BACKEND_INTERNAL void quic_backend_debug_format(
-    const libp2p_quic_conn_t *conn,
-    const char *format,
-    int first,
-    int second,
-    size_t third)
-{
-    char message[QUIC_BACKEND_DEBUG_TEXT_BYTES];
-
-    if (format != NULL)
-    {
-        const int written = snprintf(message, sizeof(message), format, first, second, third);
-        if (written > 0)
-        {
-            const size_t len =
-                ((size_t)written < sizeof(message)) ? (size_t)written : (sizeof(message) - 1U);
-            quic_backend_debug_bytes(
-                conn,
-                LIBP2P_QUIC_DEBUG_EVENT_TEXT,
-                (const uint8_t *)message,
-                len);
-        }
+        quic_backend_debug_bytes(conn, LIBP2P_QUIC_DEBUG_EVENT_TEXT, message, strlen(message));
     }
 }
 

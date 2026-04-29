@@ -313,11 +313,12 @@ static void gossipsub_interop_print_hex(const uint8_t *data, size_t data_len)
 
 static void gossipsub_interop_quic_debug(
     libp2p_quic_debug_event_type_t type,
-    const uint8_t *data,
+    const void *data,
     size_t data_len,
     void *user_data)
 {
     const char *label = "text";
+    const uint8_t *bytes = data;
 
     (void)user_data;
     if ((data != NULL) || (data_len == 0U))
@@ -338,7 +339,7 @@ static void gossipsub_interop_quic_debug(
         (void)fprintf(stderr, "c-lean-quic[%s]: ", label);
         if (type == LIBP2P_QUIC_DEBUG_EVENT_TLS_MESSAGE)
         {
-            gossipsub_interop_print_hex(data, data_len);
+            gossipsub_interop_print_hex(bytes, data_len);
         }
         else if ((data != NULL) && (data_len != 0U))
         {
