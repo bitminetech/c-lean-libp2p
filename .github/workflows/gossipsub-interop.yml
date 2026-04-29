@@ -1,0 +1,109 @@
+name: GossipSub Interop
+
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: '43 8 * * *'
+  pull_request:
+    paths:
+      - 'CMakeLists.txt'
+      - 'src/protocol/gossipsub/**'
+      - 'include/protocol/gossipsub/**'
+      - 'interop/**'
+      - 'external/**'
+      - '.github/workflows/gossipsub-interop.yml'
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  SHADOW_REF: v3.3.0
+  SHADOW_IMAGE: c-lean-libp2p-gossipsub-shadow:v3.3.0
+
+jobs:
+  gossipsub-cross-impl:
+    name: gossipsub cross-impl
+    runs-on: ubuntu-latest
+    timeout-minutes: 120
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          path: c-lean-libp2p
+          submodules: recursive
+
+      - name: Cache Shadow Docker image
+        id: shadow-image-cache
+        uses: actions/cache@v4
+        with:
+          path: /tmp/gossipsub-shadow-image.tar
+          key: gossipsub-shadow-${{ env.SHADOW_REF }}-${{ hashFiles('c-lean-libp2p/interop/test-plans/Dockerfile.shadow') }}
+
+      - name: Load cached Shadow Docker image
+        if: steps.shadow-image-cache.outputs.cache-hit == 'true'
+        run: docker load -i /tmp/gossipsub-shadow-image.tar
+
+      - name: Free disk space
+        if: steps.shadow-image-cache.outputs.cache-hit != 'true'
+        run: |
+          df -h /
+          docker system prune -af
+          df -h /
+
+      - name: Build Shadow Docker image
+        if: steps.shadow-image-cache.outputs.cache-hit != 'true'
+        run: |
+          docker build \
+            --build-arg SHADOW_REF="${SHADOW_REF}" \
+            -t "${SHADOW_IMAGE}" \
+            -f c-lean-libp2p/interop/test-plans/Dockerfile.shadow \
+            c-lean-libp2p/interop/test-plans
+          docker save "${SHADOW_IMAGE}" -o /tmp/gossipsub-shadow-image.tar
+
+      - name: Cache go/rust gossipsub impl artifacts
+        uses: actions/cache@v4
+        with:
+          path: |
+            c-lean-libp2p/interop/test-plans/gossipsub-interop/.cache
+            c-lean-libp2p/interop/test-plans/gossipsub-interop/go-libp2p/gossipsub-bin
+            c-lean-libp2p/interop/test-plans/gossipsub-interop/rust-libp2p/target
+          key: gossipsub-impl-artifacts-${{ hashFiles('c-lean-libp2p/interop/test-plans/gossipsub-interop/go-libp2p/**', 'c-lean-libp2p/interop/test-plans/gossipsub-interop/rust-libp2p/**') }}-v1
+          restore-keys: |
+            gossipsub-impl-artifacts-
+
+      - name: Run gossipsub interop matrix
+        id: matrix
+        run: |
+          docker run --rm --privileged \
+            -v "${PWD}/c-lean-libp2p:/workspace" \
+            -w /workspace/interop/test-plans/gossipsub-interop \
+            -e CARGO_HOME=/workspace/interop/test-plans/gossipsub-interop/.cache/cargo \
+            -e C_LEAN_LIBP2P_ROOT=/workspace \
+            -e C_LEAN_LIBP2P_BUILD=/workspace/build-gossipsub-interop \
+            -e C_LEAN_LIBP2P_GOSSIPSUB_BIN=/workspace/build-gossipsub-interop/bin/c_lean_libp2p_gossipsub_interop \
+            -e GOCACHE=/workspace/interop/test-plans/gossipsub-interop/.cache/go/build \
+            -e GOMODCACHE=/workspace/interop/test-plans/gossipsub-interop/.cache/go/pkg/mod \
+            "${SHADOW_IMAGE}" \
+            bash -lc 'make c-lean-libp2p && make binaries && uv run c_lean_matrix.py --output-root /workspace/interop/test-plans/gossipsub-interop/c-lean-results'
+          echo "result_dir=interop/test-plans/gossipsub-interop/c-lean-results" >> "$GITHUB_OUTPUT"
+
+      - name: Render matrix summary
+        if: always()
+        run: |
+          matrix="c-lean-libp2p/interop/test-plans/gossipsub-interop/c-lean-results/matrix.md"
+          if [ -f "${matrix}" ]; then
+            cat "${matrix}" >> "$GITHUB_STEP_SUMMARY"
+          else
+            echo "No gossipsub interop matrix was produced." >> "$GITHUB_STEP_SUMMARY"
+          fi
+
+      - name: Upload results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: gossipsub-interop-results
+          path: c-lean-libp2p/interop/test-plans/gossipsub-interop/c-lean-results/
+          if-no-files-found: warn
+          retention-days: 30

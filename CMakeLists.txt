@@ -29,6 +29,7 @@ set(CMAKE_C_EXTENSIONS OFF)
 option(BUILD_TESTING "Build c-lean-libp2p tests" ON)
 option(LIBP2P_ENABLE_GCC_ANALYZER "Enable GCC -fanalyzer for c-lean-libp2p project sources" OFF)
 option(LIBP2P_BUILD_INTEROP_BINARY "Build the unified-testing transport interop binary" OFF)
+option(LIBP2P_BUILD_GOSSIPSUB_INTEROP_BINARY "Build the test-plans gossipsub interop binary" OFF)
 
 enable_testing()
 
@@ -247,6 +248,29 @@ if(LIBP2P_BUILD_INTEROP_BINARY)
             "${PROJECT_SOURCE_DIR}/interop/c-lean-libp2p"
     )
     c_lean_libp2p_set_output_directories(c_lean_libp2p_transport_interop)
+endif()
+
+if(LIBP2P_BUILD_GOSSIPSUB_INTEROP_BINARY)
+    if(WIN32)
+        message(FATAL_ERROR "LIBP2P_BUILD_GOSSIPSUB_INTEROP_BINARY requires POSIX sockets")
+    endif()
+
+    add_executable(
+        c_lean_libp2p_gossipsub_interop
+        "${PROJECT_SOURCE_DIR}/interop/c-lean-libp2p-gossipsub/gossipsub_interop.c"
+        "${PROJECT_SOURCE_DIR}/interop/c-lean-libp2p-gossipsub/gossipsub_interop_json.c"
+    )
+    target_link_libraries(
+        c_lean_libp2p_gossipsub_interop
+        PRIVATE
+            c_lean_libp2p
+    )
+    target_include_directories(
+        c_lean_libp2p_gossipsub_interop
+        PRIVATE
+            "${PROJECT_SOURCE_DIR}/interop/c-lean-libp2p-gossipsub"
+    )
+    c_lean_libp2p_set_output_directories(c_lean_libp2p_gossipsub_interop)
 endif()
 
 # ---------------------------------------------------------------------------
