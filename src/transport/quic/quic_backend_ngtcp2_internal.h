@@ -109,6 +109,8 @@ struct libp2p_quic_endpoint
     libp2p_quic_addr_t local_addr;
     uint8_t bound;
     uint8_t closed;
+    uint8_t has_time_origin;
+    libp2p_quic_time_us_t time_origin_us;
     libp2p_quic_conn_t **connections;
     size_t connection_count;
     size_t incoming_connection_count;
@@ -176,6 +178,13 @@ QUIC_BACKEND_INTERNAL libp2p_quic_time_us_t quic_backend_time_from_ngtcp2(ngtcp2
 
 QUIC_BACKEND_INTERNAL ngtcp2_duration
 quic_backend_duration_to_ngtcp2(libp2p_quic_time_us_t duration_us);
+
+QUIC_BACKEND_INTERNAL ngtcp2_tstamp quic_backend_endpoint_time_to_ngtcp2(
+    libp2p_quic_endpoint_t *endpoint,
+    libp2p_quic_time_us_t now_us);
+
+QUIC_BACKEND_INTERNAL libp2p_quic_time_us_t
+quic_backend_endpoint_time_from_ngtcp2(const libp2p_quic_endpoint_t *endpoint, ngtcp2_tstamp ts);
 
 QUIC_BACKEND_INTERNAL uint8_t quic_backend_ecn_to_ngtcp2(libp2p_quic_ecn_t ecn);
 

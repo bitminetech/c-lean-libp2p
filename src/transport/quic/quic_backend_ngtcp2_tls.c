@@ -207,7 +207,7 @@ static libp2p_quic_err_t quic_backend_ssl_ctx_load_identity(
     return result;
 }
 
-static libp2p_quic_conn_t *quic_backend_ssl_conn(SSL *ssl)
+static libp2p_quic_conn_t *quic_backend_ssl_conn(const SSL *ssl)
 {
     ngtcp2_crypto_conn_ref *conn_ref = NULL;
     libp2p_quic_conn_t *result = NULL;
@@ -226,7 +226,7 @@ static libp2p_quic_conn_t *quic_backend_ssl_conn(SSL *ssl)
 
 static void quic_backend_ssl_info_cb(const SSL *ssl, int type, int value)
 {
-    libp2p_quic_conn_t *conn = quic_backend_ssl_conn((SSL *)ssl);
+    libp2p_quic_conn_t *conn = quic_backend_ssl_conn(ssl);
 
     if ((type & SSL_CB_HANDSHAKE_START) != 0)
     {

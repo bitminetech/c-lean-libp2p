@@ -508,7 +508,7 @@ QUIC_BACKEND_INTERNAL libp2p_quic_err_t quic_backend_write_conn_datagram(
     ngtcp2_pkt_info pi;
     ngtcp2_ssize nwrite = 0;
     ngtcp2_ssize ndatalen = -1;
-    ngtcp2_tstamp ts = quic_backend_time_to_ngtcp2(now_us);
+    ngtcp2_tstamp ts = quic_backend_endpoint_time_to_ngtcp2(conn->endpoint, now_us);
     libp2p_quic_err_t result = LIBP2P_QUIC_ERR_WOULD_BLOCK;
 
     if (conn->close_requested != 0U)

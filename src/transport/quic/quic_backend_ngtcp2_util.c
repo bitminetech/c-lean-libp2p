@@ -112,6 +112,48 @@ quic_backend_duration_to_ngtcp2(libp2p_quic_time_us_t duration_us)
     return quic_backend_time_to_ngtcp2(duration_us);
 }
 
+QUIC_BACKEND_INTERNAL ngtcp2_tstamp
+quic_backend_endpoint_time_to_ngtcp2(libp2p_quic_endpoint_t *endpoint, libp2p_quic_time_us_t now_us)
+{
+    libp2p_quic_time_us_t relative_us = 0U;
+
+    if (endpoint != NULL)
+    {
+        if (endpoint->has_time_origin == 0U)
+        {
+            endpoint->time_origin_us = now_us;
+            endpoint->has_time_origin = 1U;
+        }
+        if (now_us >= endpoint->time_origin_us)
+        {
+            relative_us = now_us - endpoint->time_origin_us;
+        }
+    }
+
+    return quic_backend_time_to_ngtcp2(relative_us);
+}
+
+QUIC_BACKEND_INTERNAL libp2p_quic_time_us_t
+quic_backend_endpoint_time_from_ngtcp2(const libp2p_quic_endpoint_t *endpoint, ngtcp2_tstamp ts)
+{
+    const libp2p_quic_time_us_t relative_us = quic_backend_time_from_ngtcp2(ts);
+    libp2p_quic_time_us_t result = relative_us;
+
+    if ((endpoint != NULL) && (endpoint->has_time_origin != 0U))
+    {
+        if (relative_us > (UINT64_MAX - endpoint->time_origin_us))
+        {
+            result = UINT64_MAX;
+        }
+        else
+        {
+            result = endpoint->time_origin_us + relative_us;
+        }
+    }
+
+    return result;
+}
+
 QUIC_BACKEND_INTERNAL uint8_t quic_backend_ecn_to_ngtcp2(libp2p_quic_ecn_t ecn)
 {
     uint8_t result = NGTCP2_ECN_NOT_ECT;
