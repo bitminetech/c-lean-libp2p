@@ -1641,6 +1641,36 @@ static gossipsub_interop_err_t gossipsub_interop_accept_due_validations(
     return result;
 }
 
+static int gossipsub_interop_deadline_timeout_ms(
+    uint64_t deadline_us,
+    uint64_t now_us,
+    int current_timeout_ms)
+{
+    uint64_t delta_us = 0U;
+    uint64_t delta_ms = 0U;
+    int result = current_timeout_ms;
+
+    if (deadline_us <= now_us)
+    {
+        result = 0;
+    }
+    else
+    {
+        delta_us = deadline_us - now_us;
+        delta_ms = delta_us / GOSSIPSUB_INTEROP_USEC_PER_MSEC;
+        if ((delta_us % GOSSIPSUB_INTEROP_USEC_PER_MSEC) != 0U)
+        {
+            delta_ms++;
+        }
+        if (delta_ms < (uint64_t)result)
+        {
+            result = (int)delta_ms;
+        }
+    }
+
+    return result;
+}
+
 static int gossipsub_interop_poll_timeout_ms(const gossipsub_interop_app_t *app, uint64_t now_us)
 {
     uint64_t deadline = 0U;
@@ -1649,40 +1679,19 @@ static int gossipsub_interop_poll_timeout_ms(const gossipsub_interop_app_t *app,
 
     if ((app != NULL) && (libp2p_host_next_deadline(app->host, &deadline) == LIBP2P_HOST_OK))
     {
-        if (deadline <= now_us)
-        {
-            result = 0;
-        }
-        else if (((deadline - now_us) / GOSSIPSUB_INTEROP_USEC_PER_MSEC) < (uint64_t)result)
-        {
-            result = (int)((deadline - now_us) / GOSSIPSUB_INTEROP_USEC_PER_MSEC);
-        }
+        result = gossipsub_interop_deadline_timeout_ms(deadline, now_us, result);
     }
     if ((app != NULL) &&
         (libp2p_gossipsub_next_deadline(app->gossipsub, &deadline) == LIBP2P_GOSSIPSUB_OK))
     {
-        if (deadline <= now_us)
-        {
-            result = 0;
-        }
-        else if (((deadline - now_us) / GOSSIPSUB_INTEROP_USEC_PER_MSEC) < (uint64_t)result)
-        {
-            result = (int)((deadline - now_us) / GOSSIPSUB_INTEROP_USEC_PER_MSEC);
-        }
+        result = gossipsub_interop_deadline_timeout_ms(deadline, now_us, result);
     }
     if (app != NULL)
     {
         for (index = 0U; index < app->pending_validation_count; index++)
         {
             deadline = app->pending_validations[index].due_us;
-            if (deadline <= now_us)
-            {
-                result = 0;
-            }
-            else if (((deadline - now_us) / GOSSIPSUB_INTEROP_USEC_PER_MSEC) < (uint64_t)result)
-            {
-                result = (int)((deadline - now_us) / GOSSIPSUB_INTEROP_USEC_PER_MSEC);
-            }
+            result = gossipsub_interop_deadline_timeout_ms(deadline, now_us, result);
         }
     }
 
