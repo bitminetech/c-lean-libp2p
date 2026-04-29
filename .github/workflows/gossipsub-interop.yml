@@ -69,7 +69,8 @@ jobs:
             c-lean-libp2p/interop/test-plans/gossipsub-interop/.cache
             c-lean-libp2p/interop/test-plans/gossipsub-interop/go-libp2p/gossipsub-bin
             c-lean-libp2p/interop/test-plans/gossipsub-interop/rust-libp2p/target
-          key: gossipsub-impl-artifacts-${{ hashFiles('c-lean-libp2p/interop/test-plans/gossipsub-interop/go-libp2p/**', 'c-lean-libp2p/interop/test-plans/gossipsub-interop/rust-libp2p/**') }}-v1
+          key: >-
+            gossipsub-impl-artifacts-${{ hashFiles('c-lean-libp2p/interop/test-plans/gossipsub-interop/Makefile') }}-${{ hashFiles('c-lean-libp2p/interop/test-plans/gossipsub-interop/patches/**') }}-${{ hashFiles('c-lean-libp2p/interop/test-plans/gossipsub-interop/go-libp2p/go.mod') }}-${{ hashFiles('c-lean-libp2p/interop/test-plans/gossipsub-interop/go-libp2p/go.sum') }}-${{ hashFiles('c-lean-libp2p/interop/test-plans/gossipsub-interop/go-libp2p/*.go') }}-${{ hashFiles('c-lean-libp2p/interop/test-plans/gossipsub-interop/rust-libp2p/Cargo.toml') }}-${{ hashFiles('c-lean-libp2p/interop/test-plans/gossipsub-interop/rust-libp2p/Cargo.lock') }}-${{ hashFiles('c-lean-libp2p/interop/test-plans/gossipsub-interop/rust-libp2p/src/**/*.rs') }}-v2
           restore-keys: |
             gossipsub-impl-artifacts-
 
