@@ -82,22 +82,8 @@
 #define LIBP2P_GOSSIPSUB_DEFAULT_D_LOW             6U
 #define LIBP2P_GOSSIPSUB_DEFAULT_D_HIGH            12U
 #define LIBP2P_GOSSIPSUB_DEFAULT_D_LAZY            6U
-#define LIBP2P_GOSSIPSUB_DEFAULT_D_SCORE           4U
 #define LIBP2P_GOSSIPSUB_DEFAULT_D_OUT             2U
 #define LIBP2P_GOSSIPSUB_DEFAULT_GOSSIP_FACTOR_PPM 250000U
-
-/** Disabled-by-default global score profile. */
-#define LIBP2P_GOSSIPSUB_DEFAULT_SCORE_GOSSIP_THRESHOLD               0LL
-#define LIBP2P_GOSSIPSUB_DEFAULT_SCORE_PUBLISH_THRESHOLD              0LL
-#define LIBP2P_GOSSIPSUB_DEFAULT_SCORE_GRAYLIST_THRESHOLD             0LL
-#define LIBP2P_GOSSIPSUB_DEFAULT_SCORE_ACCEPT_PX_THRESHOLD            0LL
-#define LIBP2P_GOSSIPSUB_DEFAULT_SCORE_OPPORTUNISTIC_GRAFT_THRESHOLD  0LL
-#define LIBP2P_GOSSIPSUB_DEFAULT_SCORE_APP_SPECIFIC_WEIGHT            0LL
-#define LIBP2P_GOSSIPSUB_DEFAULT_SCORE_IP_COLOCATION_FACTOR_WEIGHT    0LL
-#define LIBP2P_GOSSIPSUB_DEFAULT_SCORE_IP_COLOCATION_FACTOR_THRESHOLD 0U
-#define LIBP2P_GOSSIPSUB_DEFAULT_SCORE_BEHAVIOUR_PENALTY_WEIGHT       0LL
-#define LIBP2P_GOSSIPSUB_DEFAULT_SCORE_BEHAVIOUR_PENALTY_DECAY_PPM    0U
-#define LIBP2P_GOSSIPSUB_DEFAULT_SCORE_DECAY_TO_ZERO_PPM              0U
 
 /** Default heartbeat interval in microseconds. */
 #define LIBP2P_GOSSIPSUB_DEFAULT_HEARTBEAT_US 700000ULL
@@ -117,20 +103,8 @@
 /** Default slack added when comparing PRUNE backoff with local heartbeats. */
 #define LIBP2P_GOSSIPSUB_DEFAULT_BACKOFF_SLACK_US 1000000ULL
 
-/** Default time to wait for IWANT follow-up before penalizing. */
+/** Default time to wait for IWANT follow-up. */
 #define LIBP2P_GOSSIPSUB_DEFAULT_IWANT_FOLLOWUP_US 3000000ULL
-
-/** Default peer-score decay interval. */
-#define LIBP2P_GOSSIPSUB_DEFAULT_SCORE_DECAY_US 1000000ULL
-
-/** Default time to retain scores after peer disconnect. */
-#define LIBP2P_GOSSIPSUB_DEFAULT_RETAIN_SCORE_US 3600000000ULL
-
-/** Default opportunistic graft interval. */
-#define LIBP2P_GOSSIPSUB_DEFAULT_OPPORTUNISTIC_US 60000000ULL
-
-/** Default peers grafted during opportunistic grafting. */
-#define LIBP2P_GOSSIPSUB_DEFAULT_OPPORTUNISTIC_PEERS 2U
 
 /** Default message cache history windows. */
 #define LIBP2P_GOSSIPSUB_DEFAULT_MCACHE_LEN 6U
@@ -171,9 +145,6 @@ typedef struct libp2p_gossipsub libp2p_gossipsub_t;
 
 /** Opaque validation token returned with application-validated messages. */
 typedef struct libp2p_gossipsub_validation libp2p_gossipsub_validation_t;
-
-/** Fixed-point score value. */
-typedef int64_t libp2p_gossipsub_score_t;
 
 /** Bitmask of supported gossipsub protocol ids. */
 typedef uint32_t libp2p_gossipsub_protocol_mask_t;
@@ -253,14 +224,13 @@ typedef struct
     size_t max_px_peers_per_rpc;
 } libp2p_gossipsub_limits_t;
 
-/** Mesh, heartbeat, cache-window, and scoring-timer parameters. */
+/** Mesh, heartbeat, and cache-window parameters. */
 typedef struct
 {
     size_t d;
     size_t d_low;
     size_t d_high;
     size_t d_lazy;
-    size_t d_score;
     size_t d_out;
     size_t mcache_len;
     size_t mcache_gossip;
@@ -272,52 +242,9 @@ typedef struct
     uint64_t unsubscribe_backoff_us;
     uint64_t backoff_slack_us;
     uint64_t iwant_followup_us;
-    uint64_t score_decay_interval_us;
-    uint64_t retain_score_us;
-    uint64_t opportunistic_graft_interval_us;
-    size_t opportunistic_graft_peers;
     uint8_t enable_flood_publish;
     uint8_t enable_px;
-    uint8_t enable_opportunistic_graft;
 } libp2p_gossipsub_mesh_params_t;
-
-/** Global peer-score thresholds and weights. */
-typedef struct
-{
-    libp2p_gossipsub_score_t gossip_threshold;
-    libp2p_gossipsub_score_t publish_threshold;
-    libp2p_gossipsub_score_t graylist_threshold;
-    libp2p_gossipsub_score_t accept_px_threshold;
-    libp2p_gossipsub_score_t opportunistic_graft_threshold;
-    libp2p_gossipsub_score_t app_specific_weight;
-    libp2p_gossipsub_score_t ip_colocation_factor_weight;
-    size_t ip_colocation_factor_threshold;
-    libp2p_gossipsub_score_t behaviour_penalty_weight;
-    uint32_t behaviour_penalty_decay_ppm;
-    uint32_t decay_to_zero_ppm;
-} libp2p_gossipsub_score_params_t;
-
-/** Per-topic score parameters. */
-typedef struct
-{
-    libp2p_gossipsub_score_t topic_weight;
-    libp2p_gossipsub_score_t time_in_mesh_weight;
-    uint64_t time_in_mesh_quantum_us;
-    libp2p_gossipsub_score_t time_in_mesh_cap;
-    libp2p_gossipsub_score_t first_message_deliveries_weight;
-    uint32_t first_message_deliveries_decay_ppm;
-    libp2p_gossipsub_score_t first_message_deliveries_cap;
-    libp2p_gossipsub_score_t mesh_message_deliveries_weight;
-    uint32_t mesh_message_deliveries_decay_ppm;
-    libp2p_gossipsub_score_t mesh_message_deliveries_threshold;
-    libp2p_gossipsub_score_t mesh_message_deliveries_cap;
-    uint64_t mesh_message_deliveries_activation_us;
-    uint64_t mesh_message_delivery_window_us;
-    libp2p_gossipsub_score_t mesh_failure_penalty_weight;
-    uint32_t mesh_failure_penalty_decay_ppm;
-    libp2p_gossipsub_score_t invalid_message_deliveries_weight;
-    uint32_t invalid_message_deliveries_decay_ppm;
-} libp2p_gossipsub_topic_score_params_t;
 
 /** Capacity knobs for the caller-managed gossipsub storage slab. */
 typedef struct
@@ -377,7 +304,6 @@ typedef struct
 {
     libp2p_gossipsub_bytes_t topic;
     libp2p_gossipsub_validation_mode_t validation_mode;
-    const libp2p_gossipsub_topic_score_params_t *score_params;
     uint8_t enable_idontwant;
     size_t idontwant_min_message_bytes;
 } libp2p_gossipsub_topic_config_t;
@@ -396,7 +322,6 @@ typedef struct
 {
     libp2p_gossipsub_limits_t limits;
     libp2p_gossipsub_mesh_params_t mesh;
-    libp2p_gossipsub_score_params_t score;
     libp2p_gossipsub_capacity_t capacity;
     libp2p_gossipsub_random_fn_t random_fn;
     void *random_user_data;
@@ -520,7 +445,6 @@ typedef enum
     LIBP2P_GOSSIPSUB_EVENT_SUBSCRIPTION,
     LIBP2P_GOSSIPSUB_EVENT_MESSAGE,
     LIBP2P_GOSSIPSUB_EVENT_IDONTWANT,
-    LIBP2P_GOSSIPSUB_EVENT_SCORE,
     LIBP2P_GOSSIPSUB_EVENT_DROPPED,
     LIBP2P_GOSSIPSUB_EVENT_ERROR
 } libp2p_gossipsub_event_type_t;
@@ -530,7 +454,6 @@ typedef enum
 {
     LIBP2P_GOSSIPSUB_DROP_RPC_LIMIT = 0,
     LIBP2P_GOSSIPSUB_DROP_MALFORMED_RPC,
-    LIBP2P_GOSSIPSUB_DROP_GRAYLISTED_PEER,
     LIBP2P_GOSSIPSUB_DROP_DUPLICATE_MESSAGE,
     LIBP2P_GOSSIPSUB_DROP_UNSUBSCRIBED_TOPIC,
     LIBP2P_GOSSIPSUB_DROP_VALIDATION_REJECTED,
@@ -557,7 +480,6 @@ typedef struct
     libp2p_gossipsub_bytes_t message_id;
     libp2p_gossipsub_control_idontwant_t idontwant;
     libp2p_gossipsub_validation_t *validation;
-    libp2p_gossipsub_score_t score;
     libp2p_gossipsub_drop_reason_t drop_reason;
     libp2p_gossipsub_err_t reason;
     void *user_data;
@@ -738,24 +660,6 @@ libp2p_gossipsub_err_t libp2p_gossipsub_set_peer_explicit(
     const uint8_t *peer_id,
     size_t peer_id_len,
     uint8_t is_explicit);
-
-/**
- * Set the application-specific score component for a peer.
- */
-libp2p_gossipsub_err_t libp2p_gossipsub_set_peer_application_score(
-    libp2p_gossipsub_t *gossipsub,
-    const uint8_t *peer_id,
-    size_t peer_id_len,
-    libp2p_gossipsub_score_t score);
-
-/**
- * Add a behaviour penalty delta for a peer.
- */
-libp2p_gossipsub_err_t libp2p_gossipsub_add_peer_behaviour_penalty(
-    libp2p_gossipsub_t *gossipsub,
-    const uint8_t *peer_id,
-    size_t peer_id_len,
-    libp2p_gossipsub_score_t delta);
 
 /**
  * Return the negotiated gossipsub version for a peer.

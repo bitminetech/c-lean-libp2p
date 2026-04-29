@@ -71,7 +71,6 @@ typedef struct
     uint8_t local_subscribed;
     uint8_t enable_idontwant;
     libp2p_gossipsub_validation_mode_t validation_mode;
-    const libp2p_gossipsub_topic_score_params_t *score_params;
     size_t idontwant_min_message_bytes;
     uint8_t topic[LIBP2P_GOSSIPSUB_DEFAULT_MAX_TOPIC_BYTES];
     size_t topic_len;
@@ -88,8 +87,6 @@ typedef struct
     libp2p_gossipsub_protocol_version_t version;
     uint8_t peer_id[LIBP2P_PEER_ID_MAX_BYTES];
     size_t peer_id_len;
-    libp2p_gossipsub_score_t app_score;
-    libp2p_gossipsub_score_t behaviour_penalty;
     size_t idontwant_sent_this_heartbeat;
     void *user_data;
 } gossipsub_peer_state_t;

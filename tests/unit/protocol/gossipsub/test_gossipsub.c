@@ -118,8 +118,6 @@ static void gossipsub_test_defaults_and_required_message_id(void)
     assert(config.mesh.d == 8U);
     assert(config.mesh.heartbeat_interval_us == 700000ULL);
     assert(config.idontwant_min_message_bytes == 1024U);
-    assert(config.score.gossip_threshold == 0);
-    assert(config.score.publish_threshold == 0);
     config.random_fn = gossipsub_test_random;
     config.random_user_data = &runtime;
     assert(libp2p_gossipsub_storage_size(&config, &storage_len) == LIBP2P_GOSSIPSUB_OK);

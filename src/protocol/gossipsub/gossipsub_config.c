@@ -312,7 +312,6 @@ libp2p_gossipsub_err_t libp2p_gossipsub_config_default(libp2p_gossipsub_config_t
         config->mesh.d_low = LIBP2P_GOSSIPSUB_DEFAULT_D_LOW;
         config->mesh.d_high = LIBP2P_GOSSIPSUB_DEFAULT_D_HIGH;
         config->mesh.d_lazy = LIBP2P_GOSSIPSUB_DEFAULT_D_LAZY;
-        config->mesh.d_score = LIBP2P_GOSSIPSUB_DEFAULT_D_SCORE;
         config->mesh.d_out = LIBP2P_GOSSIPSUB_DEFAULT_D_OUT;
         config->mesh.mcache_len = LIBP2P_GOSSIPSUB_DEFAULT_MCACHE_LEN;
         config->mesh.mcache_gossip = LIBP2P_GOSSIPSUB_DEFAULT_MCACHE_GOSSIP;
@@ -324,30 +323,8 @@ libp2p_gossipsub_err_t libp2p_gossipsub_config_default(libp2p_gossipsub_config_t
         config->mesh.unsubscribe_backoff_us = LIBP2P_GOSSIPSUB_DEFAULT_UNSUBSCRIBE_BACKOFF_US;
         config->mesh.backoff_slack_us = LIBP2P_GOSSIPSUB_DEFAULT_BACKOFF_SLACK_US;
         config->mesh.iwant_followup_us = LIBP2P_GOSSIPSUB_DEFAULT_IWANT_FOLLOWUP_US;
-        config->mesh.score_decay_interval_us = LIBP2P_GOSSIPSUB_DEFAULT_SCORE_DECAY_US;
-        config->mesh.retain_score_us = LIBP2P_GOSSIPSUB_DEFAULT_RETAIN_SCORE_US;
-        config->mesh.opportunistic_graft_interval_us = LIBP2P_GOSSIPSUB_DEFAULT_OPPORTUNISTIC_US;
-        config->mesh.opportunistic_graft_peers = LIBP2P_GOSSIPSUB_DEFAULT_OPPORTUNISTIC_PEERS;
         config->mesh.enable_flood_publish = 1U;
         config->mesh.enable_px = 0U;
-        config->mesh.enable_opportunistic_graft = 0U;
-
-        config->score.gossip_threshold = LIBP2P_GOSSIPSUB_DEFAULT_SCORE_GOSSIP_THRESHOLD;
-        config->score.publish_threshold = LIBP2P_GOSSIPSUB_DEFAULT_SCORE_PUBLISH_THRESHOLD;
-        config->score.graylist_threshold = LIBP2P_GOSSIPSUB_DEFAULT_SCORE_GRAYLIST_THRESHOLD;
-        config->score.accept_px_threshold = LIBP2P_GOSSIPSUB_DEFAULT_SCORE_ACCEPT_PX_THRESHOLD;
-        config->score.opportunistic_graft_threshold =
-            LIBP2P_GOSSIPSUB_DEFAULT_SCORE_OPPORTUNISTIC_GRAFT_THRESHOLD;
-        config->score.app_specific_weight = LIBP2P_GOSSIPSUB_DEFAULT_SCORE_APP_SPECIFIC_WEIGHT;
-        config->score.ip_colocation_factor_weight =
-            LIBP2P_GOSSIPSUB_DEFAULT_SCORE_IP_COLOCATION_FACTOR_WEIGHT;
-        config->score.ip_colocation_factor_threshold =
-            LIBP2P_GOSSIPSUB_DEFAULT_SCORE_IP_COLOCATION_FACTOR_THRESHOLD;
-        config->score.behaviour_penalty_weight =
-            LIBP2P_GOSSIPSUB_DEFAULT_SCORE_BEHAVIOUR_PENALTY_WEIGHT;
-        config->score.behaviour_penalty_decay_ppm =
-            LIBP2P_GOSSIPSUB_DEFAULT_SCORE_BEHAVIOUR_PENALTY_DECAY_PPM;
-        config->score.decay_to_zero_ppm = LIBP2P_GOSSIPSUB_DEFAULT_SCORE_DECAY_TO_ZERO_PPM;
 
         config->capacity.max_topics = LIBP2P_GOSSIPSUB_DEFAULT_MAX_TOPICS;
         config->capacity.max_peers = LIBP2P_GOSSIPSUB_DEFAULT_MAX_PEERS;

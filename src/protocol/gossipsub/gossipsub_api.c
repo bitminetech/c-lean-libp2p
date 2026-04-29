@@ -29,7 +29,6 @@ libp2p_gossipsub_err_t libp2p_gossipsub_subscribe(
     {
         state->local_subscribed = 1U;
         state->validation_mode = topic->validation_mode;
-        state->score_params = topic->score_params;
         state->enable_idontwant = topic->enable_idontwant;
         state->idontwant_min_message_bytes = topic->idontwant_min_message_bytes;
         if (state->idontwant_min_message_bytes == 0U)
@@ -303,78 +302,6 @@ libp2p_gossipsub_err_t libp2p_gossipsub_set_peer_explicit(
         else
         {
             peer->explicit_peer = (is_explicit != 0U) ? 1U : 0U;
-        }
-    }
-
-    return result;
-}
-
-libp2p_gossipsub_err_t libp2p_gossipsub_set_peer_application_score(
-    libp2p_gossipsub_t *gossipsub,
-    const uint8_t *peer_id,
-    size_t peer_id_len,
-    libp2p_gossipsub_score_t score)
-{
-    size_t peer_index = 0U;
-    gossipsub_peer_state_t *peer = NULL;
-    libp2p_gossipsub_event_t event;
-    libp2p_gossipsub_err_t result = LIBP2P_GOSSIPSUB_OK;
-
-    (void)memset(&event, 0, sizeof(event));
-    if ((gossipsub == NULL) || (peer_id == NULL) || (peer_id_len == 0U))
-    {
-        result = LIBP2P_GOSSIPSUB_ERR_INVALID_ARG;
-    }
-    else
-    {
-        peer = gossipsub_find_peer(gossipsub, peer_id, peer_id_len, &peer_index);
-        if (peer == NULL)
-        {
-            result = LIBP2P_GOSSIPSUB_ERR_NOT_FOUND;
-        }
-        else
-        {
-            peer->app_score = score;
-            event.type = LIBP2P_GOSSIPSUB_EVENT_SCORE;
-            event.score = score;
-            gossipsub_peer_to_event(peer, &event);
-            result = gossipsub_event_push(gossipsub, &event);
-        }
-    }
-
-    return result;
-}
-
-libp2p_gossipsub_err_t libp2p_gossipsub_add_peer_behaviour_penalty(
-    libp2p_gossipsub_t *gossipsub,
-    const uint8_t *peer_id,
-    size_t peer_id_len,
-    libp2p_gossipsub_score_t delta)
-{
-    size_t peer_index = 0U;
-    gossipsub_peer_state_t *peer = NULL;
-    libp2p_gossipsub_event_t event;
-    libp2p_gossipsub_err_t result = LIBP2P_GOSSIPSUB_OK;
-
-    (void)memset(&event, 0, sizeof(event));
-    if ((gossipsub == NULL) || (peer_id == NULL) || (peer_id_len == 0U))
-    {
-        result = LIBP2P_GOSSIPSUB_ERR_INVALID_ARG;
-    }
-    else
-    {
-        peer = gossipsub_find_peer(gossipsub, peer_id, peer_id_len, &peer_index);
-        if (peer == NULL)
-        {
-            result = LIBP2P_GOSSIPSUB_ERR_NOT_FOUND;
-        }
-        else
-        {
-            peer->behaviour_penalty += delta;
-            event.type = LIBP2P_GOSSIPSUB_EVENT_SCORE;
-            event.score = peer->app_score - peer->behaviour_penalty;
-            gossipsub_peer_to_event(peer, &event);
-            result = gossipsub_event_push(gossipsub, &event);
         }
     }
 
