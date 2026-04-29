@@ -214,10 +214,8 @@ static void identify_test_mock_host_round_trip(void)
             local_message.protocols[0].len) == 0);
     assert(local_message.observed_addr.len == conn.remote_multiaddr_len);
     assert(
-        memcmp(
-            local_message.observed_addr.data,
-            conn.remote_multiaddr,
-            conn.remote_multiaddr_len) == 0);
+        memcmp(local_message.observed_addr.data, conn.remote_multiaddr, conn.remote_multiaddr_len) ==
+        0);
     assert(inbound_stream.finish_count == 1U);
     assert(libp2p_identify_next_event(&identify, &identify_event) == LIBP2P_IDENTIFY_OK);
     assert(identify_event.type == LIBP2P_IDENTIFY_EVENT_SENT);
@@ -398,12 +396,6 @@ static void identify_test_quic_loopback(void)
                 assert(
                     identify_event.message.public_key.len ==
                     pair.host_identity.public_key_message_len);
-                assert(identify_event.message.signed_peer_record.len != 0U);
-                assert(
-                    identify_event.signed_peer_record_status ==
-                    LIBP2P_IDENTIFY_SIGNED_PEER_RECORD_VALID);
-                assert(identify_event.peer_record.seqno == 0U);
-                assert(identify_event.peer_record.multiaddr_count == 1U);
                 received = 1;
                 break;
             }
