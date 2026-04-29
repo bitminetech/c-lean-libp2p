@@ -340,6 +340,15 @@ static void gossipsub_interop_debug(const gossipsub_interop_app_t *app, const ch
     }
 }
 
+static void gossipsub_interop_trace(const char *message)
+{
+    if ((message != NULL) && (getenv("C_LEAN_LIBP2P_GOSSIPSUB_TRACE") != NULL))
+    {
+        (void)fprintf(stderr, "c-lean-gossipsub: %s\n", message);
+        (void)fflush(stderr);
+    }
+}
+
 static void gossipsub_interop_timestamp(char *out, size_t out_len)
 {
     const time_t now = time(NULL);
@@ -1461,19 +1470,23 @@ static gossipsub_interop_err_t gossipsub_interop_app_init(gossipsub_interop_app_
     }
     if (result == GOSSIPSUB_INTEROP_OK)
     {
+        gossipsub_interop_trace("identity init");
         result = gossipsub_interop_identity_init(&app->identity, app->node_id);
     }
     if (result == GOSSIPSUB_INTEROP_OK)
     {
+        gossipsub_interop_trace("gossipsub init");
         result = gossipsub_interop_configure_gossipsub(app);
     }
     if (result == GOSSIPSUB_INTEROP_OK)
     {
+        gossipsub_interop_trace("host init");
         result = gossipsub_interop_configure_host(app);
     }
     if (result == GOSSIPSUB_INTEROP_OK)
     {
         app->start_us = gossipsub_interop_now_us();
+        gossipsub_interop_trace("started");
         gossipsub_interop_log_peer_id(app);
     }
 
@@ -1540,9 +1553,11 @@ int main(int argc, char **argv)
     (void)signal(SIGINT, gossipsub_interop_signal_handler);
     (void)signal(SIGTERM, gossipsub_interop_signal_handler);
 
+    gossipsub_interop_trace("main");
     result = gossipsub_interop_parse_args(argc, argv, &params_path);
     if (result == GOSSIPSUB_INTEROP_OK)
     {
+        gossipsub_interop_trace("app init");
         result = gossipsub_interop_app_init(&app);
     }
     if (result == GOSSIPSUB_INTEROP_OK)
