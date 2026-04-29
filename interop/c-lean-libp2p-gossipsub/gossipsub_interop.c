@@ -676,6 +676,7 @@ static gossipsub_interop_err_t gossipsub_interop_configure_host(gossipsub_intero
 
 static gossipsub_interop_err_t gossipsub_interop_parse_node_id(int *out_node_id)
 {
+    const char *env_node_id = getenv("GOSSIPSUB_INTEROP_NODE_ID");
     char hostname[GOSSIPSUB_INTEROP_HOSTNAME_BYTES];
     int parsed = 0;
     gossipsub_interop_err_t result = GOSSIPSUB_INTEROP_OK;
@@ -683,6 +684,10 @@ static gossipsub_interop_err_t gossipsub_interop_parse_node_id(int *out_node_id)
     if (out_node_id == NULL)
     {
         result = GOSSIPSUB_INTEROP_ERR_USAGE;
+    }
+    else if ((env_node_id != NULL) && (sscanf(env_node_id, "%d", &parsed) == 1))
+    {
+        *out_node_id = parsed;
     }
     else if (gethostname(hostname, sizeof(hostname)) != 0)
     {
