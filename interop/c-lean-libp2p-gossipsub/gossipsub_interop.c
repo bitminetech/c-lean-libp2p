@@ -28,8 +28,8 @@
 
 #define GOSSIPSUB_INTEROP_LISTEN_PORT             9000U
 #define GOSSIPSUB_INTEROP_POLL_MAX_MS             50
-#define GOSSIPSUB_INTEROP_HOST_STORAGE_BYTES      (8U * 1024U * 1024U)
-#define GOSSIPSUB_INTEROP_GOSSIPSUB_STORAGE_BYTES (16U * 1024U * 1024U)
+#define GOSSIPSUB_INTEROP_HOST_STORAGE_BYTES      (16U * 1024U * 1024U)
+#define GOSSIPSUB_INTEROP_GOSSIPSUB_STORAGE_BYTES (96U * 1024U * 1024U)
 #define GOSSIPSUB_INTEROP_LISTEN_MULTIADDR_BYTES  128U
 #define GOSSIPSUB_INTEROP_DIAL_MULTIADDR_BYTES    512U
 #define GOSSIPSUB_INTEROP_PEER_ID_TEXT_BYTES      128U
@@ -532,6 +532,11 @@ static gossipsub_interop_err_t gossipsub_interop_configure_gossipsub(gossipsub_i
     }
     if ((result == GOSSIPSUB_INTEROP_OK) && (storage_len > sizeof(g_router_storage.bytes)))
     {
+        (void)fprintf(
+            stderr,
+            "gossipsub storage required=%zu capacity=%zu\n",
+            storage_len,
+            sizeof(g_router_storage.bytes));
         result = GOSSIPSUB_INTEROP_ERR_LIMIT;
     }
     if ((result == GOSSIPSUB_INTEROP_OK) && (libp2p_gossipsub_init(
@@ -642,6 +647,11 @@ static gossipsub_interop_err_t gossipsub_interop_configure_host(gossipsub_intero
     }
     if ((result == GOSSIPSUB_INTEROP_OK) && (storage_len > sizeof(g_host_storage.bytes)))
     {
+        (void)fprintf(
+            stderr,
+            "host storage required=%zu capacity=%zu\n",
+            storage_len,
+            sizeof(g_host_storage.bytes));
         result = GOSSIPSUB_INTEROP_ERR_LIMIT;
     }
     if ((result == GOSSIPSUB_INTEROP_OK) && (libp2p_host_init(
