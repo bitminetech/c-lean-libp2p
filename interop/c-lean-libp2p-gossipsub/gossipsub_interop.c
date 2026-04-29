@@ -15,6 +15,7 @@
 #include <stdlib.h>
 #include <string.h>
 #include <sys/socket.h>
+#include <sys/stat.h>
 #include <time.h>
 #include <unistd.h>
 
@@ -35,6 +36,7 @@
 #define GOSSIPSUB_INTEROP_PEER_ID_TEXT_BYTES      128U
 #define GOSSIPSUB_INTEROP_HOSTNAME_BYTES          64U
 #define GOSSIPSUB_INTEROP_IP_TEXT_BYTES           64U
+#define GOSSIPSUB_INTEROP_PATH_BYTES              512U
 #define GOSSIPSUB_INTEROP_PROTOCOLS               LIBP2P_GOSSIPSUB_PROTOCOL_COUNT
 #define GOSSIPSUB_INTEROP_CERT_VALIDITY_SECONDS   UINT64_C(315360000)
 #define GOSSIPSUB_INTEROP_CERT_BACKDATE_SECONDS   UINT64_C(3600)
@@ -76,6 +78,13 @@ typedef struct
     libp2p_gossipsub_validation_t *validation;
     uint64_t due_us;
 } gossipsub_interop_pending_validation_t;
+
+typedef struct
+{
+    const char *params_path;
+    const char *write_identities_dir;
+    int write_identity_count;
+} gossipsub_interop_args_t;
 
 typedef struct
 {
@@ -266,7 +275,140 @@ static void gossipsub_interop_make_node_private_key(int node_id, uint8_t out[32]
     }
 }
 
-static gossipsub_interop_err_t gossipsub_interop_identity_init(
+static gossipsub_interop_err_t gossipsub_interop_identity_path(
+    const char *identity_dir,
+    int node_id,
+    const char *suffix,
+    char *out,
+    size_t out_len)
+{
+    int text_len = 0;
+    gossipsub_interop_err_t result = GOSSIPSUB_INTEROP_OK;
+
+    if ((identity_dir == NULL) || (identity_dir[0] == '\0') || (suffix == NULL) || (out == NULL) ||
+        (out_len == 0U))
+    {
+        result = GOSSIPSUB_INTEROP_ERR_USAGE;
+    }
+    else
+    {
+        text_len = snprintf(out, out_len, "%s/node%d-%s.der", identity_dir, node_id, suffix);
+        if ((text_len <= 0) || ((size_t)text_len >= out_len))
+        {
+            result = GOSSIPSUB_INTEROP_ERR_LIMIT;
+        }
+    }
+
+    return result;
+}
+
+static gossipsub_interop_err_t gossipsub_interop_read_binary_file(
+    const char *path,
+    uint8_t *out,
+    size_t out_len,
+    size_t *written)
+{
+    FILE *file = NULL;
+    size_t bytes_read = 0U;
+    int close_status = 0;
+    gossipsub_interop_err_t result = GOSSIPSUB_INTEROP_OK;
+
+    if ((path == NULL) || (out == NULL) || (written == NULL) || (out_len == 0U))
+    {
+        result = GOSSIPSUB_INTEROP_ERR_USAGE;
+    }
+    else
+    {
+        *written = 0U;
+        file = fopen(path, "rb");
+        if (file == NULL)
+        {
+            result = GOSSIPSUB_INTEROP_ERR_IO;
+        }
+    }
+    if (result == GOSSIPSUB_INTEROP_OK)
+    {
+        bytes_read = fread(out, 1U, out_len, file);
+        if (ferror(file) != 0)
+        {
+            result = GOSSIPSUB_INTEROP_ERR_IO;
+        }
+        else if (bytes_read == out_len)
+        {
+            int extra = fgetc(file);
+            if (extra != EOF)
+            {
+                result = GOSSIPSUB_INTEROP_ERR_LIMIT;
+            }
+            else if (ferror(file) != 0)
+            {
+                result = GOSSIPSUB_INTEROP_ERR_IO;
+            }
+            else
+            {
+                *written = bytes_read;
+            }
+        }
+        else
+        {
+            *written = bytes_read;
+        }
+    }
+    if (file != NULL)
+    {
+        close_status = fclose(file);
+        if ((result == GOSSIPSUB_INTEROP_OK) && (close_status != 0))
+        {
+            result = GOSSIPSUB_INTEROP_ERR_IO;
+        }
+    }
+
+    return result;
+}
+
+static gossipsub_interop_err_t gossipsub_interop_write_binary_file(
+    const char *path,
+    const uint8_t *data,
+    size_t data_len)
+{
+    FILE *file = NULL;
+    size_t bytes_written = 0U;
+    int close_status = 0;
+    gossipsub_interop_err_t result = GOSSIPSUB_INTEROP_OK;
+
+    if ((path == NULL) || (data == NULL) || (data_len == 0U))
+    {
+        result = GOSSIPSUB_INTEROP_ERR_USAGE;
+    }
+    else
+    {
+        file = fopen(path, "wb");
+        if (file == NULL)
+        {
+            result = GOSSIPSUB_INTEROP_ERR_IO;
+        }
+    }
+    if (result == GOSSIPSUB_INTEROP_OK)
+    {
+        bytes_written = fwrite(data, 1U, data_len, file);
+        if ((bytes_written != data_len) || (ferror(file) != 0))
+        {
+            result = GOSSIPSUB_INTEROP_ERR_IO;
+        }
+    }
+    if (file != NULL)
+    {
+        close_status = fclose(file);
+        if ((result == GOSSIPSUB_INTEROP_OK) && (close_status != 0))
+        {
+            result = GOSSIPSUB_INTEROP_ERR_IO;
+        }
+    }
+
+    return result;
+}
+
+static gossipsub_interop_err_t gossipsub_interop_identity_init_generated(
     gossipsub_interop_identity_t *identity,
     int node_id)
 {
@@ -343,6 +485,92 @@ static gossipsub_interop_err_t gossipsub_interop_identity_init(
         identity->quic.certificate_private_key_der = identity->cert_key;
         identity->quic.peer_id = identity->host_storage.peer_id;
         identity->quic.peer_id_len = identity->host_storage.peer_id_len;
+    }
+
+    return result;
+}
+
+static gossipsub_interop_err_t gossipsub_interop_identity_init_cached(
+    gossipsub_interop_identity_t *identity,
+    int node_id,
+    const char *identity_dir)
+{
+    char path[GOSSIPSUB_INTEROP_PATH_BYTES];
+    gossipsub_interop_err_t result = GOSSIPSUB_INTEROP_OK;
+
+    if (identity == NULL)
+    {
+        result = GOSSIPSUB_INTEROP_ERR_USAGE;
+    }
+    else
+    {
+        (void)memset(identity, 0, sizeof(*identity));
+        gossipsub_interop_make_node_private_key(node_id, identity->private_key);
+        gossipsub_interop_trace("private key ready");
+    }
+    if (result == GOSSIPSUB_INTEROP_OK)
+    {
+        gossipsub_interop_trace("host identity init");
+        if (libp2p_host_secp256k1_identity_init(
+                &identity->host_storage,
+                identity->private_key,
+                sizeof(identity->private_key),
+                &identity->host) != LIBP2P_HOST_OK)
+        {
+            result = GOSSIPSUB_INTEROP_ERR_IDENTITY;
+        }
+    }
+    if (result == GOSSIPSUB_INTEROP_OK)
+    {
+        gossipsub_interop_trace("host identity done");
+        result = gossipsub_interop_identity_path(identity_dir, node_id, "cert", path, sizeof(path));
+    }
+    if (result == GOSSIPSUB_INTEROP_OK)
+    {
+        result = gossipsub_interop_read_binary_file(
+            path,
+            identity->cert,
+            sizeof(identity->cert),
+            &identity->quic.certificate_der_len);
+    }
+    if (result == GOSSIPSUB_INTEROP_OK)
+    {
+        result = gossipsub_interop_identity_path(identity_dir, node_id, "key", path, sizeof(path));
+    }
+    if (result == GOSSIPSUB_INTEROP_OK)
+    {
+        result = gossipsub_interop_read_binary_file(
+            path,
+            identity->cert_key,
+            sizeof(identity->cert_key),
+            &identity->quic.certificate_private_key_der_len);
+    }
+    if (result == GOSSIPSUB_INTEROP_OK)
+    {
+        identity->quic.certificate_der = identity->cert;
+        identity->quic.certificate_private_key_der = identity->cert_key;
+        identity->quic.peer_id = identity->host_storage.peer_id;
+        identity->quic.peer_id_len = identity->host_storage.peer_id_len;
+        gossipsub_interop_trace("certificate cache loaded");
+    }
+
+    return result;
+}
+
+static gossipsub_interop_err_t gossipsub_interop_identity_init(
+    gossipsub_interop_identity_t *identity,
+    int node_id)
+{
+    const char *identity_dir = getenv("C_LEAN_LIBP2P_GOSSIPSUB_IDENTITY_DIR");
+    gossipsub_interop_err_t result = GOSSIPSUB_INTEROP_OK;
+
+    if ((identity_dir != NULL) && (identity_dir[0] != '\0'))
+    {
+        result = gossipsub_interop_identity_init_cached(identity, node_id, identity_dir);
+    }
+    else
+    {
+        result = gossipsub_interop_identity_init_generated(identity, node_id);
     }
 
     return result;
@@ -1437,24 +1665,37 @@ static gossipsub_interop_err_t gossipsub_interop_handle_instruction(
 static gossipsub_interop_err_t gossipsub_interop_parse_args(
     int argc,
     char **argv,
-    const char **out_params)
+    gossipsub_interop_args_t *out_args)
 {
     int index = 1;
     gossipsub_interop_err_t result = GOSSIPSUB_INTEROP_OK;
 
-    if ((argv == NULL) || (out_params == NULL))
+    if ((argv == NULL) || (out_args == NULL))
     {
         result = GOSSIPSUB_INTEROP_ERR_USAGE;
     }
     else
     {
-        *out_params = NULL;
+        (void)memset(out_args, 0, sizeof(*out_args));
     }
     while ((result == GOSSIPSUB_INTEROP_OK) && (index < argc))
     {
         if ((strcmp(argv[index], "--params") == 0) && ((index + 1) < argc))
         {
-            *out_params = argv[index + 1];
+            out_args->params_path = argv[index + 1];
+            index += 2;
+        }
+        else if ((strcmp(argv[index], "--write-identities") == 0) && ((index + 1) < argc))
+        {
+            out_args->write_identities_dir = argv[index + 1];
+            index += 2;
+        }
+        else if ((strcmp(argv[index], "--node-count") == 0) && ((index + 1) < argc))
+        {
+            if (sscanf(argv[index + 1], "%d", &out_args->write_identity_count) != 1)
+            {
+                result = GOSSIPSUB_INTEROP_ERR_USAGE;
+            }
             index += 2;
         }
         else
@@ -1462,9 +1703,71 @@ static gossipsub_interop_err_t gossipsub_interop_parse_args(
             result = GOSSIPSUB_INTEROP_ERR_USAGE;
         }
     }
-    if ((result == GOSSIPSUB_INTEROP_OK) && (*out_params == NULL))
+    if ((result == GOSSIPSUB_INTEROP_OK) && (out_args->params_path == NULL) &&
+        ((out_args->write_identities_dir == NULL) || (out_args->write_identity_count <= 0)))
     {
         result = GOSSIPSUB_INTEROP_ERR_USAGE;
+    }
+    if ((result == GOSSIPSUB_INTEROP_OK) && (out_args->params_path != NULL) &&
+        (out_args->write_identities_dir != NULL))
+    {
+        result = GOSSIPSUB_INTEROP_ERR_USAGE;
+    }
+
+    return result;
+}
+
+static gossipsub_interop_err_t gossipsub_interop_write_identities(
+    const char *identity_dir,
+    int node_count)
+{
+    gossipsub_interop_identity_t identity;
+    char path[GOSSIPSUB_INTEROP_PATH_BYTES];
+    int node_id = 0;
+    int mkdir_status = 0;
+    gossipsub_interop_err_t result = GOSSIPSUB_INTEROP_OK;
+
+    if ((identity_dir == NULL) || (identity_dir[0] == '\0') || (node_count <= 0))
+    {
+        result = GOSSIPSUB_INTEROP_ERR_USAGE;
+    }
+    else
+    {
+        mkdir_status = mkdir(identity_dir, 0775);
+        if ((mkdir_status != 0) && (errno != EEXIST))
+        {
+            result = GOSSIPSUB_INTEROP_ERR_IO;
+        }
+    }
+    while ((result == GOSSIPSUB_INTEROP_OK) && (node_id < node_count))
+    {
+        result = gossipsub_interop_identity_init_generated(&identity, node_id);
+        if (result == GOSSIPSUB_INTEROP_OK)
+        {
+            result =
+                gossipsub_interop_identity_path(identity_dir, node_id, "cert", path, sizeof(path));
+        }
+        if (result == GOSSIPSUB_INTEROP_OK)
+        {
+            result = gossipsub_interop_write_binary_file(
+                path,
+                identity.cert,
+                identity.quic.certificate_der_len);
+        }
+        if (result == GOSSIPSUB_INTEROP_OK)
+        {
+            result =
+                gossipsub_interop_identity_path(identity_dir, node_id, "key", path, sizeof(path));
+        }
+        if (result == GOSSIPSUB_INTEROP_OK)
+        {
+            result = gossipsub_interop_write_binary_file(
+                path,
+                identity.cert_key,
+                identity.quic.certificate_private_key_der_len);
+        }
+        (void)memset(&identity, 0, sizeof(identity));
+        node_id++;
     }
 
     return result;
@@ -1562,7 +1865,7 @@ static gossipsub_interop_err_t gossipsub_interop_run_script(
 
 int main(int argc, char **argv)
 {
-    const char *params_path = NULL;
+    gossipsub_interop_args_t args;
     gossipsub_interop_app_t app;
     gossipsub_interop_err_t result = GOSSIPSUB_INTEROP_OK;
 
@@ -1570,16 +1873,25 @@ int main(int argc, char **argv)
     (void)signal(SIGTERM, gossipsub_interop_signal_handler);
 
     gossipsub_interop_trace("main");
-    result = gossipsub_interop_parse_args(argc, argv, &params_path);
-    if (result == GOSSIPSUB_INTEROP_OK)
+    result = gossipsub_interop_parse_args(argc, argv, &args);
+    if ((result == GOSSIPSUB_INTEROP_OK) && (args.write_identities_dir != NULL))
     {
-        gossipsub_interop_trace("app init");
-        result = gossipsub_interop_app_init(&app);
+        result = gossipsub_interop_write_identities(
+            args.write_identities_dir,
+            args.write_identity_count);
     }
     if (result == GOSSIPSUB_INTEROP_OK)
     {
+        if (args.params_path != NULL)
+        {
+            gossipsub_interop_trace("app init");
+            result = gossipsub_interop_app_init(&app);
+        }
+    }
+    if ((result == GOSSIPSUB_INTEROP_OK) && (args.params_path != NULL))
+    {
         gossipsub_interop_debug(&app, "starting gossipsub interop script");
-        result = gossipsub_interop_run_script(&app, params_path);
+        result = gossipsub_interop_run_script(&app, args.params_path);
     }
     if (result != GOSSIPSUB_INTEROP_OK)
     {
