@@ -378,8 +378,6 @@ quic_backend_handle_conn_error(libp2p_quic_conn_t *conn, int rv)
 
     if (rv != 0)
     {
-        result = quic_backend_ngtcp2_err(rv);
-
         if (quic_backend_conn_error_is_endpoint_error(rv) != 0U)
         {
             result = quic_backend_ngtcp2_err(rv);
@@ -418,7 +416,6 @@ quic_backend_handle_conn_error(libp2p_quic_conn_t *conn, int rv)
                 NULL,
                 app_error_code,
                 transport_error_code);
-            result = LIBP2P_QUIC_OK;
         }
         else
         {
