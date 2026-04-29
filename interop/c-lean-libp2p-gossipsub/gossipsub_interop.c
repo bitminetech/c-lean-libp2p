@@ -1716,6 +1716,10 @@ static gossipsub_interop_err_t gossipsub_interop_drive_once(gossipsub_interop_ap
     libp2p_host_fd_t host_fd = 0U;
     libp2p_host_interest_t interest = LIBP2P_HOST_INTEREST_NONE;
     libp2p_host_ready_t ready = LIBP2P_HOST_READY_ALL;
+    libp2p_host_drive_result_t host_drive_result;
+    libp2p_gossipsub_drive_result_t gossipsub_drive_result;
+    libp2p_host_err_t host_err = LIBP2P_HOST_OK;
+    libp2p_gossipsub_err_t gossipsub_err = LIBP2P_GOSSIPSUB_OK;
     struct pollfd pfd;
     uint64_t now_us = 0U;
     int poll_result = 0;
@@ -1725,18 +1729,27 @@ static gossipsub_interop_err_t gossipsub_interop_drive_once(gossipsub_interop_ap
     {
         result = GOSSIPSUB_INTEROP_ERR_USAGE;
     }
-    if ((result == GOSSIPSUB_INTEROP_OK) && (libp2p_host_fd(app->host, &host_fd) != LIBP2P_HOST_OK))
+    if (result == GOSSIPSUB_INTEROP_OK)
     {
-        result = GOSSIPSUB_INTEROP_ERR_HOST;
+        host_err = libp2p_host_fd(app->host, &host_fd);
+        if (host_err != LIBP2P_HOST_OK)
+        {
+            (void)fprintf(stderr, "host fd failed err=%u\n", (unsigned int)host_err);
+            result = GOSSIPSUB_INTEROP_ERR_HOST;
+        }
     }
     if ((result == GOSSIPSUB_INTEROP_OK) && (host_fd > (libp2p_host_fd_t)INT_MAX))
     {
         result = GOSSIPSUB_INTEROP_ERR_HOST;
     }
-    if ((result == GOSSIPSUB_INTEROP_OK) &&
-        (libp2p_host_io_interest(app->host, &interest) != LIBP2P_HOST_OK))
+    if (result == GOSSIPSUB_INTEROP_OK)
     {
-        result = GOSSIPSUB_INTEROP_ERR_HOST;
+        host_err = libp2p_host_io_interest(app->host, &interest);
+        if (host_err != LIBP2P_HOST_OK)
+        {
+            (void)fprintf(stderr, "host interest failed err=%u\n", (unsigned int)host_err);
+            result = GOSSIPSUB_INTEROP_ERR_HOST;
+        }
     }
     if (result == GOSSIPSUB_INTEROP_OK)
     {
@@ -1757,6 +1770,7 @@ static gossipsub_interop_err_t gossipsub_interop_drive_once(gossipsub_interop_ap
         {
             if (errno != EINTR)
             {
+                (void)fprintf(stderr, "host poll failed errno=%d\n", errno);
                 result = GOSSIPSUB_INTEROP_ERR_HOST;
             }
         }
@@ -1772,20 +1786,58 @@ static gossipsub_interop_err_t gossipsub_interop_drive_once(gossipsub_interop_ap
             }
         }
     }
-    if ((result == GOSSIPSUB_INTEROP_OK) &&
-        (libp2p_host_drive(app->host, gossipsub_interop_now_us(), ready, NULL) != LIBP2P_HOST_OK))
+    if (result == GOSSIPSUB_INTEROP_OK)
     {
-        result = GOSSIPSUB_INTEROP_ERR_HOST;
+        (void)memset(&host_drive_result, 0, sizeof(host_drive_result));
+        host_err =
+            libp2p_host_drive(app->host, gossipsub_interop_now_us(), ready, &host_drive_result);
+        if (host_err != LIBP2P_HOST_OK)
+        {
+            (void)fprintf(
+                stderr,
+                "host drive failed err=%u ready=%u interest=%u revents=%d "
+                "transport_events=%zu negotiation_steps=%zu protocol_events=%zu "
+                "host_events=%zu progress=%u\n",
+                (unsigned int)host_err,
+                (unsigned int)ready,
+                (unsigned int)interest,
+                (int)pfd.revents,
+                host_drive_result.transport_events,
+                host_drive_result.negotiation_steps,
+                host_drive_result.protocol_events,
+                host_drive_result.host_events,
+                (unsigned int)host_drive_result.made_progress);
+            result = GOSSIPSUB_INTEROP_ERR_HOST;
+        }
     }
     if (result == GOSSIPSUB_INTEROP_OK)
     {
         result = gossipsub_interop_drain_host_events(app);
     }
-    if ((result == GOSSIPSUB_INTEROP_OK) &&
-        (libp2p_gossipsub_drive(app->gossipsub, app->host, gossipsub_interop_now_us(), NULL) !=
-         LIBP2P_GOSSIPSUB_OK))
+    if (result == GOSSIPSUB_INTEROP_OK)
     {
-        result = GOSSIPSUB_INTEROP_ERR_PROTOCOL;
+        (void)memset(&gossipsub_drive_result, 0, sizeof(gossipsub_drive_result));
+        gossipsub_err = libp2p_gossipsub_drive(
+            app->gossipsub,
+            app->host,
+            gossipsub_interop_now_us(),
+            &gossipsub_drive_result);
+        if (gossipsub_err != LIBP2P_GOSSIPSUB_OK)
+        {
+            (void)fprintf(
+                stderr,
+                "gossipsub drive failed err=%u heartbeats=%zu encoded=%zu sent=%zu "
+                "forwarded=%zu controls=%zu expired=%zu progress=%u\n",
+                (unsigned int)gossipsub_err,
+                gossipsub_drive_result.heartbeats,
+                gossipsub_drive_result.rpcs_encoded,
+                gossipsub_drive_result.rpcs_sent,
+                gossipsub_drive_result.messages_forwarded,
+                gossipsub_drive_result.controls_enqueued,
+                gossipsub_drive_result.validations_expired,
+                (unsigned int)gossipsub_drive_result.made_progress);
+            result = GOSSIPSUB_INTEROP_ERR_PROTOCOL;
+        }
     }
     if (result == GOSSIPSUB_INTEROP_OK)
     {
