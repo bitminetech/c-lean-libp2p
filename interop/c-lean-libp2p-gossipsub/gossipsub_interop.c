@@ -44,6 +44,9 @@
 #define GOSSIPSUB_INTEROP_USEC_PER_SEC             UINT64_C(1000000)
 #define GOSSIPSUB_INTEROP_USEC_PER_MSEC            UINT64_C(1000)
 #define GOSSIPSUB_INTEROP_NSEC_PER_USEC            UINT64_C(1000)
+#define GOSSIPSUB_INTEROP_CONNECT_TIMEOUT_SECONDS  UINT64_C(15)
+#define GOSSIPSUB_INTEROP_CONNECT_ATTEMPTS         3U
+#define GOSSIPSUB_INTEROP_MAX_CONNECTED_PEERS      64U
 
 typedef union
 {
@@ -106,6 +109,14 @@ typedef struct
     gossipsub_interop_pending_validation_t
         pending_validations[LIBP2P_GOSSIPSUB_DEFAULT_PENDING_VALIDATIONS];
     size_t pending_validation_count;
+    uint8_t connected_peer_ids[GOSSIPSUB_INTEROP_MAX_CONNECTED_PEERS][LIBP2P_PEER_ID_MAX_BYTES];
+    size_t connected_peer_id_lens[GOSSIPSUB_INTEROP_MAX_CONNECTED_PEERS];
+    size_t connected_peer_count;
+    libp2p_host_dial_t *connect_dial;
+    uint8_t connect_peer_id[LIBP2P_PEER_ID_MAX_BYTES];
+    size_t connect_peer_id_len;
+    uint8_t connect_complete;
+    uint8_t connect_failed;
 } gossipsub_interop_app_t;
 
 static gossipsub_interop_host_storage_t g_host_storage;
@@ -114,6 +125,7 @@ static uint8_t g_publish_buffer[GOSSIPSUB_INTEROP_MAX_MESSAGE_BYTES];
 static volatile sig_atomic_t g_stop_requested = 0;
 
 static void gossipsub_interop_trace(const char *message);
+static gossipsub_interop_err_t gossipsub_interop_drive_once(gossipsub_interop_app_t *app);
 
 static void gossipsub_interop_signal_handler(int signo)
 {
@@ -979,17 +991,15 @@ static gossipsub_interop_err_t gossipsub_interop_parse_node_id(int *out_node_id)
     return result;
 }
 
-static gossipsub_interop_err_t gossipsub_interop_target_peer_text(
+static gossipsub_interop_err_t gossipsub_interop_target_peer_id(
     int node_id,
-    char *out,
+    uint8_t *out,
     size_t out_len,
     size_t *written)
 {
     uint8_t private_key[LIBP2P_PEER_ID_SECP256K1_PRIVATE_KEY_BYTES];
     uint8_t public_key[LIBP2P_PEER_ID_SECP256K1_COMPRESSED_PUBLIC_KEY_BYTES];
-    uint8_t peer_id[LIBP2P_PEER_ID_MAX_BYTES];
     size_t public_key_len = 0U;
-    size_t peer_id_len = 0U;
     gossipsub_interop_err_t result = GOSSIPSUB_INTEROP_OK;
 
     if ((out == NULL) || (written == NULL))
@@ -1013,11 +1023,34 @@ static gossipsub_interop_err_t gossipsub_interop_target_peer_text(
     if ((result == GOSSIPSUB_INTEROP_OK) && (libp2p_peer_id_from_secp256k1_public_key(
                                                  public_key,
                                                  public_key_len,
-                                                 peer_id,
-                                                 sizeof(peer_id),
-                                                 &peer_id_len) != LIBP2P_PEER_ID_OK))
+                                                 out,
+                                                 out_len,
+                                                 written) != LIBP2P_PEER_ID_OK))
     {
         result = GOSSIPSUB_INTEROP_ERR_IDENTITY;
+    }
+    (void)memset(private_key, 0, sizeof(private_key));
+
+    return result;
+}
+
+static gossipsub_interop_err_t gossipsub_interop_target_peer_text(
+    int node_id,
+    char *out,
+    size_t out_len,
+    size_t *written)
+{
+    uint8_t peer_id[LIBP2P_PEER_ID_MAX_BYTES];
+    size_t peer_id_len = 0U;
+    gossipsub_interop_err_t result = GOSSIPSUB_INTEROP_OK;
+
+    if ((out == NULL) || (written == NULL))
+    {
+        result = GOSSIPSUB_INTEROP_ERR_USAGE;
+    }
+    if (result == GOSSIPSUB_INTEROP_OK)
+    {
+        result = gossipsub_interop_target_peer_id(node_id, peer_id, sizeof(peer_id), &peer_id_len);
     }
     if ((result == GOSSIPSUB_INTEROP_OK) &&
         (libp2p_peer_id_to_string(peer_id, peer_id_len, out, out_len, written) !=
@@ -1033,7 +1066,6 @@ static gossipsub_interop_err_t gossipsub_interop_target_peer_text(
     {
         result = GOSSIPSUB_INTEROP_ERR_LIMIT;
     }
-    (void)memset(private_key, 0, sizeof(private_key));
 
     return result;
 }
@@ -1096,6 +1128,102 @@ static gossipsub_interop_err_t gossipsub_interop_resolve_node_ip(
     return result;
 }
 
+static uint8_t gossipsub_interop_peer_id_equal(
+    const uint8_t *left,
+    size_t left_len,
+    const uint8_t *right,
+    size_t right_len)
+{
+    uint8_t result = 0U;
+
+    if ((left != NULL) && (right != NULL) && (left_len == right_len) &&
+        (memcmp(left, right, left_len) == 0))
+    {
+        result = 1U;
+    }
+
+    return result;
+}
+
+static uint8_t gossipsub_interop_peer_connected(
+    const gossipsub_interop_app_t *app,
+    const uint8_t *peer_id,
+    size_t peer_id_len)
+{
+    size_t index = 0U;
+    uint8_t result = 0U;
+
+    if ((app != NULL) && (peer_id != NULL))
+    {
+        for (index = 0U; (result == 0U) && (index < app->connected_peer_count); index++)
+        {
+            result = gossipsub_interop_peer_id_equal(
+                app->connected_peer_ids[index],
+                app->connected_peer_id_lens[index],
+                peer_id,
+                peer_id_len);
+        }
+    }
+
+    return result;
+}
+
+static gossipsub_interop_err_t gossipsub_interop_remember_peer(
+    gossipsub_interop_app_t *app,
+    libp2p_host_conn_t *conn)
+{
+    uint8_t peer_id[LIBP2P_PEER_ID_MAX_BYTES];
+    size_t peer_id_len = 0U;
+    gossipsub_interop_err_t result = GOSSIPSUB_INTEROP_OK;
+
+    if ((app == NULL) || (conn == NULL))
+    {
+        result = GOSSIPSUB_INTEROP_ERR_USAGE;
+    }
+    else if (
+        libp2p_host_conn_peer_id(conn, peer_id, sizeof(peer_id), &peer_id_len) != LIBP2P_HOST_OK)
+    {
+        result = GOSSIPSUB_INTEROP_ERR_HOST;
+    }
+    else if (gossipsub_interop_peer_connected(app, peer_id, peer_id_len) != 0U)
+    {
+        result = GOSSIPSUB_INTEROP_OK;
+    }
+    else if (app->connected_peer_count >= GOSSIPSUB_INTEROP_MAX_CONNECTED_PEERS)
+    {
+        result = GOSSIPSUB_INTEROP_ERR_LIMIT;
+    }
+    else
+    {
+        (void)memcpy(app->connected_peer_ids[app->connected_peer_count], peer_id, peer_id_len);
+        app->connected_peer_id_lens[app->connected_peer_count] = peer_id_len;
+        app->connected_peer_count++;
+    }
+
+    return result;
+}
+
+static uint8_t gossipsub_interop_conn_matches_connect(
+    const gossipsub_interop_app_t *app,
+    const libp2p_host_conn_t *conn)
+{
+    uint8_t peer_id[LIBP2P_PEER_ID_MAX_BYTES];
+    size_t peer_id_len = 0U;
+    uint8_t result = 0U;
+
+    if ((app != NULL) && (conn != NULL) && (app->connect_peer_id_len != 0U) &&
+        (libp2p_host_conn_peer_id(conn, peer_id, sizeof(peer_id), &peer_id_len) == LIBP2P_HOST_OK))
+    {
+        result = gossipsub_interop_peer_id_equal(
+            peer_id,
+            peer_id_len,
+            app->connect_peer_id,
+            app->connect_peer_id_len);
+    }
+
+    return result;
+}
+
 static gossipsub_interop_err_t gossipsub_interop_dial_node(
     gossipsub_interop_app_t *app,
     int node_id)
@@ -1104,8 +1232,11 @@ static gossipsub_interop_err_t gossipsub_interop_dial_node(
     char peer_text[GOSSIPSUB_INTEROP_PEER_ID_TEXT_BYTES];
     char multiaddr_text[GOSSIPSUB_INTEROP_DIAL_MULTIADDR_BYTES];
     uint8_t multiaddr[GOSSIPSUB_INTEROP_DIAL_MULTIADDR_BYTES];
+    uint8_t peer_id[LIBP2P_PEER_ID_MAX_BYTES];
+    size_t peer_id_len = 0U;
     size_t peer_text_len = 0U;
     size_t multiaddr_len = 0U;
+    size_t attempt = 0U;
     int text_len = 0;
     libp2p_host_dial_t *dial = NULL;
     gossipsub_interop_err_t result = GOSSIPSUB_INTEROP_OK;
@@ -1117,6 +1248,10 @@ static gossipsub_interop_err_t gossipsub_interop_dial_node(
     if (result == GOSSIPSUB_INTEROP_OK)
     {
         result = gossipsub_interop_resolve_node_ip(node_id, ip_text, sizeof(ip_text));
+    }
+    if (result == GOSSIPSUB_INTEROP_OK)
+    {
+        result = gossipsub_interop_target_peer_id(node_id, peer_id, sizeof(peer_id), &peer_id_len);
     }
     if (result == GOSSIPSUB_INTEROP_OK)
     {
@@ -1149,10 +1284,58 @@ static gossipsub_interop_err_t gossipsub_interop_dial_node(
     {
         result = GOSSIPSUB_INTEROP_ERR_PROTOCOL;
     }
-    if ((result == GOSSIPSUB_INTEROP_OK) &&
-        (libp2p_host_dial(app->host, multiaddr, multiaddr_len, NULL, &dial) != LIBP2P_HOST_OK))
+    while ((result == GOSSIPSUB_INTEROP_OK) &&
+           (gossipsub_interop_peer_connected(app, peer_id, peer_id_len) == 0U) &&
+           (attempt < GOSSIPSUB_INTEROP_CONNECT_ATTEMPTS))
     {
-        result = GOSSIPSUB_INTEROP_ERR_HOST;
+        const uint64_t deadline_us =
+            gossipsub_interop_now_us() +
+            (GOSSIPSUB_INTEROP_CONNECT_TIMEOUT_SECONDS * GOSSIPSUB_INTEROP_USEC_PER_SEC);
+
+        dial = NULL;
+        app->connect_dial = NULL;
+        app->connect_complete = 0U;
+        app->connect_failed = 0U;
+        app->connect_peer_id_len = peer_id_len;
+        (void)memcpy(app->connect_peer_id, peer_id, peer_id_len);
+        gossipsub_interop_debug(app, multiaddr_text);
+
+        if (libp2p_host_dial(app->host, multiaddr, multiaddr_len, NULL, &dial) != LIBP2P_HOST_OK)
+        {
+            result = GOSSIPSUB_INTEROP_ERR_HOST;
+        }
+        else
+        {
+            app->connect_dial = dial;
+        }
+        while ((result == GOSSIPSUB_INTEROP_OK) && (app->connect_complete == 0U) &&
+               (app->connect_failed == 0U) && (g_stop_requested == 0) &&
+               (gossipsub_interop_now_us() < deadline_us))
+        {
+            result = gossipsub_interop_drive_once(app);
+        }
+        if ((result == GOSSIPSUB_INTEROP_OK) &&
+            (gossipsub_interop_peer_connected(app, peer_id, peer_id_len) != 0U))
+        {
+            app->connect_complete = 1U;
+        }
+        if ((result == GOSSIPSUB_INTEROP_OK) && (app->connect_complete == 0U))
+        {
+            if ((app->connect_failed != 0U) &&
+                ((attempt + 1U) < GOSSIPSUB_INTEROP_CONNECT_ATTEMPTS))
+            {
+                result = GOSSIPSUB_INTEROP_OK;
+            }
+            else
+            {
+                result = GOSSIPSUB_INTEROP_ERR_HOST;
+            }
+        }
+        app->connect_dial = NULL;
+        app->connect_peer_id_len = 0U;
+        app->connect_failed = 0U;
+        app->connect_complete = 0U;
+        attempt++;
     }
 
     return result;
@@ -1443,6 +1626,13 @@ static gossipsub_interop_err_t gossipsub_interop_drain_host_events(gossipsub_int
         }
         else if (event.type == LIBP2P_HOST_EVENT_CONN_ESTABLISHED)
         {
+            result = gossipsub_interop_remember_peer(app, event.conn);
+            if ((result == GOSSIPSUB_INTEROP_OK) &&
+                ((event.dial == app->connect_dial) ||
+                 (gossipsub_interop_conn_matches_connect(app, event.conn) != 0U)))
+            {
+                app->connect_complete = 1U;
+            }
             (void)libp2p_gossipsub_open_peer(
                 app->gossipsub,
                 app->host,
@@ -1462,7 +1652,12 @@ static gossipsub_interop_err_t gossipsub_interop_drain_host_events(gossipsub_int
                 (unsigned int)event.reason,
                 (unsigned long long)event.app_error_code,
                 (unsigned long long)event.transport_error_code);
-            result = GOSSIPSUB_INTEROP_ERR_PROTOCOL;
+            if ((event.type == LIBP2P_HOST_EVENT_DIAL_FAILED) && (app->connect_dial != NULL) &&
+                (event.dial == app->connect_dial))
+            {
+                app->connect_failed = 1U;
+            }
+            result = GOSSIPSUB_INTEROP_OK;
         }
         else
         {
