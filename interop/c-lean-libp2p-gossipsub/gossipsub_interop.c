@@ -1902,6 +1902,10 @@ int main(int argc, char **argv)
     }
     if ((result == GOSSIPSUB_INTEROP_OK) && (args.params_path != NULL))
     {
+        result = gossipsub_interop_wait_until(&app, 1U);
+    }
+    if ((result == GOSSIPSUB_INTEROP_OK) && (args.params_path != NULL))
+    {
         gossipsub_interop_debug(&app, "starting gossipsub interop script");
         result = gossipsub_interop_run_script(&app, args.params_path);
     }
