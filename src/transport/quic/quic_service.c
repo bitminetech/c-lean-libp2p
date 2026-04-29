@@ -6,6 +6,7 @@
 #include "transport/quic/quic_service.h"
 
 #include <stdint.h>
+#include <stdio.h>
 #include <string.h>
 
 #include "transport/quic/quic_udp.h"
@@ -63,6 +64,39 @@ struct libp2p_quic_service
     uint8_t tx_pending;
     uint8_t closed;
 };
+
+static void quic_service_debug_step(
+    const libp2p_quic_service_t *service,
+    const char *step,
+    libp2p_quic_err_t err)
+{
+    if ((service != NULL) && (step != NULL) && (err != LIBP2P_QUIC_OK) &&
+        (service->config.endpoint.debug_fn != NULL))
+    {
+        char message[128];
+        const int written = snprintf(
+            message,
+            sizeof(message),
+            "quic service step failed step=%s err=%u",
+            step,
+            (unsigned int)err);
+
+        if (written > 0)
+        {
+            size_t len = (size_t)written;
+
+            if (len >= sizeof(message))
+            {
+                len = sizeof(message) - 1U;
+            }
+            service->config.endpoint.debug_fn(
+                LIBP2P_QUIC_DEBUG_EVENT_TEXT,
+                (const uint8_t *)message,
+                len,
+                service->config.endpoint.debug_user_data);
+        }
+    }
+}
 
 static int quic_service_size_add_overflow(size_t a, size_t b, size_t *out)
 {
@@ -1062,17 +1096,21 @@ libp2p_quic_err_t libp2p_quic_service_drive(
         (void)memset(&local_result, 0, sizeof(local_result));
 
         result = quic_service_drain_endpoint_events(service, &local_result);
+        quic_service_debug_step(service, "drain-before-rx", result);
         if ((result == LIBP2P_QUIC_OK) && ((ready & LIBP2P_QUIC_SERVICE_READY_READ) != 0U))
         {
             result = quic_service_drive_rx(service, now_us, &local_result);
+            quic_service_debug_step(service, "rx", result);
         }
         if (result == LIBP2P_QUIC_OK)
         {
             result = libp2p_quic_endpoint_poll(service->endpoint, now_us);
+            quic_service_debug_step(service, "poll", result);
         }
         if (result == LIBP2P_QUIC_OK)
         {
             result = quic_service_drain_endpoint_events(service, &local_result);
+            quic_service_debug_step(service, "drain-after-poll", result);
         }
         if ((result == LIBP2P_QUIC_OK) &&
             ((((ready & (LIBP2P_QUIC_SERVICE_READY_WRITE | LIBP2P_QUIC_SERVICE_READY_TIMER |
@@ -1080,9 +1118,11 @@ libp2p_quic_err_t libp2p_quic_service_drive(
               (service->tx_pending != 0U))))
         {
             result = quic_service_drive_tx(service, now_us, &local_result);
+            quic_service_debug_step(service, "tx", result);
             if (result == LIBP2P_QUIC_OK)
             {
                 result = quic_service_drain_endpoint_events(service, &local_result);
+                quic_service_debug_step(service, "drain-after-tx", result);
             }
         }
 
