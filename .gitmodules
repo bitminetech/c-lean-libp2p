@@ -10,3 +10,7 @@
 [submodule "interop/unified-testing"]
 	path = interop/unified-testing
 	url = https://github.com/Pier-Two/unified-testing.git
+[submodule "interop/test-plans"]
+	path = interop/test-plans
+	url = https://github.com/Pier-Two/test-plans.git
+	branch = c-lean-gossipsub-interop

@@ -29,6 +29,7 @@ set(CMAKE_C_EXTENSIONS OFF)
 option(BUILD_TESTING "Build c-lean-libp2p tests" ON)
 option(LIBP2P_ENABLE_GCC_ANALYZER "Enable GCC -fanalyzer for c-lean-libp2p project sources" OFF)
 option(LIBP2P_BUILD_INTEROP_BINARY "Build the unified-testing transport interop binary" OFF)
+option(LIBP2P_BUILD_GOSSIPSUB_INTEROP_BINARY "Build the test-plans gossipsub interop binary" OFF)
 
 enable_testing()
 
@@ -156,6 +157,30 @@ file(
 
 list(SORT LIBP2P_SOURCE_FILES)
 
+set(
+    LIBP2P_GOSSIPSUB_SOURCE_FILES
+    "${PROJECT_SOURCE_DIR}/src/protocol/gossipsub/gossipsub_api.c"
+    "${PROJECT_SOURCE_DIR}/src/protocol/gossipsub/gossipsub_codec_control.c"
+    "${PROJECT_SOURCE_DIR}/src/protocol/gossipsub/gossipsub_codec_control_advert.c"
+    "${PROJECT_SOURCE_DIR}/src/protocol/gossipsub/gossipsub_codec_control_payload.c"
+    "${PROJECT_SOURCE_DIR}/src/protocol/gossipsub/gossipsub_codec_message.c"
+    "${PROJECT_SOURCE_DIR}/src/protocol/gossipsub/gossipsub_codec_rpc.c"
+    "${PROJECT_SOURCE_DIR}/src/protocol/gossipsub/gossipsub_codec_wire.c"
+    "${PROJECT_SOURCE_DIR}/src/protocol/gossipsub/gossipsub_config.c"
+    "${PROJECT_SOURCE_DIR}/src/protocol/gossipsub/gossipsub_host.c"
+    "${PROJECT_SOURCE_DIR}/src/protocol/gossipsub/gossipsub_rx.c"
+    "${PROJECT_SOURCE_DIR}/src/protocol/gossipsub/gossipsub_state.c"
+    "${PROJECT_SOURCE_DIR}/src/protocol/gossipsub/gossipsub_tx.c"
+    "${PROJECT_SOURCE_DIR}/src/protocol/gossipsub/gossipsub_util.c"
+)
+foreach(_libp2p_gossipsub_source IN LISTS LIBP2P_GOSSIPSUB_SOURCE_FILES)
+    if(NOT EXISTS "${_libp2p_gossipsub_source}")
+        message(FATAL_ERROR "Missing gossipsub source: ${_libp2p_gossipsub_source}")
+    endif()
+endforeach()
+list(APPEND LIBP2P_SOURCE_FILES ${LIBP2P_GOSSIPSUB_SOURCE_FILES})
+list(REMOVE_DUPLICATES LIBP2P_SOURCE_FILES)
+
 add_library(c_lean_libp2p STATIC ${LIBP2P_SOURCE_FILES})
 target_link_libraries(
     c_lean_libp2p
@@ -223,6 +248,29 @@ if(LIBP2P_BUILD_INTEROP_BINARY)
             "${PROJECT_SOURCE_DIR}/interop/c-lean-libp2p"
     )
     c_lean_libp2p_set_output_directories(c_lean_libp2p_transport_interop)
+endif()
+
+if(LIBP2P_BUILD_GOSSIPSUB_INTEROP_BINARY)
+    if(WIN32)
+        message(FATAL_ERROR "LIBP2P_BUILD_GOSSIPSUB_INTEROP_BINARY requires POSIX sockets")
+    endif()
+
+    add_executable(
+        c_lean_libp2p_gossipsub_interop
+        "${PROJECT_SOURCE_DIR}/interop/c-lean-libp2p-gossipsub/gossipsub_interop.c"
+        "${PROJECT_SOURCE_DIR}/interop/c-lean-libp2p-gossipsub/gossipsub_interop_json.c"
+    )
+    target_link_libraries(
+        c_lean_libp2p_gossipsub_interop
+        PRIVATE
+            c_lean_libp2p
+    )
+    target_include_directories(
+        c_lean_libp2p_gossipsub_interop
+        PRIVATE
+            "${PROJECT_SOURCE_DIR}/interop/c-lean-libp2p-gossipsub"
+    )
+    c_lean_libp2p_set_output_directories(c_lean_libp2p_gossipsub_interop)
 endif()
 
 # ---------------------------------------------------------------------------
@@ -343,4 +391,6 @@ if(BUILD_TESTING)
     c_lean_libp2p_add_protocol_test(spec identify)
     c_lean_libp2p_add_protocol_test(unit ping)
     c_lean_libp2p_add_protocol_test(spec ping)
+    c_lean_libp2p_add_protocol_test(unit gossipsub)
+    c_lean_libp2p_add_protocol_test(spec gossipsub)
 endif()
