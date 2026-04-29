@@ -383,7 +383,7 @@ libp2p_host_err_t libp2p_host_drive(
         }
     }
 
-    if ((err == LIBP2P_HOST_OK) && (out_result != NULL))
+    if (out_result != NULL)
     {
         *out_result = local_result;
     }
@@ -426,11 +426,8 @@ libp2p_host_err_t libp2p_host_conn_remote_multiaddr(
     }
     else
     {
-        result = conn->host->config.transport->conn_remote_multiaddr(
-            conn->transport_conn,
-            out,
-            out_len,
-            written);
+        result = conn->host->config.transport
+                     ->conn_remote_multiaddr(conn->transport_conn, out, out_len, written);
     }
 
     return result;
