@@ -1715,7 +1715,7 @@ static gossipsub_interop_err_t gossipsub_interop_drive_once(gossipsub_interop_ap
 {
     libp2p_host_fd_t host_fd = 0U;
     libp2p_host_interest_t interest = LIBP2P_HOST_INTEREST_NONE;
-    libp2p_host_ready_t ready = LIBP2P_HOST_READY_ALL;
+    libp2p_host_ready_t ready = LIBP2P_HOST_READY_APP | LIBP2P_HOST_READY_TIMER;
     libp2p_host_drive_result_t host_drive_result;
     libp2p_gossipsub_drive_result_t gossipsub_drive_result;
     libp2p_host_err_t host_err = LIBP2P_HOST_OK;

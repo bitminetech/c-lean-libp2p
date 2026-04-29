@@ -64,10 +64,8 @@ static libp2p_quic_err_t quic_backend_random_cid(libp2p_quic_endpoint_t *endpoin
     else
     {
         cid->datalen = QUIC_BACKEND_CONN_ID_BYTES;
-        result = endpoint->config.random_fn(
-            cid->data,
-            cid->datalen,
-            endpoint->config.random_user_data);
+        result =
+            endpoint->config.random_fn(cid->data, cid->datalen, endpoint->config.random_user_data);
     }
 
     return result;
@@ -101,13 +99,15 @@ static libp2p_quic_err_t quic_backend_conn_add_to_endpoint(libp2p_quic_conn_t *c
     {
         result = LIBP2P_QUIC_ERR_LIMIT;
     }
-    else if ((conn->role == LIBP2P_QUIC_ROLE_CLIENT) &&
-             (endpoint->outgoing_connection_count == endpoint->config.max_outgoing_connections))
+    else if (
+        (conn->role == LIBP2P_QUIC_ROLE_CLIENT) &&
+        (endpoint->outgoing_connection_count == endpoint->config.max_outgoing_connections))
     {
         result = LIBP2P_QUIC_ERR_LIMIT;
     }
-    else if ((conn->role == LIBP2P_QUIC_ROLE_SERVER) &&
-             (endpoint->incoming_connection_count == endpoint->config.max_incoming_connections))
+    else if (
+        (conn->role == LIBP2P_QUIC_ROLE_SERVER) &&
+        (endpoint->incoming_connection_count == endpoint->config.max_incoming_connections))
     {
         result = LIBP2P_QUIC_ERR_LIMIT;
     }
@@ -358,7 +358,21 @@ QUIC_BACKEND_INTERNAL libp2p_quic_conn_t *quic_backend_find_conn_by_packet(
     return result;
 }
 
-QUIC_BACKEND_INTERNAL libp2p_quic_err_t quic_backend_handle_conn_error(libp2p_quic_conn_t *conn, int rv)
+static uint8_t quic_backend_conn_error_is_endpoint_error(int rv)
+{
+    uint8_t result = 0U;
+
+    if ((rv == NGTCP2_ERR_NOMEM) || (rv == NGTCP2_ERR_NOBUF) ||
+        (rv == NGTCP2_ERR_INVALID_ARGUMENT) || (rv == NGTCP2_ERR_INVALID_STATE))
+    {
+        result = 1U;
+    }
+
+    return result;
+}
+
+QUIC_BACKEND_INTERNAL libp2p_quic_err_t
+quic_backend_handle_conn_error(libp2p_quic_conn_t *conn, int rv)
 {
     libp2p_quic_err_t result = LIBP2P_QUIC_OK;
 
@@ -366,8 +380,15 @@ QUIC_BACKEND_INTERNAL libp2p_quic_err_t quic_backend_handle_conn_error(libp2p_qu
     {
         result = quic_backend_ngtcp2_err(rv);
 
-        if ((rv == NGTCP2_ERR_CLOSING) || (rv == NGTCP2_ERR_DRAINING) ||
-            (rv == NGTCP2_ERR_IDLE_CLOSE))
+        if (quic_backend_conn_error_is_endpoint_error(rv) != 0U)
+        {
+            result = quic_backend_ngtcp2_err(rv);
+        }
+        else if (
+            (rv == NGTCP2_ERR_CLOSING) || (rv == NGTCP2_ERR_DRAINING) ||
+            (rv == NGTCP2_ERR_IDLE_CLOSE) || (rv == NGTCP2_ERR_HANDSHAKE_TIMEOUT) ||
+            (rv == NGTCP2_ERR_DROP_CONN) || (rv == NGTCP2_ERR_NO_VIABLE_PATH) ||
+            (rv == NGTCP2_ERR_VERSION_NEGOTIATION_FAILURE) || (rv == NGTCP2_ERR_AEAD_LIMIT_REACHED))
         {
             const ngtcp2_ccerr *ccerr = ngtcp2_conn_get_ccerr2(conn->ngconn);
             uint64_t app_error_code = 0U;
@@ -390,7 +411,7 @@ QUIC_BACKEND_INTERNAL libp2p_quic_err_t quic_backend_handle_conn_error(libp2p_qu
             }
 
             conn->state = LIBP2P_QUIC_CONN_CLOSED;
-            (void)quic_backend_event_push(
+            result = quic_backend_event_push(
                 conn->endpoint,
                 LIBP2P_QUIC_EVENT_CONN_CLOSED,
                 conn,
@@ -415,7 +436,7 @@ QUIC_BACKEND_INTERNAL libp2p_quic_err_t quic_backend_handle_conn_error(libp2p_qu
             }
             conn->close_requested = 1U;
             conn->state = LIBP2P_QUIC_CONN_CLOSING;
-            (void)quic_backend_event_push(
+            result = quic_backend_event_push(
                 conn->endpoint,
                 LIBP2P_QUIC_EVENT_TX_DATAGRAM_READY,
                 conn,
@@ -564,9 +585,9 @@ QUIC_BACKEND_INTERNAL libp2p_quic_err_t quic_backend_write_conn_datagram(
         {
             result = LIBP2P_QUIC_ERR_WOULD_BLOCK;
         }
-        else if ((nwrite == NGTCP2_ERR_STREAM_DATA_BLOCKED) ||
-                 (nwrite == NGTCP2_ERR_STREAM_SHUT_WR) ||
-                 (nwrite == NGTCP2_ERR_STREAM_NOT_FOUND))
+        else if (
+            (nwrite == NGTCP2_ERR_STREAM_DATA_BLOCKED) || (nwrite == NGTCP2_ERR_STREAM_SHUT_WR) ||
+            (nwrite == NGTCP2_ERR_STREAM_NOT_FOUND))
         {
             result = LIBP2P_QUIC_ERR_WOULD_BLOCK;
         }
@@ -579,9 +600,8 @@ QUIC_BACKEND_INTERNAL libp2p_quic_err_t quic_backend_write_conn_datagram(
     return result;
 }
 
-QUIC_BACKEND_INTERNAL libp2p_quic_err_t quic_backend_conn_state(
-    const libp2p_quic_conn_t *conn,
-    libp2p_quic_conn_state_t *out_state)
+QUIC_BACKEND_INTERNAL libp2p_quic_err_t
+quic_backend_conn_state(const libp2p_quic_conn_t *conn, libp2p_quic_conn_state_t *out_state)
 {
     libp2p_quic_err_t result = LIBP2P_QUIC_OK;
 
@@ -626,9 +646,8 @@ QUIC_BACKEND_INTERNAL libp2p_quic_err_t quic_backend_conn_peer_id(
     return result;
 }
 
-QUIC_BACKEND_INTERNAL libp2p_quic_err_t quic_backend_conn_peer_identity(
-    const libp2p_quic_conn_t *conn,
-    libp2p_quic_peer_identity_t *out)
+QUIC_BACKEND_INTERNAL libp2p_quic_err_t
+quic_backend_conn_peer_identity(const libp2p_quic_conn_t *conn, libp2p_quic_peer_identity_t *out)
 {
     libp2p_quic_err_t result = LIBP2P_QUIC_OK;
 
@@ -648,9 +667,8 @@ QUIC_BACKEND_INTERNAL libp2p_quic_err_t quic_backend_conn_peer_identity(
     return result;
 }
 
-QUIC_BACKEND_INTERNAL libp2p_quic_err_t quic_backend_conn_local_addr(
-    const libp2p_quic_conn_t *conn,
-    libp2p_quic_addr_t *out)
+QUIC_BACKEND_INTERNAL libp2p_quic_err_t
+quic_backend_conn_local_addr(const libp2p_quic_conn_t *conn, libp2p_quic_addr_t *out)
 {
     libp2p_quic_err_t result = LIBP2P_QUIC_OK;
 
@@ -666,9 +684,8 @@ QUIC_BACKEND_INTERNAL libp2p_quic_err_t quic_backend_conn_local_addr(
     return result;
 }
 
-QUIC_BACKEND_INTERNAL libp2p_quic_err_t quic_backend_conn_remote_addr(
-    const libp2p_quic_conn_t *conn,
-    libp2p_quic_addr_t *out)
+QUIC_BACKEND_INTERNAL libp2p_quic_err_t
+quic_backend_conn_remote_addr(const libp2p_quic_conn_t *conn, libp2p_quic_addr_t *out)
 {
     libp2p_quic_err_t result = LIBP2P_QUIC_OK;
 
@@ -684,7 +701,8 @@ QUIC_BACKEND_INTERNAL libp2p_quic_err_t quic_backend_conn_remote_addr(
     return result;
 }
 
-QUIC_BACKEND_INTERNAL libp2p_quic_err_t quic_backend_conn_close(libp2p_quic_conn_t *conn, uint64_t app_error_code)
+QUIC_BACKEND_INTERNAL libp2p_quic_err_t
+quic_backend_conn_close(libp2p_quic_conn_t *conn, uint64_t app_error_code)
 {
     libp2p_quic_err_t result = quic_backend_validate_conn(conn);
 
@@ -705,9 +723,8 @@ QUIC_BACKEND_INTERNAL libp2p_quic_err_t quic_backend_conn_close(libp2p_quic_conn
     return result;
 }
 
-QUIC_BACKEND_INTERNAL libp2p_quic_err_t quic_backend_conn_open_bidi_stream(
-    libp2p_quic_conn_t *conn,
-    libp2p_quic_stream_t **out_stream)
+QUIC_BACKEND_INTERNAL libp2p_quic_err_t
+quic_backend_conn_open_bidi_stream(libp2p_quic_conn_t *conn, libp2p_quic_stream_t **out_stream)
 {
     int64_t stream_id = -1;
     libp2p_quic_stream_t *stream = NULL;
@@ -753,9 +770,8 @@ QUIC_BACKEND_INTERNAL libp2p_quic_err_t quic_backend_conn_open_bidi_stream(
     return result;
 }
 
-QUIC_BACKEND_INTERNAL libp2p_quic_err_t quic_backend_conn_accept_stream(
-    libp2p_quic_conn_t *conn,
-    libp2p_quic_stream_t **out_stream)
+QUIC_BACKEND_INTERNAL libp2p_quic_err_t
+quic_backend_conn_accept_stream(libp2p_quic_conn_t *conn, libp2p_quic_stream_t **out_stream)
 {
     libp2p_quic_err_t result = quic_backend_validate_conn(conn);
 
@@ -771,8 +787,8 @@ QUIC_BACKEND_INTERNAL libp2p_quic_err_t quic_backend_conn_accept_stream(
     if (result == LIBP2P_QUIC_OK)
     {
         result = LIBP2P_QUIC_ERR_WOULD_BLOCK;
-        for (size_t index = 0U; (index < conn->streams.len) &&
-                               (result == LIBP2P_QUIC_ERR_WOULD_BLOCK);
+        for (size_t index = 0U;
+             (index < conn->streams.len) && (result == LIBP2P_QUIC_ERR_WOULD_BLOCK);
              index++)
         {
             libp2p_quic_stream_t *stream = conn->streams.items[index];

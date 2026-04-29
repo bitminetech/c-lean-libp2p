@@ -6,8 +6,6 @@
 #include "transport/quic/quic_service.h"
 
 #include <stdint.h>
-#include <stdio.h>
-#include <stdlib.h>
 #include <string.h>
 
 #include "transport/quic/quic_udp.h"
@@ -1049,7 +1047,6 @@ libp2p_quic_err_t libp2p_quic_service_drive(
 {
     libp2p_quic_service_drive_result_t local_result;
     libp2p_quic_err_t result = quic_service_validate(service);
-    const char *trace = getenv("C_LEAN_LIBP2P_GOSSIPSUB_TRACE");
 
     if (out_result != NULL)
     {
@@ -1065,49 +1062,17 @@ libp2p_quic_err_t libp2p_quic_service_drive(
         (void)memset(&local_result, 0, sizeof(local_result));
 
         result = quic_service_drain_endpoint_events(service, &local_result);
-        if ((result != LIBP2P_QUIC_OK) && (trace != NULL))
-        {
-            (void)fprintf(
-                stderr,
-                "quic service drive failed phase=drain-before err=%u ready=%u\n",
-                (unsigned int)result,
-                (unsigned int)ready);
-        }
         if ((result == LIBP2P_QUIC_OK) && ((ready & LIBP2P_QUIC_SERVICE_READY_READ) != 0U))
         {
             result = quic_service_drive_rx(service, now_us, &local_result);
-            if ((result != LIBP2P_QUIC_OK) && (trace != NULL))
-            {
-                (void)fprintf(
-                    stderr,
-                    "quic service drive failed phase=rx err=%u ready=%u\n",
-                    (unsigned int)result,
-                    (unsigned int)ready);
-            }
         }
         if (result == LIBP2P_QUIC_OK)
         {
             result = libp2p_quic_endpoint_poll(service->endpoint, now_us);
-            if ((result != LIBP2P_QUIC_OK) && (trace != NULL))
-            {
-                (void)fprintf(
-                    stderr,
-                    "quic service drive failed phase=poll err=%u ready=%u\n",
-                    (unsigned int)result,
-                    (unsigned int)ready);
-            }
         }
         if (result == LIBP2P_QUIC_OK)
         {
             result = quic_service_drain_endpoint_events(service, &local_result);
-            if ((result != LIBP2P_QUIC_OK) && (trace != NULL))
-            {
-                (void)fprintf(
-                    stderr,
-                    "quic service drive failed phase=drain-after-poll err=%u ready=%u\n",
-                    (unsigned int)result,
-                    (unsigned int)ready);
-            }
         }
         if ((result == LIBP2P_QUIC_OK) &&
             ((((ready & (LIBP2P_QUIC_SERVICE_READY_WRITE | LIBP2P_QUIC_SERVICE_READY_TIMER |
@@ -1115,25 +1080,9 @@ libp2p_quic_err_t libp2p_quic_service_drive(
               (service->tx_pending != 0U))))
         {
             result = quic_service_drive_tx(service, now_us, &local_result);
-            if ((result != LIBP2P_QUIC_OK) && (trace != NULL))
-            {
-                (void)fprintf(
-                    stderr,
-                    "quic service drive failed phase=tx err=%u ready=%u\n",
-                    (unsigned int)result,
-                    (unsigned int)ready);
-            }
             if (result == LIBP2P_QUIC_OK)
             {
                 result = quic_service_drain_endpoint_events(service, &local_result);
-                if ((result != LIBP2P_QUIC_OK) && (trace != NULL))
-                {
-                    (void)fprintf(
-                        stderr,
-                        "quic service drive failed phase=drain-after-tx err=%u ready=%u\n",
-                        (unsigned int)result,
-                        (unsigned int)ready);
-                }
             }
         }
 
