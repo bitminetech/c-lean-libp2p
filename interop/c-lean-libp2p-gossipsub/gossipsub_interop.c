@@ -27,22 +27,23 @@
 #include "transport/quic/quic_identity.h"
 #include "transport/quic/quic_service.h"
 
-#define GOSSIPSUB_INTEROP_LISTEN_PORT             9000U
-#define GOSSIPSUB_INTEROP_POLL_MAX_MS             50
-#define GOSSIPSUB_INTEROP_HOST_STORAGE_BYTES      (16U * 1024U * 1024U)
-#define GOSSIPSUB_INTEROP_GOSSIPSUB_STORAGE_BYTES (96U * 1024U * 1024U)
-#define GOSSIPSUB_INTEROP_LISTEN_MULTIADDR_BYTES  128U
-#define GOSSIPSUB_INTEROP_DIAL_MULTIADDR_BYTES    512U
-#define GOSSIPSUB_INTEROP_PEER_ID_TEXT_BYTES      128U
-#define GOSSIPSUB_INTEROP_HOSTNAME_BYTES          64U
-#define GOSSIPSUB_INTEROP_IP_TEXT_BYTES           64U
-#define GOSSIPSUB_INTEROP_PATH_BYTES              512U
-#define GOSSIPSUB_INTEROP_PROTOCOLS               LIBP2P_GOSSIPSUB_PROTOCOL_COUNT
-#define GOSSIPSUB_INTEROP_CERT_VALIDITY_SECONDS   UINT64_C(315360000)
-#define GOSSIPSUB_INTEROP_CERT_BACKDATE_SECONDS   UINT64_C(3600)
-#define GOSSIPSUB_INTEROP_USEC_PER_SEC            UINT64_C(1000000)
-#define GOSSIPSUB_INTEROP_USEC_PER_MSEC           UINT64_C(1000)
-#define GOSSIPSUB_INTEROP_NSEC_PER_USEC           UINT64_C(1000)
+#define GOSSIPSUB_INTEROP_LISTEN_PORT              9000U
+#define GOSSIPSUB_INTEROP_POLL_MAX_MS              50
+#define GOSSIPSUB_INTEROP_HOST_STORAGE_BYTES       (16U * 1024U * 1024U)
+#define GOSSIPSUB_INTEROP_GOSSIPSUB_STORAGE_BYTES  (96U * 1024U * 1024U)
+#define GOSSIPSUB_INTEROP_LISTEN_MULTIADDR_BYTES   128U
+#define GOSSIPSUB_INTEROP_DIAL_MULTIADDR_BYTES     512U
+#define GOSSIPSUB_INTEROP_PEER_ID_TEXT_BYTES       128U
+#define GOSSIPSUB_INTEROP_HOSTNAME_BYTES           64U
+#define GOSSIPSUB_INTEROP_IP_TEXT_BYTES            64U
+#define GOSSIPSUB_INTEROP_PATH_BYTES               512U
+#define GOSSIPSUB_INTEROP_PROTOCOLS                LIBP2P_GOSSIPSUB_PROTOCOL_COUNT
+#define GOSSIPSUB_INTEROP_CERT_VALIDITY_SECONDS    UINT64_C(315360000)
+#define GOSSIPSUB_INTEROP_CERT_BACKDATE_SECONDS    UINT64_C(3600)
+#define GOSSIPSUB_INTEROP_SHADOW_CERT_UNIX_SECONDS UINT64_C(946684800)
+#define GOSSIPSUB_INTEROP_USEC_PER_SEC             UINT64_C(1000000)
+#define GOSSIPSUB_INTEROP_USEC_PER_MSEC            UINT64_C(1000)
+#define GOSSIPSUB_INTEROP_NSEC_PER_USEC            UINT64_C(1000)
 
 typedef union
 {
@@ -410,11 +411,11 @@ static gossipsub_interop_err_t gossipsub_interop_write_binary_file(
 
 static gossipsub_interop_err_t gossipsub_interop_identity_init_generated(
     gossipsub_interop_identity_t *identity,
-    int node_id)
+    int node_id,
+    uint64_t cert_unix_seconds)
 {
     libp2p_quic_host_key_t host_key;
     libp2p_quic_certificate_config_t cert_config;
-    uint64_t now = 0U;
     gossipsub_interop_err_t result = GOSSIPSUB_INTEROP_OK;
 
     if (identity == NULL)
@@ -443,11 +444,6 @@ static gossipsub_interop_err_t gossipsub_interop_identity_init_generated(
     {
         gossipsub_interop_trace("host identity done");
     }
-    if ((result == GOSSIPSUB_INTEROP_OK) &&
-        (gossipsub_interop_unix_time(&now, NULL) != LIBP2P_QUIC_OK))
-    {
-        result = GOSSIPSUB_INTEROP_ERR_IDENTITY;
-    }
     if (result == GOSSIPSUB_INTEROP_OK)
     {
         gossipsub_interop_trace("certificate init");
@@ -458,8 +454,10 @@ static gossipsub_interop_err_t gossipsub_interop_identity_init_generated(
         host_key.public_key_message_len = identity->host_storage.public_key_message_len;
 
         cert_config.certificate_key_type = LIBP2P_QUIC_CERT_KEY_ECDSA_P256;
-        cert_config.not_before_unix_seconds = now - GOSSIPSUB_INTEROP_CERT_BACKDATE_SECONDS;
-        cert_config.not_after_unix_seconds = now + GOSSIPSUB_INTEROP_CERT_VALIDITY_SECONDS;
+        cert_config.not_before_unix_seconds =
+            cert_unix_seconds - GOSSIPSUB_INTEROP_CERT_BACKDATE_SECONDS;
+        cert_config.not_after_unix_seconds =
+            cert_unix_seconds + GOSSIPSUB_INTEROP_CERT_VALIDITY_SECONDS;
         cert_config.random_fn = gossipsub_interop_quic_random;
         cert_config.random_user_data = NULL;
         if (libp2p_quic_identity_write_certificate_der(
@@ -570,7 +568,16 @@ static gossipsub_interop_err_t gossipsub_interop_identity_init(
     }
     else
     {
-        result = gossipsub_interop_identity_init_generated(identity, node_id);
+        uint64_t now = 0U;
+
+        if (gossipsub_interop_unix_time(&now, NULL) != LIBP2P_QUIC_OK)
+        {
+            result = GOSSIPSUB_INTEROP_ERR_IDENTITY;
+        }
+        else
+        {
+            result = gossipsub_interop_identity_init_generated(identity, node_id, now);
+        }
     }
 
     return result;
@@ -1450,9 +1457,11 @@ static gossipsub_interop_err_t gossipsub_interop_drain_host_events(gossipsub_int
         {
             (void)fprintf(
                 stderr,
-                "host event failure type=%u reason=%u\n",
+                "host event failure type=%u reason=%u app=%llu transport=%llu\n",
                 (unsigned int)event.type,
-                (unsigned int)event.reason);
+                (unsigned int)event.reason,
+                (unsigned long long)event.app_error_code,
+                (unsigned long long)event.transport_error_code);
             result = GOSSIPSUB_INTEROP_ERR_PROTOCOL;
         }
         else
@@ -1741,7 +1750,10 @@ static gossipsub_interop_err_t gossipsub_interop_write_identities(
     }
     while ((result == GOSSIPSUB_INTEROP_OK) && (node_id < node_count))
     {
-        result = gossipsub_interop_identity_init_generated(&identity, node_id);
+        result = gossipsub_interop_identity_init_generated(
+            &identity,
+            node_id,
+            GOSSIPSUB_INTEROP_SHADOW_CERT_UNIX_SECONDS);
         if (result == GOSSIPSUB_INTEROP_OK)
         {
             result =
