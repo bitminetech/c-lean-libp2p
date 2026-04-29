@@ -178,6 +178,20 @@ foreach(_libp2p_gossipsub_source IN LISTS LIBP2P_GOSSIPSUB_SOURCE_FILES)
     endif()
 endforeach()
 list(APPEND LIBP2P_SOURCE_FILES ${LIBP2P_GOSSIPSUB_SOURCE_FILES})
+
+set(
+    LIBP2P_PEER_RECORD_SOURCE_FILES
+    "${PROJECT_SOURCE_DIR}/src/peer_record/peer_record_envelope.c"
+    "${PROJECT_SOURCE_DIR}/src/peer_record/peer_record_payload.c"
+    "${PROJECT_SOURCE_DIR}/src/peer_record/peer_record_signed.c"
+    "${PROJECT_SOURCE_DIR}/src/peer_record/peer_record_wire.c"
+)
+foreach(_libp2p_peer_record_source IN LISTS LIBP2P_PEER_RECORD_SOURCE_FILES)
+    if(NOT EXISTS "${_libp2p_peer_record_source}")
+        message(FATAL_ERROR "Missing peer_record source: ${_libp2p_peer_record_source}")
+    endif()
+endforeach()
+list(APPEND LIBP2P_SOURCE_FILES ${LIBP2P_PEER_RECORD_SOURCE_FILES})
 list(REMOVE_DUPLICATES LIBP2P_SOURCE_FILES)
 
 add_library(c_lean_libp2p STATIC ${LIBP2P_SOURCE_FILES})
@@ -304,6 +318,13 @@ if(BUILD_TESTING)
         c_lean_libp2p_add_test("${test_name}" "${test_source}")
     endfunction()
 
+    function(c_lean_libp2p_add_peer_record_test suite_name)
+        set(test_name "${suite_name}_peer_record")
+        set(test_source "${PROJECT_SOURCE_DIR}/tests/${suite_name}/peer_record/test_peer_record.c")
+
+        c_lean_libp2p_add_test("${test_name}" "${test_source}")
+    endfunction()
+
     function(c_lean_libp2p_add_multistream_select_test suite_name)
         set(test_name "${suite_name}_multistream_select")
         set(test_source "${PROJECT_SOURCE_DIR}/tests/${suite_name}/multiformats/multistream-select/test_multistream_select.c")
@@ -339,6 +360,9 @@ if(BUILD_TESTING)
 
     c_lean_libp2p_add_peer_id_test(unit)
     c_lean_libp2p_add_peer_id_test(spec)
+
+    c_lean_libp2p_add_peer_record_test(unit)
+    c_lean_libp2p_add_peer_record_test(spec)
 
     c_lean_libp2p_add_multistream_select_test(unit)
     c_lean_libp2p_add_multistream_select_test(spec)

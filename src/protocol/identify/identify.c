@@ -3,15 +3,17 @@
 #include <string.h>
 
 #include "multiformats/unsigned_varint/unsigned_varint.h"
+#include "peer_record/peer_record.h"
 
-#define IDENTIFY_FIELD_PUBLIC_KEY       1U
-#define IDENTIFY_FIELD_LISTEN_ADDRS     2U
-#define IDENTIFY_FIELD_PROTOCOLS        3U
-#define IDENTIFY_FIELD_OBSERVED_ADDR    4U
-#define IDENTIFY_FIELD_PROTOCOL_VERSION 5U
-#define IDENTIFY_FIELD_AGENT_VERSION    6U
-#define IDENTIFY_WIRE_LEN               2U
-#define IDENTIFY_MULTIADDR_BYTES        256U
+#define IDENTIFY_FIELD_PUBLIC_KEY         1U
+#define IDENTIFY_FIELD_LISTEN_ADDRS       2U
+#define IDENTIFY_FIELD_PROTOCOLS          3U
+#define IDENTIFY_FIELD_OBSERVED_ADDR      4U
+#define IDENTIFY_FIELD_PROTOCOL_VERSION   5U
+#define IDENTIFY_FIELD_AGENT_VERSION      6U
+#define IDENTIFY_FIELD_SIGNED_PEER_RECORD 8U
+#define IDENTIFY_WIRE_LEN                 2U
+#define IDENTIFY_MULTIADDR_BYTES          256U
 
 static int identify_size_add(size_t a, size_t b, size_t *out)
 {
@@ -138,6 +140,38 @@ static libp2p_identify_err_t identify_host_to_err(libp2p_host_err_t err)
     else
     {
         result = LIBP2P_IDENTIFY_ERR_HOST;
+    }
+
+    return result;
+}
+
+static libp2p_identify_err_t identify_peer_record_to_err(libp2p_peer_record_err_t err)
+{
+    libp2p_identify_err_t result = LIBP2P_IDENTIFY_ERR_MALFORMED;
+
+    if (err == LIBP2P_PEER_RECORD_OK)
+    {
+        result = LIBP2P_IDENTIFY_OK;
+    }
+    else if (err == LIBP2P_PEER_RECORD_ERR_INVALID_ARG)
+    {
+        result = LIBP2P_IDENTIFY_ERR_INVALID_ARG;
+    }
+    else if (err == LIBP2P_PEER_RECORD_ERR_BUF_TOO_SMALL)
+    {
+        result = LIBP2P_IDENTIFY_ERR_BUF_TOO_SMALL;
+    }
+    else if (err == LIBP2P_PEER_RECORD_ERR_TRUNCATED)
+    {
+        result = LIBP2P_IDENTIFY_ERR_TRUNCATED;
+    }
+    else if (err == LIBP2P_PEER_RECORD_ERR_LIMIT)
+    {
+        result = LIBP2P_IDENTIFY_ERR_LIMIT;
+    }
+    else
+    {
+        result = LIBP2P_IDENTIFY_ERR_MALFORMED;
     }
 
     return result;
@@ -424,15 +458,117 @@ static int identify_slot_is_reading(const libp2p_identify_t *identify, size_t sl
     return is_reading;
 }
 
+static libp2p_identify_err_t identify_build_signed_peer_record(
+    const libp2p_identify_message_t *message,
+    libp2p_host_t *host,
+    uint64_t seqno,
+    uint8_t *out,
+    size_t out_len,
+    size_t *written)
+{
+    uint8_t peer_id[LIBP2P_PEER_ID_MAX_BYTES];
+    uint8_t payload[LIBP2P_PEER_RECORD_MAX_PAYLOAD_BYTES];
+    uint8_t signing[LIBP2P_PEER_RECORD_MAX_SIGNING_BYTES];
+    uint8_t signature[LIBP2P_PEER_ID_SECP256K1_SIGNATURE_MAX_BYTES];
+    libp2p_peer_record_t record;
+    libp2p_peer_record_envelope_t envelope;
+    libp2p_peer_record_bytes_t domain;
+    libp2p_peer_record_bytes_t payload_type;
+    size_t peer_id_len = 0U;
+    size_t payload_len = 0U;
+    size_t signing_len = 0U;
+    size_t signature_len = 0U;
+    libp2p_identify_err_t result = LIBP2P_IDENTIFY_OK;
+
+    (void)memset(&record, 0, sizeof(record));
+    (void)memset(&envelope, 0, sizeof(envelope));
+    domain.data = (const uint8_t *)LIBP2P_PEER_RECORD_ENVELOPE_DOMAIN;
+    domain.len = LIBP2P_PEER_RECORD_ENVELOPE_DOMAIN_LEN;
+    payload_type.data = (const uint8_t *)LIBP2P_PEER_RECORD_ENVELOPE_PAYLOAD_TYPE;
+    payload_type.len = LIBP2P_PEER_RECORD_ENVELOPE_PAYLOAD_TYPE_LEN;
+
+    if ((message == NULL) || (host == NULL) || (out == NULL) || (written == NULL))
+    {
+        result = LIBP2P_IDENTIFY_ERR_INVALID_ARG;
+    }
+    else if (
+        (identify_bytes_present(&message->public_key) == 0) ||
+        (message->listen_addr_count > LIBP2P_PEER_RECORD_MAX_MULTIADDRS))
+    {
+        result = LIBP2P_IDENTIFY_ERR_INVALID_ARG;
+    }
+    else
+    {
+        result =
+            identify_host_to_err(libp2p_host_peer_id(host, peer_id, sizeof(peer_id), &peer_id_len));
+    }
+    if (result == LIBP2P_IDENTIFY_OK)
+    {
+        size_t index = 0U;
+
+        record.peer_id.data = peer_id;
+        record.peer_id.len = peer_id_len;
+        record.seqno = seqno;
+        for (index = 0U; index < message->listen_addr_count; index++)
+        {
+            record.multiaddrs[index].data = message->listen_addrs[index].data;
+            record.multiaddrs[index].len = message->listen_addrs[index].len;
+        }
+        record.multiaddr_count = message->listen_addr_count;
+        result = identify_peer_record_to_err(
+            libp2p_peer_record_payload_encode(&record, payload, sizeof(payload), &payload_len));
+    }
+    if (result == LIBP2P_IDENTIFY_OK)
+    {
+        libp2p_peer_record_bytes_t payload_bytes;
+
+        payload_bytes.data = payload;
+        payload_bytes.len = payload_len;
+        result = identify_peer_record_to_err(libp2p_peer_record_envelope_signing_encode(
+            domain,
+            payload_type,
+            payload_bytes,
+            signing,
+            sizeof(signing),
+            &signing_len));
+    }
+    if (result == LIBP2P_IDENTIFY_OK)
+    {
+        result = identify_host_to_err(libp2p_host_sign(
+            host,
+            signing,
+            signing_len,
+            signature,
+            sizeof(signature),
+            &signature_len));
+    }
+    if (result == LIBP2P_IDENTIFY_OK)
+    {
+        envelope.public_key.data = message->public_key.data;
+        envelope.public_key.len = message->public_key.len;
+        envelope.payload_type = payload_type;
+        envelope.payload.data = payload;
+        envelope.payload.len = payload_len;
+        envelope.signature.data = signature;
+        envelope.signature.len = signature_len;
+        result = identify_peer_record_to_err(
+            libp2p_peer_record_envelope_encode(&envelope, out, out_len, written));
+    }
+
+    return result;
+}
+
 static libp2p_identify_err_t identify_build_tx_message(
     libp2p_identify_t *identify,
-    const libp2p_host_t *host,
+    libp2p_host_t *host,
     const libp2p_identify_stream_state_t *slot,
     libp2p_identify_message_t *message,
     uint8_t *listen_addr,
     size_t listen_addr_len,
     uint8_t *observed_addr,
-    size_t observed_addr_len)
+    size_t observed_addr_len,
+    uint8_t *signed_peer_record,
+    size_t signed_peer_record_len)
 {
     const libp2p_host_protocol_t *protocols = NULL;
     libp2p_host_conn_t *conn = NULL;
@@ -441,7 +577,7 @@ static libp2p_identify_err_t identify_build_tx_message(
     libp2p_identify_err_t result = LIBP2P_IDENTIFY_OK;
 
     if ((identify == NULL) || (host == NULL) || (slot == NULL) || (message == NULL) ||
-        (listen_addr == NULL) || (observed_addr == NULL))
+        (listen_addr == NULL) || (observed_addr == NULL) || (signed_peer_record == NULL))
     {
         result = LIBP2P_IDENTIFY_ERR_INVALID_ARG;
     }
@@ -451,6 +587,7 @@ static libp2p_identify_err_t identify_build_tx_message(
         (void)memset(message->listen_addrs, 0, sizeof(message->listen_addrs));
         (void)memset(message->protocols, 0, sizeof(message->protocols));
         (void)memset(&message->observed_addr, 0, sizeof(message->observed_addr));
+        (void)memset(&message->signed_peer_record, 0, sizeof(message->signed_peer_record));
         message->listen_addr_count = 0U;
         message->protocol_count = 0U;
     }
@@ -506,23 +643,42 @@ static libp2p_identify_err_t identify_build_tx_message(
     {
         result = identify_message_validate_local(message);
     }
+    if ((result == LIBP2P_IDENTIFY_OK) && (identify->config.emit_signed_peer_record != 0U))
+    {
+        size_t signed_len = 0U;
+        const libp2p_identify_err_t signed_err = identify_build_signed_peer_record(
+            message,
+            host,
+            identify->config.peer_record_seqno,
+            signed_peer_record,
+            signed_peer_record_len,
+            &signed_len);
+
+        if (signed_err == LIBP2P_IDENTIFY_OK)
+        {
+            message->signed_peer_record.data = signed_peer_record;
+            message->signed_peer_record.len = signed_len;
+        }
+    }
 
     return result;
 }
 
 static libp2p_identify_err_t identify_prepare_tx(
     libp2p_identify_t *identify,
-    const libp2p_host_t *host,
+    libp2p_host_t *host,
     libp2p_identify_stream_state_t *slot)
 {
     libp2p_identify_message_t message;
     uint8_t listen_addr[IDENTIFY_MULTIADDR_BYTES];
     uint8_t observed_addr[IDENTIFY_MULTIADDR_BYTES];
+    uint8_t signed_peer_record[LIBP2P_PEER_RECORD_MAX_ENVELOPE_BYTES];
     libp2p_identify_err_t result = LIBP2P_IDENTIFY_OK;
 
     (void)memset(&message, 0, sizeof(message));
     (void)memset(listen_addr, 0, sizeof(listen_addr));
     (void)memset(observed_addr, 0, sizeof(observed_addr));
+    (void)memset(signed_peer_record, 0, sizeof(signed_peer_record));
     result = identify_build_tx_message(
         identify,
         host,
@@ -531,14 +687,13 @@ static libp2p_identify_err_t identify_prepare_tx(
         listen_addr,
         sizeof(listen_addr),
         observed_addr,
-        sizeof(observed_addr));
+        sizeof(observed_addr),
+        signed_peer_record,
+        sizeof(signed_peer_record));
     if (result == LIBP2P_IDENTIFY_OK)
     {
-        result = libp2p_identify_message_encode(
-            &message,
-            slot->tx,
-            sizeof(slot->tx),
-            &slot->tx_len);
+        result =
+            libp2p_identify_message_encode(&message, slot->tx, sizeof(slot->tx), &slot->tx_len);
         slot->tx_pos = 0U;
     }
 
@@ -606,6 +761,126 @@ static libp2p_host_err_t identify_emit_simple(
     return identify_host_err(result);
 }
 
+static libp2p_identify_err_t identify_check_signed_peer_record(
+    const libp2p_identify_t *identify,
+    const libp2p_identify_stream_state_t *slot,
+    libp2p_identify_event_t *event)
+{
+    libp2p_identify_err_t result = LIBP2P_IDENTIFY_OK;
+
+    if ((identify == NULL) || (slot == NULL) || (event == NULL))
+    {
+        result = LIBP2P_IDENTIFY_ERR_INVALID_ARG;
+    }
+    else if (identify_bytes_present(&event->message.signed_peer_record) == 0)
+    {
+        event->signed_peer_record_status = LIBP2P_IDENTIFY_SIGNED_PEER_RECORD_NONE;
+    }
+    else if (
+        identify->config.signed_peer_record_policy == LIBP2P_IDENTIFY_SIGNED_PEER_RECORD_IGNORE)
+    {
+        event->signed_peer_record_status = LIBP2P_IDENTIFY_SIGNED_PEER_RECORD_SKIPPED;
+    }
+    else
+    {
+        libp2p_peer_record_envelope_t envelope;
+        libp2p_peer_record_err_t peer_err;
+
+        (void)memset(&envelope, 0, sizeof(envelope));
+        peer_err = libp2p_peer_record_signed_envelope_decode(
+            event->message.signed_peer_record.data,
+            event->message.signed_peer_record.len,
+            &envelope,
+            &event->peer_record);
+        if (peer_err == LIBP2P_PEER_RECORD_OK)
+        {
+            libp2p_host_conn_t *conn = NULL;
+            uint8_t remote_peer_id[LIBP2P_PEER_ID_MAX_BYTES];
+            size_t remote_peer_id_len = 0U;
+
+            result = identify_host_to_err(libp2p_host_stream_conn(slot->stream, &conn));
+            if (result == LIBP2P_IDENTIFY_OK)
+            {
+                result = identify_host_to_err(libp2p_host_conn_peer_id(
+                    conn,
+                    remote_peer_id,
+                    sizeof(remote_peer_id),
+                    &remote_peer_id_len));
+            }
+            if (result == LIBP2P_IDENTIFY_OK)
+            {
+                if ((remote_peer_id_len != event->peer_record.peer_id.len) ||
+                    (memcmp(remote_peer_id, event->peer_record.peer_id.data, remote_peer_id_len) !=
+                     0))
+                {
+                    result = LIBP2P_IDENTIFY_ERR_MALFORMED;
+                }
+            }
+        }
+        else
+        {
+            result = identify_peer_record_to_err(peer_err);
+        }
+        if (result == LIBP2P_IDENTIFY_OK)
+        {
+            event->signed_peer_record_status = LIBP2P_IDENTIFY_SIGNED_PEER_RECORD_VALID;
+        }
+        else
+        {
+            event->signed_peer_record_status = LIBP2P_IDENTIFY_SIGNED_PEER_RECORD_INVALID;
+            if (identify->config.signed_peer_record_policy ==
+                LIBP2P_IDENTIFY_SIGNED_PEER_RECORD_VERIFY)
+            {
+                result = LIBP2P_IDENTIFY_OK;
+            }
+        }
+    }
+
+    return result;
+}
+
+static libp2p_host_err_t identify_emit_received(
+    libp2p_identify_t *identify,
+    libp2p_host_t *host,
+    size_t slot_index)
+{
+    libp2p_identify_stream_state_t *slot = identify_slot_at(identify, slot_index);
+    libp2p_identify_event_t event;
+    libp2p_host_err_t host_err = LIBP2P_HOST_OK;
+
+    (void)memset(&event, 0, sizeof(event));
+    if ((identify == NULL) || (host == NULL) || (slot == NULL))
+    {
+        host_err = LIBP2P_HOST_ERR_INVALID_ARG;
+    }
+    else
+    {
+        event.type = LIBP2P_IDENTIFY_EVENT_RECEIVED;
+        event.stream = slot->stream;
+        event.direction = slot->direction;
+        event.message = slot->decoded;
+        event.reason = LIBP2P_IDENTIFY_OK;
+        event.user_data = slot->user_data;
+        {
+            libp2p_identify_err_t err = identify_check_signed_peer_record(identify, slot, &event);
+
+            if (err != LIBP2P_IDENTIFY_OK)
+            {
+                host_err = identify_fail_stream(identify, host, slot_index, err);
+            }
+        }
+        if (host_err == LIBP2P_HOST_OK)
+        {
+            const libp2p_identify_err_t err = identify_event_push(identify, slot_index, &event);
+            slot->state = LIBP2P_IDENTIFY_SLOT_EVENTED;
+            (void)libp2p_host_stream_finish(host, slot->stream);
+            host_err = identify_host_err(err);
+        }
+    }
+
+    return host_err;
+}
+
 static libp2p_host_err_t identify_read_stream(
     libp2p_identify_t *identify,
     libp2p_host_t *host,
@@ -642,23 +917,12 @@ static libp2p_host_err_t identify_read_stream(
             slot->rx_len += read_len;
             if (read_len != 0U)
             {
-                libp2p_identify_event_t event;
                 libp2p_identify_err_t err;
 
-                (void)memset(&event, 0, sizeof(event));
                 err = libp2p_identify_message_decode(slot->rx, slot->rx_len, &slot->decoded);
                 if (err == LIBP2P_IDENTIFY_OK)
                 {
-                    event.type = LIBP2P_IDENTIFY_EVENT_RECEIVED;
-                    event.stream = slot->stream;
-                    event.direction = slot->direction;
-                    event.message = slot->decoded;
-                    event.reason = LIBP2P_IDENTIFY_OK;
-                    event.user_data = slot->user_data;
-                    err = identify_event_push(identify, slot_index, &event);
-                    slot->state = LIBP2P_IDENTIFY_SLOT_EVENTED;
-                    (void)libp2p_host_stream_finish(host, slot->stream);
-                    host_err = identify_host_err(err);
+                    host_err = identify_emit_received(identify, host, slot_index);
                 }
                 else if (err == LIBP2P_IDENTIFY_ERR_TRUNCATED)
                 {
@@ -671,23 +935,12 @@ static libp2p_host_err_t identify_read_stream(
             }
             else if (fin != 0)
             {
-                libp2p_identify_event_t event;
                 libp2p_identify_err_t err;
 
-                (void)memset(&event, 0, sizeof(event));
                 err = libp2p_identify_message_decode(slot->rx, slot->rx_len, &slot->decoded);
                 if (err == LIBP2P_IDENTIFY_OK)
                 {
-                    event.type = LIBP2P_IDENTIFY_EVENT_RECEIVED;
-                    event.stream = slot->stream;
-                    event.direction = slot->direction;
-                    event.message = slot->decoded;
-                    event.reason = LIBP2P_IDENTIFY_OK;
-                    event.user_data = slot->user_data;
-                    err = identify_event_push(identify, slot_index, &event);
-                    slot->state = LIBP2P_IDENTIFY_SLOT_EVENTED;
-                    (void)libp2p_host_stream_finish(host, slot->stream);
-                    host_err = identify_host_err(err);
+                    host_err = identify_emit_received(identify, host, slot_index);
                 }
                 else
                 {
@@ -942,6 +1195,8 @@ libp2p_identify_err_t libp2p_identify_config_default(libp2p_identify_config_t *c
     else
     {
         (void)memset(config, 0, sizeof(*config));
+        config->emit_signed_peer_record = 1U;
+        config->signed_peer_record_policy = LIBP2P_IDENTIFY_SIGNED_PEER_RECORD_VERIFY;
     }
 
     return result;
@@ -959,7 +1214,16 @@ libp2p_identify_err_t libp2p_identify_init(
     }
     else
     {
-        result = identify_message_validate_local(&config->local_message);
+        if ((config->signed_peer_record_policy != LIBP2P_IDENTIFY_SIGNED_PEER_RECORD_IGNORE) &&
+            (config->signed_peer_record_policy != LIBP2P_IDENTIFY_SIGNED_PEER_RECORD_VERIFY) &&
+            (config->signed_peer_record_policy != LIBP2P_IDENTIFY_SIGNED_PEER_RECORD_REQUIRE_VALID))
+        {
+            result = LIBP2P_IDENTIFY_ERR_INVALID_ARG;
+        }
+        else
+        {
+            result = identify_message_validate_local(&config->local_message);
+        }
         if (result == LIBP2P_IDENTIFY_OK)
         {
             (void)memset(identify, 0, sizeof(*identify));
@@ -1209,6 +1473,14 @@ libp2p_identify_err_t libp2p_identify_message_size(
                 message->agent_version.len,
                 &total);
         }
+        if ((result == LIBP2P_IDENTIFY_OK) &&
+            (identify_bytes_present(&message->signed_peer_record) != 0))
+        {
+            result = identify_field_size(
+                IDENTIFY_FIELD_SIGNED_PEER_RECORD,
+                message->signed_peer_record.len,
+                &total);
+        }
         if (result == LIBP2P_IDENTIFY_OK)
         {
             *out_len = total;
@@ -1304,6 +1576,17 @@ libp2p_identify_err_t libp2p_identify_message_encode(
             IDENTIFY_FIELD_AGENT_VERSION,
             message->agent_version.data,
             message->agent_version.len,
+            out,
+            out_len,
+            &pos);
+    }
+    if ((result == LIBP2P_IDENTIFY_OK) &&
+        (identify_bytes_present(&message->signed_peer_record) != 0))
+    {
+        result = identify_write_field(
+            IDENTIFY_FIELD_SIGNED_PEER_RECORD,
+            message->signed_peer_record.data,
+            message->signed_peer_record.len,
             out,
             out_len,
             &pos);
@@ -1404,6 +1687,10 @@ libp2p_identify_err_t libp2p_identify_message_decode(
             else if (field == IDENTIFY_FIELD_AGENT_VERSION)
             {
                 out_message->agent_version = bytes;
+            }
+            else if (field == IDENTIFY_FIELD_SIGNED_PEER_RECORD)
+            {
+                out_message->signed_peer_record = bytes;
             }
             else
             {

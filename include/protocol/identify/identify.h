@@ -14,6 +14,7 @@
 #include <stdint.h>
 
 #include "libp2p/libp2p_host.h"
+#include "peer_record/peer_record.h"
 
 #define LIBP2P_IDENTIFY_PROTOCOL_ID          "/ipfs/id/1.0.0"
 #define LIBP2P_IDENTIFY_PROTOCOL_ID_LEN      14U
@@ -64,11 +65,19 @@ typedef struct
     libp2p_identify_bytes_t agent_version;
     libp2p_identify_bytes_t public_key;
     libp2p_identify_bytes_t observed_addr;
+    libp2p_identify_bytes_t signed_peer_record;
     libp2p_identify_bytes_t listen_addrs[LIBP2P_IDENTIFY_MAX_LISTEN_ADDRS];
     size_t listen_addr_count;
     libp2p_identify_bytes_t protocols[LIBP2P_IDENTIFY_MAX_PROTOCOLS];
     size_t protocol_count;
 } libp2p_identify_message_t;
+
+typedef enum
+{
+    LIBP2P_IDENTIFY_SIGNED_PEER_RECORD_IGNORE,
+    LIBP2P_IDENTIFY_SIGNED_PEER_RECORD_VERIFY,
+    LIBP2P_IDENTIFY_SIGNED_PEER_RECORD_REQUIRE_VALID
+} libp2p_identify_signed_peer_record_policy_t;
 
 typedef struct
 {
@@ -76,10 +85,14 @@ typedef struct
      * Message template used for fields the host cannot derive dynamically.
      *
      * protocol_version, agent_version, and public_key are read from this
-     * template. Transmitted listen_addrs, protocols, and observed_addr are
-     * sourced from libp2p_host_t accessors at stream-open time.
+     * template. Transmitted listen_addrs, protocols, observed_addr, and the
+     * optional signedPeerRecord are sourced from libp2p_host_t accessors at
+     * stream-open time.
      */
     libp2p_identify_message_t local_message;
+    uint8_t emit_signed_peer_record;
+    uint64_t peer_record_seqno;
+    libp2p_identify_signed_peer_record_policy_t signed_peer_record_policy;
 } libp2p_identify_config_t;
 
 typedef enum
@@ -91,12 +104,22 @@ typedef enum
     LIBP2P_IDENTIFY_EVENT_ERROR
 } libp2p_identify_event_type_t;
 
+typedef enum
+{
+    LIBP2P_IDENTIFY_SIGNED_PEER_RECORD_NONE,
+    LIBP2P_IDENTIFY_SIGNED_PEER_RECORD_VALID,
+    LIBP2P_IDENTIFY_SIGNED_PEER_RECORD_INVALID,
+    LIBP2P_IDENTIFY_SIGNED_PEER_RECORD_SKIPPED
+} libp2p_identify_signed_peer_record_status_t;
+
 typedef struct
 {
     libp2p_identify_event_type_t type;
     libp2p_host_stream_t *stream;
     libp2p_host_stream_direction_t direction;
     libp2p_identify_message_t message;
+    libp2p_identify_signed_peer_record_status_t signed_peer_record_status;
+    libp2p_peer_record_t peer_record;
     libp2p_identify_err_t reason;
     void *user_data;
 } libp2p_identify_event_t;
