@@ -41,6 +41,7 @@
 #define GOSSIPSUB_INTEROP_CERT_VALIDITY_SECONDS    UINT64_C(315360000)
 #define GOSSIPSUB_INTEROP_CERT_BACKDATE_SECONDS    UINT64_C(3600)
 #define GOSSIPSUB_INTEROP_SHADOW_CERT_UNIX_SECONDS UINT64_C(946684800)
+#define GOSSIPSUB_INTEROP_TLS_TRACE_HEX_BYTES      256U
 #define GOSSIPSUB_INTEROP_USEC_PER_SEC             UINT64_C(1000000)
 #define GOSSIPSUB_INTEROP_USEC_PER_MSEC            UINT64_C(1000)
 #define GOSSIPSUB_INTEROP_NSEC_PER_USEC            UINT64_C(1000)
@@ -273,6 +274,83 @@ static libp2p_quic_err_t gossipsub_interop_unix_time(uint64_t *out_unix_seconds,
     }
 
     return result;
+}
+
+static uint8_t gossipsub_interop_env_enabled(const char *name)
+{
+    const char *value = getenv(name);
+    uint8_t result = 0U;
+
+    if ((value != NULL) && (value[0] != '\0') && (strcmp(value, "0") != 0))
+    {
+        result = 1U;
+    }
+
+    return result;
+}
+
+static void gossipsub_interop_print_hex(const uint8_t *data, size_t data_len)
+{
+    static const char digits[] = "0123456789abcdef";
+    size_t index = 0U;
+    size_t limit = data_len;
+
+    if (limit > GOSSIPSUB_INTEROP_TLS_TRACE_HEX_BYTES)
+    {
+        limit = GOSSIPSUB_INTEROP_TLS_TRACE_HEX_BYTES;
+    }
+    for (index = 0U; index < limit; index++)
+    {
+        const uint8_t byte = data[index];
+        (void)fputc((int)digits[(byte >> 4U) & 0x0FU], stderr);
+        (void)fputc((int)digits[byte & 0x0FU], stderr);
+    }
+    if (limit < data_len)
+    {
+        (void)fprintf(stderr, "...(+%zu bytes)", data_len - limit);
+    }
+}
+
+static void gossipsub_interop_quic_debug(
+    libp2p_quic_debug_event_type_t type,
+    const uint8_t *data,
+    size_t data_len,
+    void *user_data)
+{
+    const char *label = "text";
+
+    (void)user_data;
+    if ((data != NULL) || (data_len == 0U))
+    {
+        if (type == LIBP2P_QUIC_DEBUG_EVENT_QLOG)
+        {
+            label = "qlog";
+        }
+        else if (type == LIBP2P_QUIC_DEBUG_EVENT_TLS_MESSAGE)
+        {
+            label = "tls";
+        }
+        else
+        {
+            label = "text";
+        }
+
+        (void)fprintf(stderr, "c-lean-quic[%s]: ", label);
+        if (type == LIBP2P_QUIC_DEBUG_EVENT_TLS_MESSAGE)
+        {
+            gossipsub_interop_print_hex(data, data_len);
+        }
+        else if ((data != NULL) && (data_len != 0U))
+        {
+            (void)fwrite(data, 1U, data_len, stderr);
+        }
+        else
+        {
+            (void)fprintf(stderr, "<empty>");
+        }
+        (void)fputc('\n', stderr);
+        (void)fflush(stderr);
+    }
 }
 
 static void gossipsub_interop_make_node_private_key(int node_id, uint8_t out[32])
@@ -883,6 +961,11 @@ static gossipsub_interop_err_t gossipsub_interop_configure_host(gossipsub_intero
         app->quic_config.endpoint.random_user_data = NULL;
         app->quic_config.endpoint.unix_time_fn = gossipsub_interop_unix_time;
         app->quic_config.endpoint.unix_time_user_data = NULL;
+        if (gossipsub_interop_env_enabled("LIBP2P_QUIC_DEBUG") != 0U)
+        {
+            app->quic_config.endpoint.debug_fn = gossipsub_interop_quic_debug;
+            app->quic_config.endpoint.debug_user_data = app;
+        }
         app->quic_config.endpoint.max_connections = 64U;
         app->quic_config.endpoint.max_incoming_connections = 64U;
         app->quic_config.endpoint.max_outgoing_connections = 64U;

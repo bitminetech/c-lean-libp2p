@@ -29,10 +29,9 @@ static void quic_backend_ngtcp2_rand_cb(
     if ((dest != NULL) && (rand_ctx != NULL) && (rand_ctx->native_handle != NULL))
     {
         conn = quic_backend_conn_from_memory(rand_ctx->native_handle);
-        if (conn->endpoint->config.random_fn(
-                dest,
-                destlen,
-                conn->endpoint->config.random_user_data) != LIBP2P_QUIC_OK)
+        if (conn->endpoint->config
+                .random_fn(dest, destlen, conn->endpoint->config.random_user_data) !=
+            LIBP2P_QUIC_OK)
         {
             (void)memset(dest, 0, destlen);
             conn->callback_error = LIBP2P_QUIC_ERR_INTERNAL;
@@ -114,13 +113,14 @@ static int quic_backend_get_new_connection_id_cb(
     {
         result = NGTCP2_ERR_CALLBACK_FAILURE;
     }
-    else if ((conn->endpoint->config
-                  .random_fn(cid->data, cidlen, conn->endpoint->config.random_user_data) !=
-              LIBP2P_QUIC_OK) ||
-             (conn->endpoint->config.random_fn(
-                  token->data,
-                  sizeof(token->data),
-                  conn->endpoint->config.random_user_data) != LIBP2P_QUIC_OK))
+    else if (
+        (conn->endpoint->config
+             .random_fn(cid->data, cidlen, conn->endpoint->config.random_user_data) !=
+         LIBP2P_QUIC_OK) ||
+        (conn->endpoint->config.random_fn(
+             token->data,
+             sizeof(token->data),
+             conn->endpoint->config.random_user_data) != LIBP2P_QUIC_OK))
     {
         result = NGTCP2_ERR_CALLBACK_FAILURE;
     }
@@ -155,18 +155,18 @@ static int quic_backend_stream_open_cb(ngtcp2_conn *ngconn, int64_t stream_id, v
                 result = NGTCP2_ERR_CALLBACK_FAILURE;
             }
         }
-        if ((result == 0) && (ngtcp2_conn_set_stream_user_data(conn->ngconn, stream_id, stream) != 0))
+        if ((result == 0) &&
+            (ngtcp2_conn_set_stream_user_data(conn->ngconn, stream_id, stream) != 0))
         {
             result = NGTCP2_ERR_CALLBACK_FAILURE;
         }
-        if ((result == 0) &&
-            (quic_backend_event_push(
-                 conn->endpoint,
-                 LIBP2P_QUIC_EVENT_STREAM_INCOMING,
-                 conn,
-                 stream,
-                 0U,
-                 0U) != LIBP2P_QUIC_OK))
+        if ((result == 0) && (quic_backend_event_push(
+                                  conn->endpoint,
+                                  LIBP2P_QUIC_EVENT_STREAM_INCOMING,
+                                  conn,
+                                  stream,
+                                  0U,
+                                  0U) != LIBP2P_QUIC_OK))
         {
             result = NGTCP2_ERR_CALLBACK_FAILURE;
         }
@@ -309,14 +309,13 @@ static int quic_backend_recv_stream_data_cb(
         }
     }
 
-    if ((result == 0) &&
-        (quic_backend_event_push(
-             conn->endpoint,
-             LIBP2P_QUIC_EVENT_STREAM_READABLE,
-             conn,
-             stream,
-             0U,
-             0U) != LIBP2P_QUIC_OK))
+    if ((result == 0) && (quic_backend_event_push(
+                              conn->endpoint,
+                              LIBP2P_QUIC_EVENT_STREAM_READABLE,
+                              conn,
+                              stream,
+                              0U,
+                              0U) != LIBP2P_QUIC_OK))
     {
         result = NGTCP2_ERR_CALLBACK_FAILURE;
     }
@@ -360,14 +359,13 @@ static int quic_backend_stream_close_cb(
             {
                 result = NGTCP2_ERR_CALLBACK_FAILURE;
             }
-            if ((result == 0) &&
-                (quic_backend_event_push(
-                     conn->endpoint,
-                     LIBP2P_QUIC_EVENT_STREAM_INCOMING,
-                     conn,
-                     stream,
-                     0U,
-                     0U) != LIBP2P_QUIC_OK))
+            if ((result == 0) && (quic_backend_event_push(
+                                      conn->endpoint,
+                                      LIBP2P_QUIC_EVENT_STREAM_INCOMING,
+                                      conn,
+                                      stream,
+                                      0U,
+                                      0U) != LIBP2P_QUIC_OK))
             {
                 result = NGTCP2_ERR_CALLBACK_FAILURE;
             }
@@ -388,14 +386,13 @@ static int quic_backend_stream_close_cb(
         }
     }
 
-    if ((result == 0) &&
-        (quic_backend_event_push(
-             conn->endpoint,
-             LIBP2P_QUIC_EVENT_STREAM_CLOSED,
-             conn,
-             stream,
-             event_error_code,
-             0U) != LIBP2P_QUIC_OK))
+    if ((result == 0) && (quic_backend_event_push(
+                              conn->endpoint,
+                              LIBP2P_QUIC_EVENT_STREAM_CLOSED,
+                              conn,
+                              stream,
+                              event_error_code,
+                              0U) != LIBP2P_QUIC_OK))
     {
         result = NGTCP2_ERR_CALLBACK_FAILURE;
     }
@@ -439,14 +436,13 @@ static int quic_backend_stream_reset_cb(
             {
                 result = NGTCP2_ERR_CALLBACK_FAILURE;
             }
-            if ((result == 0) &&
-                (quic_backend_event_push(
-                     conn->endpoint,
-                     LIBP2P_QUIC_EVENT_STREAM_INCOMING,
-                     conn,
-                     stream,
-                     0U,
-                     0U) != LIBP2P_QUIC_OK))
+            if ((result == 0) && (quic_backend_event_push(
+                                      conn->endpoint,
+                                      LIBP2P_QUIC_EVENT_STREAM_INCOMING,
+                                      conn,
+                                      stream,
+                                      0U,
+                                      0U) != LIBP2P_QUIC_OK))
             {
                 result = NGTCP2_ERR_CALLBACK_FAILURE;
             }
@@ -458,14 +454,13 @@ static int quic_backend_stream_reset_cb(
         stream->reset = 1U;
     }
 
-    if ((result == 0) &&
-        (quic_backend_event_push(
-             conn->endpoint,
-             LIBP2P_QUIC_EVENT_STREAM_CLOSED,
-             conn,
-             stream,
-             app_error_code,
-             0U) != LIBP2P_QUIC_OK))
+    if ((result == 0) && (quic_backend_event_push(
+                              conn->endpoint,
+                              LIBP2P_QUIC_EVENT_STREAM_CLOSED,
+                              conn,
+                              stream,
+                              app_error_code,
+                              0U) != LIBP2P_QUIC_OK))
     {
         result = NGTCP2_ERR_CALLBACK_FAILURE;
     }
@@ -485,6 +480,7 @@ static int quic_backend_handshake_completed_cb(ngtcp2_conn *ngconn, void *user_d
     }
     else
     {
+        quic_backend_debug_text(conn, "ngtcp2 handshake completed");
         conn->state = LIBP2P_QUIC_CONN_ESTABLISHED;
         if (quic_backend_event_push(
                 conn->endpoint,

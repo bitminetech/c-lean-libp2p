@@ -39,6 +39,8 @@ typedef struct
     void *random_user_data;
     libp2p_quic_unix_time_fn_t unix_time_fn;
     void *unix_time_user_data;
+    libp2p_quic_debug_fn_t debug_fn;
+    void *debug_user_data;
     size_t max_connections;
     size_t max_incoming_connections;
     size_t max_outgoing_connections;

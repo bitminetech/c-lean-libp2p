@@ -23,14 +23,14 @@
 #include "quic_backend_ngtcp2_internal.h"
 
 /* Character constants remain valid static initializers for MSVC's C compiler. */
-static const uint8_t quic_backend_libp2p_alpn[sizeof(LIBP2P_QUIC_ALPN)] = {
-    (uint8_t)LIBP2P_QUIC_ALPN_LEN,
-    (uint8_t)'l',
-    (uint8_t)'i',
-    (uint8_t)'b',
-    (uint8_t)'p',
-    (uint8_t)'2',
-    (uint8_t)'p'};
+static const uint8_t quic_backend_libp2p_alpn[sizeof(LIBP2P_QUIC_ALPN)] =
+    {(uint8_t)LIBP2P_QUIC_ALPN_LEN,
+     (uint8_t)'l',
+     (uint8_t)'i',
+     (uint8_t)'b',
+     (uint8_t)'p',
+     (uint8_t)'2',
+     (uint8_t)'p'};
 
 static int quic_backend_alpn_select_cb(
     SSL *ssl,
@@ -156,10 +156,17 @@ static enum ssl_verify_result_t quic_backend_ssl_verify_cb(SSL *ssl, uint8_t *ou
                 *out_alert = (result == LIBP2P_QUIC_ERR_CERTIFICATE_TIME)
                                  ? SSL_AD_CERTIFICATE_EXPIRED
                                  : SSL_AD_BAD_CERTIFICATE;
+                quic_backend_debug_format(
+                    conn,
+                    "tls peer certificate rejected err=%d alert=%d len=%zu",
+                    (int)result,
+                    (int)*out_alert,
+                    0U);
             }
         }
         else
         {
+            quic_backend_debug_text(conn, "tls peer certificate accepted");
             conn->has_peer_identity = 1U;
             verify_result = ssl_verify_ok;
         }
@@ -178,16 +185,17 @@ static libp2p_quic_err_t quic_backend_ssl_ctx_load_identity(
     {
         result = LIBP2P_QUIC_ERR_INVALID_ARG;
     }
-    else if ((SSL_CTX_use_certificate_ASN1(
-                  ctx,
-                  identity->certificate_der_len,
-                  identity->certificate_der) != 1) ||
-             (SSL_CTX_use_PrivateKey_ASN1(
-                  EVP_PKEY_EC,
-                  ctx,
-                  identity->certificate_private_key_der,
-                  identity->certificate_private_key_der_len) != 1) ||
-             (SSL_CTX_check_private_key(ctx) != 1))
+    else if (
+        (SSL_CTX_use_certificate_ASN1(
+             ctx,
+             identity->certificate_der_len,
+             identity->certificate_der) != 1) ||
+        (SSL_CTX_use_PrivateKey_ASN1(
+             EVP_PKEY_EC,
+             ctx,
+             identity->certificate_private_key_der,
+             identity->certificate_private_key_der_len) != 1) ||
+        (SSL_CTX_check_private_key(ctx) != 1))
     {
         result = LIBP2P_QUIC_ERR_TLS;
     }
@@ -199,7 +207,87 @@ static libp2p_quic_err_t quic_backend_ssl_ctx_load_identity(
     return result;
 }
 
-QUIC_BACKEND_INTERNAL SSL_CTX *quic_backend_ssl_ctx_new(libp2p_quic_endpoint_t *endpoint, libp2p_quic_role_t role)
+static libp2p_quic_conn_t *quic_backend_ssl_conn(SSL *ssl)
+{
+    ngtcp2_crypto_conn_ref *conn_ref = NULL;
+    libp2p_quic_conn_t *result = NULL;
+
+    if (ssl != NULL)
+    {
+        conn_ref = SSL_get_app_data(ssl);
+        if ((conn_ref != NULL) && (conn_ref->user_data != NULL))
+        {
+            result = quic_backend_conn_from_memory(conn_ref->user_data);
+        }
+    }
+
+    return result;
+}
+
+static void quic_backend_ssl_info_cb(const SSL *ssl, int type, int value)
+{
+    libp2p_quic_conn_t *conn = quic_backend_ssl_conn((SSL *)ssl);
+
+    if ((type & SSL_CB_HANDSHAKE_START) != 0)
+    {
+        quic_backend_debug_text(conn, "tls handshake start");
+    }
+    if ((type & SSL_CB_HANDSHAKE_DONE) != 0)
+    {
+        quic_backend_debug_text(conn, "tls handshake done");
+    }
+    if ((type & SSL_CB_READ_ALERT) != 0)
+    {
+        quic_backend_debug_format(
+            conn,
+            "tls read alert level=%d alert=%d len=%zu",
+            value >> 8,
+            value & 0xFF,
+            0U);
+    }
+    if ((type & SSL_CB_WRITE_ALERT) != 0)
+    {
+        quic_backend_debug_format(
+            conn,
+            "tls write alert level=%d alert=%d len=%zu",
+            value >> 8,
+            value & 0xFF,
+            0U);
+    }
+}
+
+static void quic_backend_ssl_msg_cb(
+    int is_write,
+    int version,
+    int content_type,
+    const void *buf,
+    size_t len,
+    SSL *ssl,
+    void *arg)
+{
+    libp2p_quic_conn_t *conn = quic_backend_ssl_conn(ssl);
+
+    (void)arg;
+    quic_backend_debug_format(
+        conn,
+        "tls message write=%d content_type=%d len=%zu",
+        is_write,
+        content_type,
+        len);
+    quic_backend_debug_format(conn, "tls message version=%d state=%d len=%zu", version, 0, len);
+    if ((buf != NULL) && (len != 0U))
+    {
+        quic_backend_debug_bytes(
+            conn,
+            LIBP2P_QUIC_DEBUG_EVENT_TLS_MESSAGE,
+            (const uint8_t *)buf,
+            len);
+    }
+}
+
+QUIC_BACKEND_INTERNAL SSL_CTX *quic_backend_ssl_ctx_new(
+    libp2p_quic_endpoint_t *endpoint,
+    libp2p_quic_role_t role)
 {
     SSL_CTX *ctx = NULL;
     libp2p_quic_err_t result = LIBP2P_QUIC_OK;
@@ -245,6 +333,11 @@ QUIC_BACKEND_INTERNAL SSL_CTX *quic_backend_ssl_ctx_new(libp2p_quic_endpoint_t *
     {
         SSL_CTX_set_custom_verify(ctx, verify_mode, quic_backend_ssl_verify_cb);
         SSL_CTX_set_verify_depth(ctx, 0);
+        if (endpoint->config.debug_fn != NULL)
+        {
+            SSL_CTX_set_info_callback(ctx, quic_backend_ssl_info_cb);
+            SSL_CTX_set_msg_callback(ctx, quic_backend_ssl_msg_cb);
+        }
     }
     else if (ctx != NULL)
     {

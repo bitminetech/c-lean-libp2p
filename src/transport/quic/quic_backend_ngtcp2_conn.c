@@ -19,6 +19,28 @@
 
 #include "quic_backend_ngtcp2_internal.h"
 
+static void quic_backend_qlog_write_cb(
+    void *user_data,
+    uint32_t flags,
+    const void *data,
+    size_t datalen)
+{
+    const libp2p_quic_conn_t *conn = quic_backend_conn_from_memory(user_data);
+
+    if ((data != NULL) && (datalen != 0U))
+    {
+        quic_backend_debug_bytes(
+            conn,
+            LIBP2P_QUIC_DEBUG_EVENT_QLOG,
+            (const uint8_t *)data,
+            datalen);
+    }
+    if ((flags & NGTCP2_QLOG_WRITE_FLAG_FIN) != 0U)
+    {
+        quic_backend_debug_text(conn, "ngtcp2 qlog finished");
+    }
+}
+
 static void quic_backend_settings_init(
     const libp2p_quic_endpoint_t *endpoint,
     libp2p_quic_conn_t *conn,
@@ -33,6 +55,10 @@ static void quic_backend_settings_init(
     settings->max_stream_window = endpoint->config.initial_stream_window_bytes;
     settings->no_pmtud = 1U;
     settings->rand_ctx.native_handle = conn;
+    if (endpoint->config.debug_fn != NULL)
+    {
+        settings->qlog_write = quic_backend_qlog_write_cb;
+    }
 }
 
 static void quic_backend_transport_params_init(
@@ -378,6 +404,12 @@ quic_backend_handle_conn_error(libp2p_quic_conn_t *conn, int rv)
 
     if (rv != 0)
     {
+        quic_backend_debug_format(
+            conn,
+            "ngtcp2 connection error rv=%d type=%d code=%zu",
+            rv,
+            0,
+            0U);
         if (quic_backend_conn_error_is_endpoint_error(rv) != 0U)
         {
             result = quic_backend_ngtcp2_err(rv);

@@ -13,11 +13,15 @@
 #endif
 
 #include <stdint.h>
+#include <stdio.h>
 #include <string.h>
 
 #include "quic_backend_ngtcp2_internal.h"
 
-QUIC_BACKEND_INTERNAL libp2p_quic_err_t quic_backend_validate_endpoint(const libp2p_quic_endpoint_t *endpoint)
+#define QUIC_BACKEND_DEBUG_TEXT_BYTES 256U
+
+QUIC_BACKEND_INTERNAL libp2p_quic_err_t
+quic_backend_validate_endpoint(const libp2p_quic_endpoint_t *endpoint)
 {
     libp2p_quic_err_t result = LIBP2P_QUIC_OK;
 
@@ -46,8 +50,7 @@ QUIC_BACKEND_INTERNAL libp2p_quic_err_t quic_backend_validate_conn(const libp2p_
     {
         result = LIBP2P_QUIC_ERR_INVALID_ARG;
     }
-    else if ((conn->state == LIBP2P_QUIC_CONN_CLOSED) ||
-             (conn->state == LIBP2P_QUIC_CONN_DRAINED))
+    else if ((conn->state == LIBP2P_QUIC_CONN_CLOSED) || (conn->state == LIBP2P_QUIC_CONN_DRAINED))
     {
         result = LIBP2P_QUIC_ERR_CLOSED;
     }
@@ -59,7 +62,8 @@ QUIC_BACKEND_INTERNAL libp2p_quic_err_t quic_backend_validate_conn(const libp2p_
     return result;
 }
 
-QUIC_BACKEND_INTERNAL libp2p_quic_err_t quic_backend_validate_stream(const libp2p_quic_stream_t *stream)
+QUIC_BACKEND_INTERNAL libp2p_quic_err_t
+quic_backend_validate_stream(const libp2p_quic_stream_t *stream)
 {
     libp2p_quic_err_t result = LIBP2P_QUIC_OK;
 
@@ -68,8 +72,8 @@ QUIC_BACKEND_INTERNAL libp2p_quic_err_t quic_backend_validate_stream(const libp2
     {
         result = LIBP2P_QUIC_ERR_INVALID_ARG;
     }
-    else if ((stream->state == LIBP2P_QUIC_STREAM_CLOSED) ||
-             (stream->state == LIBP2P_QUIC_STREAM_RESET))
+    else if (
+        (stream->state == LIBP2P_QUIC_STREAM_CLOSED) || (stream->state == LIBP2P_QUIC_STREAM_RESET))
     {
         result = LIBP2P_QUIC_ERR_CLOSED;
     }
@@ -102,7 +106,8 @@ QUIC_BACKEND_INTERNAL libp2p_quic_time_us_t quic_backend_time_from_ngtcp2(ngtcp2
     return (libp2p_quic_time_us_t)(ts / (uint64_t)NGTCP2_MICROSECONDS);
 }
 
-QUIC_BACKEND_INTERNAL ngtcp2_duration quic_backend_duration_to_ngtcp2(libp2p_quic_time_us_t duration_us)
+QUIC_BACKEND_INTERNAL ngtcp2_duration
+quic_backend_duration_to_ngtcp2(libp2p_quic_time_us_t duration_us)
 {
     return quic_backend_time_to_ngtcp2(duration_us);
 }
@@ -281,10 +286,62 @@ QUIC_BACKEND_INTERNAL libp2p_quic_err_t quic_backend_copy_measure(
         {
             result = LIBP2P_QUIC_OK;
         }
-
     }
 
     return result;
+}
+
+QUIC_BACKEND_INTERNAL void quic_backend_debug_bytes(
+    const libp2p_quic_conn_t *conn,
+    libp2p_quic_debug_event_type_t type,
+    const uint8_t *data,
+    size_t data_len)
+{
+    if ((conn != NULL) && (conn->endpoint != NULL) && (conn->endpoint->config.debug_fn != NULL) &&
+        (data != NULL))
+    {
+        conn->endpoint->config
+            .debug_fn(type, data, data_len, conn->endpoint->config.debug_user_data);
+    }
+}
+
+QUIC_BACKEND_INTERNAL void quic_backend_debug_text(
+    const libp2p_quic_conn_t *conn,
+    const char *message)
+{
+    if (message != NULL)
+    {
+        quic_backend_debug_bytes(
+            conn,
+            LIBP2P_QUIC_DEBUG_EVENT_TEXT,
+            (const uint8_t *)message,
+            strlen(message));
+    }
+}
+
+QUIC_BACKEND_INTERNAL void quic_backend_debug_format(
+    const libp2p_quic_conn_t *conn,
+    const char *format,
+    int first,
+    int second,
+    size_t third)
+{
+    char message[QUIC_BACKEND_DEBUG_TEXT_BYTES];
+
+    if (format != NULL)
+    {
+        const int written = snprintf(message, sizeof(message), format, first, second, third);
+        if (written > 0)
+        {
+            const size_t len =
+                ((size_t)written < sizeof(message)) ? (size_t)written : (sizeof(message) - 1U);
+            quic_backend_debug_bytes(
+                conn,
+                LIBP2P_QUIC_DEBUG_EVENT_TEXT,
+                (const uint8_t *)message,
+                len);
+        }
+    }
 }
 
 QUIC_BACKEND_INTERNAL libp2p_quic_err_t quic_backend_ngtcp2_err(int rv)
