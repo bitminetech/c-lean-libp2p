@@ -1520,7 +1520,7 @@ static gossipsub_interop_err_t gossipsub_interop_drive_once(gossipsub_interop_ap
 {
     libp2p_host_fd_t host_fd = 0U;
     libp2p_host_interest_t interest = LIBP2P_HOST_INTEREST_NONE;
-    libp2p_host_ready_t ready = LIBP2P_HOST_READY_APP | LIBP2P_HOST_READY_TIMER;
+    libp2p_host_ready_t ready = LIBP2P_HOST_READY_ALL;
     struct pollfd pfd;
     uint64_t now_us = 0U;
     int poll_result = 0;
