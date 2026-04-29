@@ -103,6 +103,8 @@ static gossipsub_interop_router_storage_t g_router_storage;
 static uint8_t g_publish_buffer[GOSSIPSUB_INTEROP_MAX_MESSAGE_BYTES];
 static volatile sig_atomic_t g_stop_requested = 0;
 
+static void gossipsub_interop_trace(const char *message);
+
 static void gossipsub_interop_signal_handler(int signo)
 {
     (void)signo;
@@ -281,6 +283,11 @@ static gossipsub_interop_err_t gossipsub_interop_identity_init(
     {
         (void)memset(identity, 0, sizeof(*identity));
         gossipsub_interop_make_node_private_key(node_id, identity->private_key);
+        gossipsub_interop_trace("private key ready");
+    }
+    if (result == GOSSIPSUB_INTEROP_OK)
+    {
+        gossipsub_interop_trace("host identity init");
     }
     if ((result == GOSSIPSUB_INTEROP_OK) && (libp2p_host_secp256k1_identity_init(
                                                  &identity->host_storage,
@@ -290,6 +297,10 @@ static gossipsub_interop_err_t gossipsub_interop_identity_init(
     {
         result = GOSSIPSUB_INTEROP_ERR_IDENTITY;
     }
+    if (result == GOSSIPSUB_INTEROP_OK)
+    {
+        gossipsub_interop_trace("host identity done");
+    }
     if ((result == GOSSIPSUB_INTEROP_OK) &&
         (gossipsub_interop_unix_time(&now, NULL) != LIBP2P_QUIC_OK))
     {
@@ -297,6 +308,7 @@ static gossipsub_interop_err_t gossipsub_interop_identity_init(
     }
     if (result == GOSSIPSUB_INTEROP_OK)
     {
+        gossipsub_interop_trace("certificate init");
         host_key.type = LIBP2P_QUIC_HOST_KEY_SECP256K1;
         host_key.private_key = identity->private_key;
         host_key.private_key_len = sizeof(identity->private_key);
@@ -320,6 +332,10 @@ static gossipsub_interop_err_t gossipsub_interop_identity_init(
         {
             result = GOSSIPSUB_INTEROP_ERR_IDENTITY;
         }
+    }
+    if (result == GOSSIPSUB_INTEROP_OK)
+    {
+        gossipsub_interop_trace("certificate done");
     }
     if (result == GOSSIPSUB_INTEROP_OK)
     {
