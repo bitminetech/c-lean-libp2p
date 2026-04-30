@@ -1123,6 +1123,8 @@ libp2p_quic_err_t libp2p_quic_service_drive(
 
     if (result == LIBP2P_QUIC_OK)
     {
+        uint8_t drive_rx = 0U;
+
         (void)memset(&local_result, 0, sizeof(local_result));
 
         result = quic_service_drain_endpoint_events(service, &local_result);
@@ -1130,7 +1132,22 @@ libp2p_quic_err_t libp2p_quic_service_drive(
         {
             quic_service_debug_failure(service, "drain-initial", result);
         }
-        if ((result == LIBP2P_QUIC_OK) && ((ready & LIBP2P_QUIC_SERVICE_READY_READ) != 0U))
+        if ((ready & LIBP2P_QUIC_SERVICE_READY_READ) != 0U)
+        {
+            drive_rx = 1U;
+        }
+        else if (
+            (service->config.nonblocking != 0U) &&
+            ((ready & (LIBP2P_QUIC_SERVICE_READY_WRITE | LIBP2P_QUIC_SERVICE_READY_TIMER |
+                       LIBP2P_QUIC_SERVICE_READY_APP)) != 0U))
+        {
+            drive_rx = 1U;
+        }
+        else
+        {
+            drive_rx = 0U;
+        }
+        if ((result == LIBP2P_QUIC_OK) && (drive_rx != 0U))
         {
             result = quic_service_drive_rx(service, now_us, &local_result);
             if (result != LIBP2P_QUIC_OK)
