@@ -16,6 +16,7 @@
 #define QUIC_SERVICE_EVENTS_PER_CONNECTION   8U
 #define QUIC_SERVICE_EXTRA_EVENTS            16U
 #define QUIC_SERVICE_STORAGE_ALIGN           8U
+#define QUIC_SERVICE_DEBUG_MESSAGE_BYTES     96U
 
 typedef struct
 {
@@ -146,6 +147,69 @@ static libp2p_quic_service_t *quic_service_storage_service(void *storage)
     (void)memcpy((void *)&service, (const void *)&storage, sizeof storage);
 
     return service;
+}
+
+static size_t quic_service_debug_append_text(char *out, size_t out_len, size_t pos, const char *text)
+{
+    size_t next = pos;
+
+    if ((out != NULL) && (text != NULL))
+    {
+        while ((text[0] != '\0') && (next < out_len))
+        {
+            out[next] = text[0];
+            next++;
+            text = &text[1];
+        }
+    }
+
+    return next;
+}
+
+static size_t quic_service_debug_append_uint(char *out, size_t out_len, size_t pos, uint32_t value)
+{
+    char digits[10];
+    size_t digit_count = 0U;
+    size_t next = pos;
+    uint32_t remaining = value;
+
+    do
+    {
+        digits[digit_count] = (char)('0' + (remaining % 10U));
+        digit_count++;
+        remaining /= 10U;
+    } while ((remaining != 0U) && (digit_count < sizeof(digits)));
+
+    while ((digit_count != 0U) && (next < out_len))
+    {
+        digit_count--;
+        out[next] = digits[digit_count];
+        next++;
+    }
+
+    return next;
+}
+
+static void quic_service_debug_failure(
+    const libp2p_quic_service_t *service,
+    const char *stage,
+    libp2p_quic_err_t err)
+{
+    if ((service != NULL) && (service->config.endpoint.debug_fn != NULL) && (stage != NULL))
+    {
+        char message[QUIC_SERVICE_DEBUG_MESSAGE_BYTES];
+        size_t pos = 0U;
+
+        pos = quic_service_debug_append_text(message, sizeof(message), pos, "quic service ");
+        pos = quic_service_debug_append_text(message, sizeof(message), pos, stage);
+        pos = quic_service_debug_append_text(message, sizeof(message), pos, " failed err=");
+        pos = quic_service_debug_append_uint(message, sizeof(message), pos, (uint32_t)err);
+        service->config.endpoint.debug_fn(
+            LIBP2P_QUIC_DEBUG_EVENT_TEXT,
+            message,
+            pos,
+            service->config.endpoint.debug_user_data);
+    }
 }
 
 static libp2p_quic_service_event_t *quic_service_storage_events(void *storage)
@@ -1062,17 +1126,33 @@ libp2p_quic_err_t libp2p_quic_service_drive(
         (void)memset(&local_result, 0, sizeof(local_result));
 
         result = quic_service_drain_endpoint_events(service, &local_result);
+        if (result != LIBP2P_QUIC_OK)
+        {
+            quic_service_debug_failure(service, "drain-initial", result);
+        }
         if ((result == LIBP2P_QUIC_OK) && ((ready & LIBP2P_QUIC_SERVICE_READY_READ) != 0U))
         {
             result = quic_service_drive_rx(service, now_us, &local_result);
+            if (result != LIBP2P_QUIC_OK)
+            {
+                quic_service_debug_failure(service, "rx", result);
+            }
         }
         if (result == LIBP2P_QUIC_OK)
         {
             result = libp2p_quic_endpoint_poll(service->endpoint, now_us);
+            if (result != LIBP2P_QUIC_OK)
+            {
+                quic_service_debug_failure(service, "endpoint-poll", result);
+            }
         }
         if (result == LIBP2P_QUIC_OK)
         {
             result = quic_service_drain_endpoint_events(service, &local_result);
+            if (result != LIBP2P_QUIC_OK)
+            {
+                quic_service_debug_failure(service, "drain-after-poll", result);
+            }
         }
         if ((result == LIBP2P_QUIC_OK) &&
             ((((ready & (LIBP2P_QUIC_SERVICE_READY_WRITE | LIBP2P_QUIC_SERVICE_READY_TIMER |
@@ -1080,9 +1160,17 @@ libp2p_quic_err_t libp2p_quic_service_drive(
               (service->tx_pending != 0U))))
         {
             result = quic_service_drive_tx(service, now_us, &local_result);
+            if (result != LIBP2P_QUIC_OK)
+            {
+                quic_service_debug_failure(service, "tx", result);
+            }
             if (result == LIBP2P_QUIC_OK)
             {
                 result = quic_service_drain_endpoint_events(service, &local_result);
+                if (result != LIBP2P_QUIC_OK)
+                {
+                    quic_service_debug_failure(service, "drain-after-tx", result);
+                }
             }
         }
 

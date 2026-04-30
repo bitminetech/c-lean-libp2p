@@ -19,6 +19,75 @@
 
 #include "quic_backend_ngtcp2_internal.h"
 
+#define QUIC_BACKEND_DEBUG_MESSAGE_BYTES 96U
+
+static size_t quic_backend_debug_append_text(char *out, size_t out_len, size_t pos, const char *text)
+{
+    size_t next = pos;
+
+    if ((out != NULL) && (text != NULL))
+    {
+        while ((text[0] != '\0') && (next < out_len))
+        {
+            out[next] = text[0];
+            next++;
+            text = &text[1];
+        }
+    }
+
+    return next;
+}
+
+static size_t quic_backend_debug_append_uint(char *out, size_t out_len, size_t pos, uint32_t value)
+{
+    char digits[10];
+    size_t digit_count = 0U;
+    size_t next = pos;
+    uint32_t remaining = value;
+
+    do
+    {
+        digits[digit_count] = (char)('0' + (remaining % 10U));
+        digit_count++;
+        remaining /= 10U;
+    } while ((remaining != 0U) && (digit_count < sizeof(digits)));
+
+    while ((digit_count != 0U) && (next < out_len))
+    {
+        digit_count--;
+        out[next] = digits[digit_count];
+        next++;
+    }
+
+    return next;
+}
+
+static void quic_backend_debug_conn_error(
+    const libp2p_quic_conn_t *conn,
+    int rv,
+    libp2p_quic_err_t callback_error)
+{
+    char message[QUIC_BACKEND_DEBUG_MESSAGE_BYTES];
+    size_t pos = 0U;
+    uint32_t magnitude = 0U;
+
+    pos = quic_backend_debug_append_text(message, sizeof(message), pos, "ngtcp2 connection error rv=");
+    if (rv < 0)
+    {
+        pos = quic_backend_debug_append_text(message, sizeof(message), pos, "-");
+        magnitude = (uint32_t)(0U - (uint32_t)rv);
+    }
+    else
+    {
+        magnitude = (uint32_t)rv;
+    }
+    pos = quic_backend_debug_append_uint(message, sizeof(message), pos, magnitude);
+    pos = quic_backend_debug_append_text(message, sizeof(message), pos, " callback=");
+    pos = quic_backend_debug_append_uint(message, sizeof(message), pos, (uint32_t)callback_error);
+
+    quic_backend_debug_bytes(conn, LIBP2P_QUIC_DEBUG_EVENT_TEXT, message, pos);
+}
+
 static void quic_backend_qlog_write_cb(
     void *user_data,
     uint32_t flags,
@@ -400,7 +469,7 @@ quic_backend_handle_conn_error(libp2p_quic_conn_t *conn, int rv)
 
     if (rv != 0)
     {
-        quic_backend_debug_text(conn, "ngtcp2 connection error");
+        quic_backend_debug_conn_error(conn, rv, conn->callback_error);
         if (quic_backend_conn_error_is_endpoint_error(rv) != 0U)
         {
             result = quic_backend_ngtcp2_err(rv);
