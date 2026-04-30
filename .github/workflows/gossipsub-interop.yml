@@ -2,6 +2,37 @@ name: GossipSub Interop
 
 on:
   workflow_dispatch:
+    inputs:
+      pair:
+        description: 'Interop pair to run, or all'
+        required: false
+        default: 'all'
+        type: choice
+        options:
+          - all
+          - c-lean-libp2p/go-libp2p
+          - c-lean-libp2p/rust-libp2p
+          - c-lean-libp2p/go-libp2p/rust-libp2p
+      scenario:
+        description: 'Scenario to run, or all'
+        required: false
+        default: 'all'
+        type: choice
+        options:
+          - all
+          - subnet-blob-msg
+          - simple-fanout
+          - partial-messages
+          - partial-messages-chain
+          - partial-messages-fanout
+      quic_debug:
+        description: 'Set LIBP2P_QUIC_DEBUG=1 for c-lean nodes'
+        required: false
+        default: '0'
+        type: choice
+        options:
+          - '0'
+          - '1'
   schedule:
     - cron: '43 8 * * *'
   pull_request:
@@ -20,6 +51,10 @@ concurrency:
 env:
   SHADOW_REF: v3.3.0
   SHADOW_IMAGE: c-lean-libp2p-gossipsub-shadow:v3.3.0
+  SHADOW_IMAGE_TAR: c-lean-libp2p/.cache/gossipsub-shadow/shadow-image.tar
+  GOSSIPSUB_INTEROP_PAIR: ${{ github.event.inputs.pair || 'all' }}
+  GOSSIPSUB_INTEROP_SCENARIO: ${{ github.event.inputs.scenario || 'all' }}
+  GOSSIPSUB_INTEROP_QUIC_DEBUG: ${{ github.event.inputs.quic_debug || '0' }}
 
 jobs:
   gossipsub-cross-impl:
@@ -34,16 +69,19 @@ jobs:
           path: c-lean-libp2p
           submodules: recursive
 
-      - name: Cache Shadow Docker image
+      - name: Restore cached Shadow Docker image
         id: shadow-image-cache
-        uses: actions/cache@v4
+        uses: actions/cache/restore@v4
         with:
-          path: /tmp/gossipsub-shadow-image.tar
-          key: gossipsub-shadow-${{ env.SHADOW_REF }}-${{ hashFiles('c-lean-libp2p/interop/test-plans/Dockerfile.shadow') }}
+          path: ${{ env.SHADOW_IMAGE_TAR }}
+          key: gossipsub-shadow-${{ runner.os }}-${{ env.SHADOW_REF }}-${{ hashFiles('c-lean-libp2p/interop/test-plans/Dockerfile.shadow') }}-v1
 
       - name: Load cached Shadow Docker image
         if: steps.shadow-image-cache.outputs.cache-hit == 'true'
-        run: docker load -i /tmp/gossipsub-shadow-image.tar
+        run: |
+          test -s "${SHADOW_IMAGE_TAR}"
+          docker load -i "${SHADOW_IMAGE_TAR}"
+          docker images "${SHADOW_IMAGE}"
 
       - name: Free disk space
         if: steps.shadow-image-cache.outputs.cache-hit != 'true'
@@ -55,12 +93,20 @@ jobs:
       - name: Build Shadow Docker image
         if: steps.shadow-image-cache.outputs.cache-hit != 'true'
         run: |
+          mkdir -p "$(dirname "${SHADOW_IMAGE_TAR}")"
           docker build \
             --build-arg SHADOW_REF="${SHADOW_REF}" \
             -t "${SHADOW_IMAGE}" \
             -f c-lean-libp2p/interop/test-plans/Dockerfile.shadow \
             c-lean-libp2p/interop/test-plans
-          docker save "${SHADOW_IMAGE}" -o /tmp/gossipsub-shadow-image.tar
+          docker save "${SHADOW_IMAGE}" -o "${SHADOW_IMAGE_TAR}"
+
+      - name: Save Shadow Docker image cache
+        if: steps.shadow-image-cache.outputs.cache-hit != 'true'
+        uses: actions/cache/save@v4
+        with:
+          path: ${{ env.SHADOW_IMAGE_TAR }}
+          key: ${{ steps.shadow-image-cache.outputs.cache-primary-key }}
 
       - name: Cache go/rust gossipsub impl artifacts
         uses: actions/cache@v4
@@ -86,9 +132,21 @@ jobs:
             -e C_LEAN_LIBP2P_GOSSIPSUB_BIN=/workspace/build-gossipsub-interop/bin/c_lean_libp2p_gossipsub_interop \
             -e GOCACHE=/workspace/interop/test-plans/gossipsub-interop/.cache/go/build \
             -e GOMODCACHE=/workspace/interop/test-plans/gossipsub-interop/.cache/go/pkg/mod \
+            -e GOSSIPSUB_INTEROP_PAIR="${GOSSIPSUB_INTEROP_PAIR}" \
+            -e GOSSIPSUB_INTEROP_SCENARIO="${GOSSIPSUB_INTEROP_SCENARIO}" \
+            -e LIBP2P_QUIC_DEBUG="${GOSSIPSUB_INTEROP_QUIC_DEBUG}" \
             "${SHADOW_IMAGE}" \
-            bash -lc 'make c-lean-libp2p && make binaries && uv run c_lean_matrix.py --output-root /workspace/interop/test-plans/gossipsub-interop/c-lean-results'
+            bash -lc 'make c-lean-libp2p && make binaries && uv run c_lean_matrix.py --output-root /workspace/interop/test-plans/gossipsub-interop/c-lean-results --pair "${GOSSIPSUB_INTEROP_PAIR}" --scenario "${GOSSIPSUB_INTEROP_SCENARIO}"'
           echo "result_dir=interop/test-plans/gossipsub-interop/c-lean-results" >> "$GITHUB_OUTPUT"
+
+      - name: Fix interop cache ownership
+        if: always()
+        run: |
+          sudo chown -R "$(id -u):$(id -g)" \
+            c-lean-libp2p/interop/test-plans/gossipsub-interop/.cache \
+            c-lean-libp2p/interop/test-plans/gossipsub-interop/go-libp2p/gossipsub-bin \
+            c-lean-libp2p/interop/test-plans/gossipsub-interop/rust-libp2p/target \
+            2>/dev/null || true
 
       - name: Render matrix summary
         if: always()
@@ -106,5 +164,14 @@ jobs:
         with:
           name: gossipsub-interop-results
           path: c-lean-libp2p/interop/test-plans/gossipsub-interop/c-lean-results/
+          if-no-files-found: warn
+          retention-days: 30
+
+      - name: Upload Shadow node logs
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: gossipsub-interop-shadow-node-logs
+          path: c-lean-libp2p/interop/test-plans/gossipsub-interop/c-lean-results/**/hosts/**/*
           if-no-files-found: warn
           retention-days: 30

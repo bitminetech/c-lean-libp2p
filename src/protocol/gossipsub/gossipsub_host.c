@@ -344,7 +344,6 @@ libp2p_host_err_t gossipsub_protocol_on_open(
     gossipsub_stream_state_t *stream_state = NULL;
     size_t peer_index = 0U;
     size_t stream_index = 0U;
-    size_t topic_index = 0U;
     libp2p_gossipsub_event_t event;
     libp2p_gossipsub_err_t result = LIBP2P_GOSSIPSUB_OK;
 
@@ -378,29 +377,38 @@ libp2p_host_err_t gossipsub_protocol_on_open(
         stream_state->direction = direction;
         stream_state->version = version;
         stream_state->peer_index = peer_index;
-        peer->stream = stream;
-        peer->direction = direction;
-        peer->version = version;
+        if ((direction == LIBP2P_HOST_STREAM_OUTBOUND) || (peer->stream == NULL))
+        {
+            peer->stream = stream;
+            peer->direction = direction;
+            peer->version = version;
+        }
         result = gossipsub_host_to_err(libp2p_host_stream_set_user_data(stream, stream_state));
     }
     if (result == LIBP2P_GOSSIPSUB_OK)
     {
         event.type = LIBP2P_GOSSIPSUB_EVENT_PEER_OPENED;
         gossipsub_peer_to_event(peer, &event);
+        event.stream = stream;
+        event.direction = direction;
+        event.protocol_version = version;
         result = gossipsub_event_push(gossipsub, &event);
     }
-    for (topic_index = 0U;
-         (result == LIBP2P_GOSSIPSUB_OK) && (topic_index < gossipsub->config.capacity.max_topics);
-         topic_index++)
+    if ((result == LIBP2P_GOSSIPSUB_OK) && (peer->stream != NULL))
     {
-        if ((gossipsub->topics[topic_index].used == GOSSIPSUB_TOPIC_USED) &&
-            (gossipsub->topics[topic_index].local_subscribed != 0U))
+        for (size_t topic_index = 0U; (result == LIBP2P_GOSSIPSUB_OK) &&
+                                      (topic_index < gossipsub->config.capacity.max_topics);
+             topic_index++)
         {
-            result = gossipsub_enqueue_subscription(
-                gossipsub,
-                peer_index,
-                &gossipsub->topics[topic_index],
-                1U);
+            if ((gossipsub->topics[topic_index].used == GOSSIPSUB_TOPIC_USED) &&
+                (gossipsub->topics[topic_index].local_subscribed != 0U))
+            {
+                result = gossipsub_enqueue_subscription(
+                    gossipsub,
+                    peer_index,
+                    &gossipsub->topics[topic_index],
+                    1U);
+            }
         }
     }
     (void)stream_index;
@@ -452,10 +460,16 @@ libp2p_host_err_t gossipsub_protocol_on_event(
         (result == LIBP2P_GOSSIPSUB_OK) &&
         ((kind == LIBP2P_HOST_PROTOCOL_EVENT_RESET) || (kind == LIBP2P_HOST_PROTOCOL_EVENT_CLOSED)))
     {
-        event.type = LIBP2P_GOSSIPSUB_EVENT_PEER_CLOSED;
-        gossipsub_peer_to_event(&gossipsub->peers[stream_state->peer_index], &event);
-        (void)gossipsub_event_push(gossipsub, &event);
-        gossipsub->peers[stream_state->peer_index].stream = NULL;
+        if (gossipsub->peers[stream_state->peer_index].stream == stream_state->stream)
+        {
+            event.type = LIBP2P_GOSSIPSUB_EVENT_PEER_CLOSED;
+            gossipsub_peer_to_event(&gossipsub->peers[stream_state->peer_index], &event);
+            event.stream = stream_state->stream;
+            event.direction = stream_state->direction;
+            event.protocol_version = stream_state->version;
+            (void)gossipsub_event_push(gossipsub, &event);
+            gossipsub->peers[stream_state->peer_index].stream = NULL;
+        }
         stream_state->state = GOSSIPSUB_STREAM_FREE;
         stream_state->stream = NULL;
     }

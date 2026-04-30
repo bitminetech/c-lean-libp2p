@@ -128,6 +128,10 @@ libp2p_gossipsub_err_t gossipsub_process_message(
     }
     if ((result == LIBP2P_GOSSIPSUB_OK) && (entry != NULL) && (topic != NULL))
     {
+        result = gossipsub_enqueue_idontwant_for_received_entry(gossipsub, topic, entry);
+    }
+    if ((result == LIBP2P_GOSSIPSUB_OK) && (entry != NULL) && (topic != NULL))
+    {
         event.type = LIBP2P_GOSSIPSUB_EVENT_MESSAGE;
         gossipsub_peer_to_event(&gossipsub->peers[peer_index], &event);
         event.topic.data = entry->topic;
@@ -185,6 +189,11 @@ libp2p_gossipsub_err_t gossipsub_process_idontwant(
                 idontwant->message_ids[index].data,
                 idontwant->message_ids[index].len,
                 now_us);
+            gossipsub_drop_queued_publish(
+                gossipsub,
+                peer_index,
+                idontwant->message_ids[index].data,
+                idontwant->message_ids[index].len);
             event.type = LIBP2P_GOSSIPSUB_EVENT_IDONTWANT;
             gossipsub_peer_to_event(&gossipsub->peers[peer_index], &event);
             event.message_id = idontwant->message_ids[index];

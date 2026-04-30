@@ -115,6 +115,14 @@ typedef enum
     LIBP2P_QUIC_STREAM_RESET
 } libp2p_quic_stream_state_t;
 
+/** Debug trace record type. */
+typedef enum
+{
+    LIBP2P_QUIC_DEBUG_EVENT_TEXT,
+    LIBP2P_QUIC_DEBUG_EVENT_QLOG,
+    LIBP2P_QUIC_DEBUG_EVENT_TLS_MESSAGE
+} libp2p_quic_debug_event_type_t;
+
 /** Immutable byte span. The pointed-to storage remains caller-owned. */
 typedef struct
 {
@@ -127,10 +135,7 @@ typedef struct
  *
  * Return LIBP2P_QUIC_OK on success.
  */
-typedef libp2p_quic_err_t (*libp2p_quic_random_fn_t)(
-    uint8_t *out,
-    size_t out_len,
-    void *user_data);
+typedef libp2p_quic_err_t (*libp2p_quic_random_fn_t)(uint8_t *out, size_t out_len, void *user_data);
 
 /**
  * Wall-clock callback used for certificate validity checks.
@@ -139,8 +144,18 @@ typedef libp2p_quic_err_t (*libp2p_quic_random_fn_t)(
  * validation needs Unix time separately so tests and embedded callers can keep
  * the two clocks explicit.
  */
-typedef libp2p_quic_err_t (*libp2p_quic_unix_time_fn_t)(
-    uint64_t *out_unix_seconds,
+typedef libp2p_quic_err_t (
+    *libp2p_quic_unix_time_fn_t)(uint64_t *out_unix_seconds, void *user_data);
+
+/**
+ * Optional diagnostic callback for interop/debug tooling.
+ *
+ * The callback must not call back into the endpoint that emitted the record.
+ */
+typedef void (*libp2p_quic_debug_fn_t)(
+    libp2p_quic_debug_event_type_t type,
+    const void *data,
+    size_t data_len,
     void *user_data);
 
 /** Allocator hooks used by the QUIC backend. All hooks are required at init. */

@@ -24,6 +24,34 @@
 #define OPENSSL_NPN_NEGOTIATED 1
 #endif
 
+#ifndef SSL_CB_READ
+#define SSL_CB_READ 0x04
+#endif
+
+#ifndef SSL_CB_WRITE
+#define SSL_CB_WRITE 0x08
+#endif
+
+#ifndef SSL_CB_ALERT
+#define SSL_CB_ALERT 0x4000
+#endif
+
+#ifndef SSL_CB_READ_ALERT
+#define SSL_CB_READ_ALERT (SSL_CB_ALERT | SSL_CB_READ)
+#endif
+
+#ifndef SSL_CB_WRITE_ALERT
+#define SSL_CB_WRITE_ALERT (SSL_CB_ALERT | SSL_CB_WRITE)
+#endif
+
+#ifndef SSL_CB_HANDSHAKE_START
+#define SSL_CB_HANDSHAKE_START 0x10
+#endif
+
+#ifndef SSL_CB_HANDSHAKE_DONE
+#define SSL_CB_HANDSHAKE_DONE 0x20
+#endif
+
 #ifndef AF_INET
 #define AF_INET 2
 #endif
@@ -76,6 +104,7 @@ int OBJ_cmp(const ASN1_OBJECT *a, const ASN1_OBJECT *b);
 int SSL_CTX_use_certificate_ASN1(SSL_CTX *ctx, size_t der_len, const uint8_t *der);
 int SSL_CTX_check_private_key(const SSL_CTX *ctx);
 int SSL_CTX_use_PrivateKey_ASN1(int type, SSL_CTX *ctx, const uint8_t *der, size_t der_len);
+void SSL_free(SSL *ssl);
 int SSL_set_alpn_protos(SSL *ssl, const uint8_t *protos, size_t protos_len);
 const ASN1_TIME *X509_get0_notAfter(const X509 *cert);
 const ASN1_TIME *X509_get0_notBefore(const X509 *cert);

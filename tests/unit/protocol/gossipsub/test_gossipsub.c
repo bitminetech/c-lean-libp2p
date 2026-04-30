@@ -236,6 +236,7 @@ static void gossipsub_test_quic_loopback_publish_and_idontwant(void)
     int opened = 0;
     int saw_subscription = 0;
     int published = 0;
+    int client_saw_idontwant = 0;
     int saw_message = 0;
     int saw_idontwant = 0;
 
@@ -291,6 +292,7 @@ static void gossipsub_test_quic_loopback_publish_and_idontwant(void)
     topic_config.validation_mode = LIBP2P_GOSSIPSUB_VALIDATION_ACCEPT_ALL;
     topic_config.enable_idontwant = 1U;
     topic_config.idontwant_min_message_bytes = LIBP2P_GOSSIPSUB_DEFAULT_IDONTWANT_MIN_BYTES;
+    assert(libp2p_gossipsub_subscribe(client_gossipsub, &topic_config) == LIBP2P_GOSSIPSUB_OK);
     assert(libp2p_gossipsub_subscribe(server_gossipsub, &topic_config) == LIBP2P_GOSSIPSUB_OK);
 
     {
@@ -329,6 +331,10 @@ static void gossipsub_test_quic_loopback_publish_and_idontwant(void)
         }
         while (libp2p_gossipsub_next_event(client_gossipsub, &event) == LIBP2P_GOSSIPSUB_OK)
         {
+            if (event.type == LIBP2P_GOSSIPSUB_EVENT_IDONTWANT)
+            {
+                client_saw_idontwant = 1;
+            }
             if ((event.type == LIBP2P_GOSSIPSUB_EVENT_SUBSCRIPTION) &&
                 (event.topic.len == (sizeof(topic) - 1U)) &&
                 (memcmp(event.topic.data, topic, sizeof(topic) - 1U) == 0))
@@ -360,7 +366,7 @@ static void gossipsub_test_quic_loopback_publish_and_idontwant(void)
                 saw_message = 1;
             }
         }
-        if ((saw_message != 0) && (saw_idontwant != 0))
+        if ((saw_message != 0) && (saw_idontwant != 0) && (client_saw_idontwant != 0))
         {
             break;
         }
@@ -368,6 +374,7 @@ static void gossipsub_test_quic_loopback_publish_and_idontwant(void)
 
     assert(saw_message != 0);
     assert(saw_idontwant != 0);
+    assert(client_saw_idontwant != 0);
     protocol_loopback_deinit(&pair);
     libp2p_gossipsub_deinit(client_gossipsub);
     libp2p_gossipsub_deinit(server_gossipsub);

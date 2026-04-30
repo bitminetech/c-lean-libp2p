@@ -1,6 +1,7 @@
 #include <string.h>
 
 #include "libp2p_host_internal.h"
+
 #include "transport/quic/quic.h"
 #include "transport/quic/quic_addr.h"
 #include "transport/quic/quic_service.h"
@@ -318,17 +319,6 @@ static libp2p_host_err_t host_quic_next_event(
                     out_event->attempt = quic_event.conn;
                     out_event->app_error_code = quic_event.app_error_code;
                     out_event->transport_error_code = quic_event.transport_error_code;
-                    if (quic_event.type == LIBP2P_QUIC_SERVICE_EVENT_CONN_ESTABLISHED)
-                    {
-                        libp2p_quic_conn_t *accepted = NULL;
-                        const libp2p_quic_err_t accept_err =
-                            libp2p_quic_service_accept_conn(service, &accepted);
-                        if (accept_err == LIBP2P_QUIC_OK)
-                        {
-                            out_event->conn = accepted;
-                            out_event->attempt = accepted;
-                        }
-                    }
                 }
             }
         }
@@ -360,8 +350,8 @@ static libp2p_host_err_t host_quic_listen_multiaddr(
     }
     if (result == LIBP2P_HOST_OK)
     {
-        result = host_quic_err(
-            libp2p_quic_addr_set_peer_id(&addr, local_peer_id, local_peer_id_len));
+        result =
+            host_quic_err(libp2p_quic_addr_set_peer_id(&addr, local_peer_id, local_peer_id_len));
     }
     if (result == LIBP2P_HOST_OK)
     {

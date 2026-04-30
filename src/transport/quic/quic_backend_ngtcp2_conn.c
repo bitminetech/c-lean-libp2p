@@ -19,6 +19,105 @@
 
 #include "quic_backend_ngtcp2_internal.h"
 
+#define QUIC_BACKEND_DEBUG_MESSAGE_BYTES     96U
+#define QUIC_BACKEND_KEEP_ALIVE_TIMEOUT_US   ((libp2p_quic_time_us_t)2000000U)
+#define QUIC_BACKEND_KEEP_ALIVE_IDLE_DIVISOR ((libp2p_quic_time_us_t)2U)
+
+static size_t quic_backend_debug_append_text(
+    char *out,
+    size_t out_len,
+    size_t pos,
+    const char *text)
+{
+    size_t next = pos;
+
+    if ((out != NULL) && (text != NULL))
+    {
+        size_t text_index = 0U;
+
+        while ((text[text_index] != '\0') && (next < out_len))
+        {
+            out[next] = text[text_index];
+            next++;
+            text_index++;
+        }
+    }
+
+    return next;
+}
+
+static size_t quic_backend_debug_append_uint(char *out, size_t out_len, size_t pos, uint32_t value)
+{
+    char digits[10];
+    size_t digit_count = 0U;
+    size_t next = pos;
+    uint32_t remaining = value;
+
+    do
+    {
+        digits[digit_count] = (char)('0' + (remaining % 10U));
+        digit_count++;
+        remaining /= 10U;
+    } while ((remaining != 0U) && (digit_count < sizeof(digits)));
+
+    while ((digit_count != 0U) && (next < out_len))
+    {
+        digit_count--;
+        out[next] = digits[digit_count];
+        next++;
+    }
+
+    return next;
+}
+
+static void quic_backend_debug_conn_error(
+    const libp2p_quic_conn_t *conn,
+    int rv,
+    libp2p_quic_err_t callback_error)
+{
+    char message[QUIC_BACKEND_DEBUG_MESSAGE_BYTES];
+    size_t pos = 0U;
+    uint32_t magnitude = 0U;
+
+    pos = quic_backend_debug_append_text(
+        message,
+        sizeof(message),
+        pos,
+        "ngtcp2 connection error rv=");
+    if (rv < 0)
+    {
+        pos = quic_backend_debug_append_text(message, sizeof(message), pos, "-");
+        magnitude = (uint32_t)(0U - (uint32_t)rv);
+    }
+    else
+    {
+        magnitude = (uint32_t)rv;
+    }
+    pos = quic_backend_debug_append_uint(message, sizeof(message), pos, magnitude);
+    pos = quic_backend_debug_append_text(message, sizeof(message), pos, " callback=");
+    pos = quic_backend_debug_append_uint(message, sizeof(message), pos, (uint32_t)callback_error);
+
+    quic_backend_debug_bytes(conn, LIBP2P_QUIC_DEBUG_EVENT_TEXT, message, pos);
+}
+
+static void quic_backend_qlog_write_cb(
+    void *user_data,
+    uint32_t flags,
+    const void *data,
+    size_t datalen)
+{
+    const libp2p_quic_conn_t *conn = quic_backend_conn_from_memory(user_data);
+
+    if ((data != NULL) && (datalen != 0U))
+    {
+        quic_backend_debug_bytes(conn, LIBP2P_QUIC_DEBUG_EVENT_QLOG, data, datalen);
+    }
+    if ((flags & NGTCP2_QLOG_WRITE_FLAG_FIN) != 0U)
+    {
+        quic_backend_debug_text(conn, "ngtcp2 qlog finished");
+    }
+}
+
 static void quic_backend_settings_init(
     const libp2p_quic_endpoint_t *endpoint,
     libp2p_quic_conn_t *conn,
@@ -33,6 +132,10 @@ static void quic_backend_settings_init(
     settings->max_stream_window = endpoint->config.initial_stream_window_bytes;
     settings->no_pmtud = 1U;
     settings->rand_ctx.native_handle = conn;
+    if (endpoint->config.debug_fn != NULL)
+    {
+        settings->qlog_write = quic_backend_qlog_write_cb;
+    }
 }
 
 static void quic_backend_transport_params_init(
@@ -51,6 +154,23 @@ static void quic_backend_transport_params_init(
     params->active_connection_id_limit = QUIC_BACKEND_ACTIVE_CID_LIMIT;
     params->max_datagram_frame_size = 0U;
     params->disable_active_migration = 1U;
+}
+
+static ngtcp2_duration quic_backend_keep_alive_timeout(const libp2p_quic_endpoint_t *endpoint)
+{
+    libp2p_quic_time_us_t timeout_us = QUIC_BACKEND_KEEP_ALIVE_TIMEOUT_US;
+
+    if (endpoint->config.idle_timeout_us <
+        (QUIC_BACKEND_KEEP_ALIVE_TIMEOUT_US * QUIC_BACKEND_KEEP_ALIVE_IDLE_DIVISOR))
+    {
+        timeout_us = endpoint->config.idle_timeout_us / QUIC_BACKEND_KEEP_ALIVE_IDLE_DIVISOR;
+        if (timeout_us == 0U)
+        {
+            timeout_us = 1U;
+        }
+    }
+
+    return quic_backend_duration_to_ngtcp2(timeout_us);
 }
 
 static libp2p_quic_err_t quic_backend_random_cid(libp2p_quic_endpoint_t *endpoint, ngtcp2_cid *cid)
@@ -200,6 +320,9 @@ QUIC_BACKEND_INTERNAL libp2p_quic_err_t quic_backend_conn_client_new(
         if (result == LIBP2P_QUIC_OK)
         {
             ngtcp2_conn_set_tls_native_handle(conn->ngconn, conn->ssl);
+            ngtcp2_conn_set_keep_alive_timeout(
+                conn->ngconn,
+                quic_backend_keep_alive_timeout(endpoint));
             result = quic_backend_conn_add_to_endpoint(conn);
         }
         if (result == LIBP2P_QUIC_OK)
@@ -286,6 +409,9 @@ QUIC_BACKEND_INTERNAL libp2p_quic_err_t quic_backend_conn_server_new(
         if (result == LIBP2P_QUIC_OK)
         {
             ngtcp2_conn_set_tls_native_handle(conn->ngconn, conn->ssl);
+            ngtcp2_conn_set_keep_alive_timeout(
+                conn->ngconn,
+                quic_backend_keep_alive_timeout(endpoint));
             result = quic_backend_conn_add_to_endpoint(conn);
         }
         if (result == LIBP2P_QUIC_OK)
@@ -378,6 +504,7 @@ quic_backend_handle_conn_error(libp2p_quic_conn_t *conn, int rv)
 
     if (rv != 0)
     {
+        quic_backend_debug_conn_error(conn, rv, conn->callback_error);
         if (quic_backend_conn_error_is_endpoint_error(rv) != 0U)
         {
             result = quic_backend_ngtcp2_err(rv);
@@ -476,7 +603,7 @@ QUIC_BACKEND_INTERNAL libp2p_quic_err_t quic_backend_write_conn_datagram(
     ngtcp2_pkt_info pi;
     ngtcp2_ssize nwrite = 0;
     ngtcp2_ssize ndatalen = -1;
-    ngtcp2_tstamp ts = quic_backend_time_to_ngtcp2(now_us);
+    ngtcp2_tstamp ts = quic_backend_endpoint_time_to_ngtcp2(conn->endpoint, now_us);
     libp2p_quic_err_t result = LIBP2P_QUIC_ERR_WOULD_BLOCK;
 
     if (conn->close_requested != 0U)
@@ -591,6 +718,10 @@ QUIC_BACKEND_INTERNAL libp2p_quic_err_t quic_backend_write_conn_datagram(
         else
         {
             result = quic_backend_handle_conn_error(conn, (int)nwrite);
+            if (result == LIBP2P_QUIC_OK)
+            {
+                result = LIBP2P_QUIC_ERR_WOULD_BLOCK;
+            }
         }
     }
 

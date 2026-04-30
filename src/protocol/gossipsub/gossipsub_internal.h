@@ -114,10 +114,13 @@ typedef struct
 typedef struct
 {
     uint8_t used;
+    uint8_t publish;
     size_t peer_index;
     size_t offset;
     size_t len;
     size_t pos;
+    uint8_t message_id[LIBP2P_GOSSIPSUB_DEFAULT_MAX_MESSAGE_ID_BYTES];
+    size_t message_id_len;
 } gossipsub_tx_item_t;
 
 typedef struct
@@ -546,6 +549,20 @@ libp2p_gossipsub_err_t gossipsub_enqueue_publish_entry(
     libp2p_gossipsub_t *gossipsub,
     size_t peer_index,
     const gossipsub_mcache_entry_t *entry);
+libp2p_gossipsub_err_t gossipsub_enqueue_idontwant_for_entry(
+    libp2p_gossipsub_t *gossipsub,
+    size_t peer_index,
+    const gossipsub_topic_state_t *topic,
+    const gossipsub_mcache_entry_t *entry);
+libp2p_gossipsub_err_t gossipsub_enqueue_idontwant_for_received_entry(
+    libp2p_gossipsub_t *gossipsub,
+    const gossipsub_topic_state_t *topic,
+    const gossipsub_mcache_entry_t *entry);
+void gossipsub_drop_queued_publish(
+    libp2p_gossipsub_t *gossipsub,
+    size_t peer_index,
+    const uint8_t *message_id,
+    size_t message_id_len);
 libp2p_gossipsub_err_t gossipsub_flush_peer(
     libp2p_gossipsub_t *gossipsub,
     libp2p_host_t *host,

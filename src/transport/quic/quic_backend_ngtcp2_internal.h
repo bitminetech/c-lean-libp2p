@@ -109,6 +109,8 @@ struct libp2p_quic_endpoint
     libp2p_quic_addr_t local_addr;
     uint8_t bound;
     uint8_t closed;
+    uint8_t has_time_origin;
+    libp2p_quic_time_us_t time_origin_us;
     libp2p_quic_conn_t **connections;
     size_t connection_count;
     size_t incoming_connection_count;
@@ -125,13 +127,18 @@ QUIC_BACKEND_INTERNAL int quic_backend_size_mul_overflow(size_t a, size_t b, siz
 
 QUIC_BACKEND_INTERNAL int quic_backend_size_add_overflow(size_t a, size_t b, size_t *out);
 
-QUIC_BACKEND_INTERNAL libp2p_quic_err_t quic_backend_allocator_normalize(
-    const libp2p_quic_allocator_t *in,
-    libp2p_quic_allocator_t *out);
+QUIC_BACKEND_INTERNAL libp2p_quic_err_t
+quic_backend_allocator_normalize(const libp2p_quic_allocator_t *in, libp2p_quic_allocator_t *out);
 
-QUIC_BACKEND_INTERNAL void *quic_backend_calloc(libp2p_quic_endpoint_t *endpoint, size_t nmemb, size_t size);
+QUIC_BACKEND_INTERNAL void *quic_backend_calloc(
+    libp2p_quic_endpoint_t *endpoint,
+    size_t nmemb,
+    size_t size);
 
-QUIC_BACKEND_INTERNAL void *quic_backend_realloc(libp2p_quic_endpoint_t *endpoint, void *ptr, size_t size);
+QUIC_BACKEND_INTERNAL void *quic_backend_realloc(
+    libp2p_quic_endpoint_t *endpoint,
+    void *ptr,
+    size_t size);
 
 QUIC_BACKEND_INTERNAL void quic_backend_free(libp2p_quic_endpoint_t *endpoint, void *ptr);
 
@@ -157,17 +164,27 @@ QUIC_BACKEND_INTERNAL void *quic_backend_ngtcp2_realloc(void *ptr, size_t size, 
 
 QUIC_BACKEND_INTERNAL void quic_backend_ngtcp2_free(void *ptr, void *user_data);
 
-QUIC_BACKEND_INTERNAL libp2p_quic_err_t quic_backend_validate_endpoint(const libp2p_quic_endpoint_t *endpoint);
+QUIC_BACKEND_INTERNAL libp2p_quic_err_t
+quic_backend_validate_endpoint(const libp2p_quic_endpoint_t *endpoint);
 
 QUIC_BACKEND_INTERNAL libp2p_quic_err_t quic_backend_validate_conn(const libp2p_quic_conn_t *conn);
 
-QUIC_BACKEND_INTERNAL libp2p_quic_err_t quic_backend_validate_stream(const libp2p_quic_stream_t *stream);
+QUIC_BACKEND_INTERNAL libp2p_quic_err_t
+quic_backend_validate_stream(const libp2p_quic_stream_t *stream);
 
 QUIC_BACKEND_INTERNAL ngtcp2_tstamp quic_backend_time_to_ngtcp2(libp2p_quic_time_us_t now_us);
 
 QUIC_BACKEND_INTERNAL libp2p_quic_time_us_t quic_backend_time_from_ngtcp2(ngtcp2_tstamp ts);
 
-QUIC_BACKEND_INTERNAL ngtcp2_duration quic_backend_duration_to_ngtcp2(libp2p_quic_time_us_t duration_us);
+QUIC_BACKEND_INTERNAL ngtcp2_duration
+quic_backend_duration_to_ngtcp2(libp2p_quic_time_us_t duration_us);
+
+QUIC_BACKEND_INTERNAL ngtcp2_tstamp quic_backend_endpoint_time_to_ngtcp2(
+    libp2p_quic_endpoint_t *endpoint,
+    libp2p_quic_time_us_t now_us);
+
+QUIC_BACKEND_INTERNAL libp2p_quic_time_us_t
+quic_backend_endpoint_time_from_ngtcp2(const libp2p_quic_endpoint_t *endpoint, ngtcp2_tstamp ts);
 
 QUIC_BACKEND_INTERNAL uint8_t quic_backend_ecn_to_ngtcp2(libp2p_quic_ecn_t ecn);
 
@@ -193,13 +210,27 @@ QUIC_BACKEND_INTERNAL libp2p_quic_err_t quic_backend_copy_measure(
     size_t out_len,
     size_t *written);
 
+QUIC_BACKEND_INTERNAL void quic_backend_debug_bytes(
+    const libp2p_quic_conn_t *conn,
+    libp2p_quic_debug_event_type_t type,
+    const void *data,
+    size_t data_len);
+
+QUIC_BACKEND_INTERNAL void quic_backend_debug_text(
+    const libp2p_quic_conn_t *conn,
+    const char *message);
+
 QUIC_BACKEND_INTERNAL libp2p_quic_err_t quic_backend_ngtcp2_err(int rv);
 
-QUIC_BACKEND_INTERNAL SSL_CTX *quic_backend_ssl_ctx_new(libp2p_quic_endpoint_t *endpoint, libp2p_quic_role_t role);
+QUIC_BACKEND_INTERNAL SSL_CTX *quic_backend_ssl_ctx_new(
+    libp2p_quic_endpoint_t *endpoint,
+    libp2p_quic_role_t role);
 
 QUIC_BACKEND_INTERNAL libp2p_quic_err_t quic_backend_ssl_new_for_conn(libp2p_quic_conn_t *conn);
 
-QUIC_BACKEND_INTERNAL int quic_backend_conn_add_cid(libp2p_quic_conn_t *conn, const ngtcp2_cid *cid);
+QUIC_BACKEND_INTERNAL int quic_backend_conn_add_cid(
+    libp2p_quic_conn_t *conn,
+    const ngtcp2_cid *cid);
 
 QUIC_BACKEND_INTERNAL libp2p_quic_stream_t *quic_backend_conn_find_stream(
     const libp2p_quic_conn_t *conn,
@@ -212,9 +243,8 @@ QUIC_BACKEND_INTERNAL libp2p_quic_stream_t *quic_backend_stream_new(
 
 QUIC_BACKEND_INTERNAL void quic_backend_stream_free(libp2p_quic_stream_t *stream);
 
-QUIC_BACKEND_INTERNAL libp2p_quic_err_t quic_backend_stream_id(
-    const libp2p_quic_stream_t *stream,
-    libp2p_quic_stream_id_t *out_id);
+QUIC_BACKEND_INTERNAL libp2p_quic_err_t
+quic_backend_stream_id(const libp2p_quic_stream_t *stream, libp2p_quic_stream_id_t *out_id);
 
 QUIC_BACKEND_INTERNAL libp2p_quic_err_t quic_backend_stream_state(
     const libp2p_quic_stream_t *stream,
@@ -236,17 +266,14 @@ QUIC_BACKEND_INTERNAL libp2p_quic_err_t quic_backend_stream_write(
 
 QUIC_BACKEND_INTERNAL libp2p_quic_err_t quic_backend_stream_finish(libp2p_quic_stream_t *stream);
 
-QUIC_BACKEND_INTERNAL libp2p_quic_err_t quic_backend_stream_reset(
-    libp2p_quic_stream_t *stream,
-    uint64_t app_error_code);
+QUIC_BACKEND_INTERNAL libp2p_quic_err_t
+quic_backend_stream_reset(libp2p_quic_stream_t *stream, uint64_t app_error_code);
 
-QUIC_BACKEND_INTERNAL libp2p_quic_err_t quic_backend_stream_stop_sending(
-    libp2p_quic_stream_t *stream,
-    uint64_t app_error_code);
+QUIC_BACKEND_INTERNAL libp2p_quic_err_t
+quic_backend_stream_stop_sending(libp2p_quic_stream_t *stream, uint64_t app_error_code);
 
-QUIC_BACKEND_INTERNAL libp2p_quic_err_t quic_backend_stream_conn(
-    libp2p_quic_stream_t *stream,
-    libp2p_quic_conn_t **out_conn);
+QUIC_BACKEND_INTERNAL libp2p_quic_err_t
+quic_backend_stream_conn(libp2p_quic_stream_t *stream, libp2p_quic_conn_t **out_conn);
 
 QUIC_BACKEND_INTERNAL void quic_backend_conn_free(libp2p_quic_conn_t *conn);
 
@@ -265,16 +292,16 @@ QUIC_BACKEND_INTERNAL libp2p_quic_conn_t *quic_backend_find_conn_by_packet(
     const libp2p_quic_endpoint_t *endpoint,
     const libp2p_quic_rx_datagram_t *datagram);
 
-QUIC_BACKEND_INTERNAL libp2p_quic_err_t quic_backend_handle_conn_error(libp2p_quic_conn_t *conn, int rv);
+QUIC_BACKEND_INTERNAL libp2p_quic_err_t
+quic_backend_handle_conn_error(libp2p_quic_conn_t *conn, int rv);
 
 QUIC_BACKEND_INTERNAL libp2p_quic_err_t quic_backend_write_conn_datagram(
     libp2p_quic_conn_t *conn,
     libp2p_quic_tx_datagram_t *datagram,
     libp2p_quic_time_us_t now_us);
 
-QUIC_BACKEND_INTERNAL libp2p_quic_err_t quic_backend_conn_state(
-    const libp2p_quic_conn_t *conn,
-    libp2p_quic_conn_state_t *out_state);
+QUIC_BACKEND_INTERNAL libp2p_quic_err_t
+quic_backend_conn_state(const libp2p_quic_conn_t *conn, libp2p_quic_conn_state_t *out_state);
 
 QUIC_BACKEND_INTERNAL libp2p_quic_err_t quic_backend_conn_peer_id(
     const libp2p_quic_conn_t *conn,
@@ -282,26 +309,22 @@ QUIC_BACKEND_INTERNAL libp2p_quic_err_t quic_backend_conn_peer_id(
     size_t out_len,
     size_t *written);
 
-QUIC_BACKEND_INTERNAL libp2p_quic_err_t quic_backend_conn_peer_identity(
-    const libp2p_quic_conn_t *conn,
-    libp2p_quic_peer_identity_t *out);
+QUIC_BACKEND_INTERNAL libp2p_quic_err_t
+quic_backend_conn_peer_identity(const libp2p_quic_conn_t *conn, libp2p_quic_peer_identity_t *out);
 
-QUIC_BACKEND_INTERNAL libp2p_quic_err_t quic_backend_conn_local_addr(
-    const libp2p_quic_conn_t *conn,
-    libp2p_quic_addr_t *out);
+QUIC_BACKEND_INTERNAL libp2p_quic_err_t
+quic_backend_conn_local_addr(const libp2p_quic_conn_t *conn, libp2p_quic_addr_t *out);
 
-QUIC_BACKEND_INTERNAL libp2p_quic_err_t quic_backend_conn_remote_addr(
-    const libp2p_quic_conn_t *conn,
-    libp2p_quic_addr_t *out);
+QUIC_BACKEND_INTERNAL libp2p_quic_err_t
+quic_backend_conn_remote_addr(const libp2p_quic_conn_t *conn, libp2p_quic_addr_t *out);
 
-QUIC_BACKEND_INTERNAL libp2p_quic_err_t quic_backend_conn_close(libp2p_quic_conn_t *conn, uint64_t app_error_code);
+QUIC_BACKEND_INTERNAL libp2p_quic_err_t
+quic_backend_conn_close(libp2p_quic_conn_t *conn, uint64_t app_error_code);
 
-QUIC_BACKEND_INTERNAL libp2p_quic_err_t quic_backend_conn_open_bidi_stream(
-    libp2p_quic_conn_t *conn,
-    libp2p_quic_stream_t **out_stream);
+QUIC_BACKEND_INTERNAL libp2p_quic_err_t
+quic_backend_conn_open_bidi_stream(libp2p_quic_conn_t *conn, libp2p_quic_stream_t **out_stream);
 
-QUIC_BACKEND_INTERNAL libp2p_quic_err_t quic_backend_conn_accept_stream(
-    libp2p_quic_conn_t *conn,
-    libp2p_quic_stream_t **out_stream);
+QUIC_BACKEND_INTERNAL libp2p_quic_err_t
+quic_backend_conn_accept_stream(libp2p_quic_conn_t *conn, libp2p_quic_stream_t **out_stream);
 
 #endif /* LIBP2P_TRANSPORT_QUIC_BACKEND_NGTCP2_INTERNAL_H */
