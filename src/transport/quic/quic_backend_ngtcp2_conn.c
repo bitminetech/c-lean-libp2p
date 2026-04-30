@@ -20,6 +20,8 @@
 #include "quic_backend_ngtcp2_internal.h"
 
 #define QUIC_BACKEND_DEBUG_MESSAGE_BYTES 96U
+#define QUIC_BACKEND_KEEP_ALIVE_TIMEOUT_US UINT64_C(2000000)
+#define QUIC_BACKEND_KEEP_ALIVE_IDLE_DIVISOR UINT64_C(2)
 
 static size_t quic_backend_debug_append_text(
     char *out,
@@ -150,6 +152,24 @@ static void quic_backend_transport_params_init(
     params->active_connection_id_limit = QUIC_BACKEND_ACTIVE_CID_LIMIT;
     params->max_datagram_frame_size = 0U;
     params->disable_active_migration = 1U;
+}
+
+static ngtcp2_duration quic_backend_keep_alive_timeout(
+    const libp2p_quic_endpoint_t *endpoint)
+{
+    libp2p_quic_time_us_t timeout_us = QUIC_BACKEND_KEEP_ALIVE_TIMEOUT_US;
+
+    if (endpoint->config.idle_timeout_us <
+        (QUIC_BACKEND_KEEP_ALIVE_TIMEOUT_US * QUIC_BACKEND_KEEP_ALIVE_IDLE_DIVISOR))
+    {
+        timeout_us = endpoint->config.idle_timeout_us / QUIC_BACKEND_KEEP_ALIVE_IDLE_DIVISOR;
+        if (timeout_us == 0U)
+        {
+            timeout_us = 1U;
+        }
+    }
+
+    return quic_backend_duration_to_ngtcp2(timeout_us);
 }
 
 static libp2p_quic_err_t quic_backend_random_cid(libp2p_quic_endpoint_t *endpoint, ngtcp2_cid *cid)
@@ -299,6 +319,9 @@ QUIC_BACKEND_INTERNAL libp2p_quic_err_t quic_backend_conn_client_new(
         if (result == LIBP2P_QUIC_OK)
         {
             ngtcp2_conn_set_tls_native_handle(conn->ngconn, conn->ssl);
+            ngtcp2_conn_set_keep_alive_timeout(
+                conn->ngconn,
+                quic_backend_keep_alive_timeout(endpoint));
             result = quic_backend_conn_add_to_endpoint(conn);
         }
         if (result == LIBP2P_QUIC_OK)
@@ -385,6 +408,9 @@ QUIC_BACKEND_INTERNAL libp2p_quic_err_t quic_backend_conn_server_new(
         if (result == LIBP2P_QUIC_OK)
         {
             ngtcp2_conn_set_tls_native_handle(conn->ngconn, conn->ssl);
+            ngtcp2_conn_set_keep_alive_timeout(
+                conn->ngconn,
+                quic_backend_keep_alive_timeout(endpoint));
             result = quic_backend_conn_add_to_endpoint(conn);
         }
         if (result == LIBP2P_QUIC_OK)
