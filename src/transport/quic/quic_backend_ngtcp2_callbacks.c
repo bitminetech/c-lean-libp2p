@@ -111,6 +111,10 @@ static int quic_backend_get_new_connection_id_cb(
     if ((conn == NULL) || (cid == NULL) || (token == NULL) || (cidlen == 0U) ||
         (cidlen > LIBP2P_QUIC_MAX_CONN_ID_BYTES))
     {
+        if (conn != NULL)
+        {
+            conn->callback_error = LIBP2P_QUIC_ERR_INVALID_ARG;
+        }
         result = NGTCP2_ERR_CALLBACK_FAILURE;
     }
     else if (
@@ -122,12 +126,67 @@ static int quic_backend_get_new_connection_id_cb(
              sizeof(token->data),
              conn->endpoint->config.random_user_data) != LIBP2P_QUIC_OK))
     {
+        conn->callback_error = LIBP2P_QUIC_ERR_INTERNAL;
         result = NGTCP2_ERR_CALLBACK_FAILURE;
     }
     else
     {
         cid->datalen = cidlen;
-        result = (quic_backend_conn_add_cid(conn, cid) == 0) ? 0 : NGTCP2_ERR_CALLBACK_FAILURE;
+        if (quic_backend_conn_add_cid(conn, cid) == 0)
+        {
+            result = 0;
+        }
+        else
+        {
+            conn->callback_error = LIBP2P_QUIC_ERR_LIMIT;
+            result = NGTCP2_ERR_CALLBACK_FAILURE;
+        }
+    }
+
+    return result;
+}
+
+static int quic_backend_remove_connection_id_cb(
+    ngtcp2_conn *ngconn,
+    const ngtcp2_cid *cid,
+    void *user_data)
+{
+    libp2p_quic_conn_t *conn = quic_backend_conn_from_memory(user_data);
+    uint8_t found = 0U;
+    size_t found_index = 0U;
+    int result = 0;
+
+    (void)ngconn;
+    if ((conn == NULL) || (cid == NULL))
+    {
+        if (conn != NULL)
+        {
+            conn->callback_error = LIBP2P_QUIC_ERR_INVALID_ARG;
+        }
+        result = NGTCP2_ERR_CALLBACK_FAILURE;
+    }
+    else
+    {
+        for (size_t index = 0U; (index < conn->cid_count) && (found == 0U); index++)
+        {
+            if (ngtcp2_cid_eq(&conn->cids[index], cid) != 0)
+            {
+                found = 1U;
+                found_index = index;
+            }
+        }
+
+        if (found != 0U)
+        {
+            const size_t last_index = conn->cid_count - 1U;
+
+            if (found_index != last_index)
+            {
+                conn->cids[found_index] = conn->cids[last_index];
+            }
+            (void)memset(&conn->cids[last_index], 0, sizeof(conn->cids[last_index]));
+            conn->cid_count = last_index;
+        }
     }
 
     return result;
@@ -528,6 +587,7 @@ QUIC_BACKEND_INTERNAL const ngtcp2_callbacks quic_backend_callbacks = {
     .delete_crypto_aead_ctx = ngtcp2_crypto_delete_crypto_aead_ctx_cb,
     .delete_crypto_cipher_ctx = ngtcp2_crypto_delete_crypto_cipher_ctx_cb,
     .version_negotiation = ngtcp2_crypto_version_negotiation_cb,
+    .remove_connection_id = quic_backend_remove_connection_id_cb,
     .get_new_connection_id2 = quic_backend_get_new_connection_id_cb,
     .get_path_challenge_data2 = quic_backend_get_path_challenge_data_cb,
 };

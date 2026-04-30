@@ -21,7 +21,11 @@
 
 #define QUIC_BACKEND_DEBUG_MESSAGE_BYTES 96U
 
-static size_t quic_backend_debug_append_text(char *out, size_t out_len, size_t pos, const char *text)
+static size_t quic_backend_debug_append_text(
+    char *out,
+    size_t out_len,
+    size_t pos,
+    const char *text)
 {
     size_t next = pos;
 
@@ -71,7 +75,11 @@ static void quic_backend_debug_conn_error(
     size_t pos = 0U;
     uint32_t magnitude = 0U;
 
-    pos = quic_backend_debug_append_text(message, sizeof(message), pos, "ngtcp2 connection error rv=");
+    pos = quic_backend_debug_append_text(
+        message,
+        sizeof(message),
+        pos,
+        "ngtcp2 connection error rv=");
     if (rv < 0)
     {
         pos = quic_backend_debug_append_text(message, sizeof(message), pos, "-");
@@ -683,6 +691,10 @@ QUIC_BACKEND_INTERNAL libp2p_quic_err_t quic_backend_write_conn_datagram(
         else
         {
             result = quic_backend_handle_conn_error(conn, (int)nwrite);
+            if (result == LIBP2P_QUIC_OK)
+            {
+                result = LIBP2P_QUIC_ERR_WOULD_BLOCK;
+            }
         }
     }
 
