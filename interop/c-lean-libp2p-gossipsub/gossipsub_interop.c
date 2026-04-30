@@ -682,9 +682,14 @@ static void gossipsub_interop_debug(const gossipsub_interop_app_t *app, const ch
     }
 }
 
+static uint8_t gossipsub_interop_trace_enabled(void)
+{
+    return (getenv("C_LEAN_LIBP2P_GOSSIPSUB_TRACE") != NULL) ? 1U : 0U;
+}
+
 static void gossipsub_interop_trace(const char *message)
 {
-    if ((message != NULL) && (getenv("C_LEAN_LIBP2P_GOSSIPSUB_TRACE") != NULL))
+    if ((message != NULL) && (gossipsub_interop_trace_enabled() != 0U))
     {
         (void)fprintf(stderr, "c-lean-gossipsub: %s\n", message);
         (void)fflush(stderr);
@@ -797,6 +802,97 @@ static void gossipsub_interop_log_message(const libp2p_gossipsub_event_t *event)
     gossipsub_interop_json_escape(stdout, (const char *)event->topic.data, event->topic.len);
     (void)printf("\",\"id\":\"%llu\"}\n", (unsigned long long)message_id);
     (void)fflush(stdout);
+}
+
+static const char *gossipsub_interop_event_name(libp2p_gossipsub_event_type_t type)
+{
+    const char *result = "unknown";
+
+    switch (type)
+    {
+        case LIBP2P_GOSSIPSUB_EVENT_PEER_OPENED:
+            result = "peer_opened";
+            break;
+        case LIBP2P_GOSSIPSUB_EVENT_PEER_CLOSED:
+            result = "peer_closed";
+            break;
+        case LIBP2P_GOSSIPSUB_EVENT_PEER_FAILED:
+            result = "peer_failed";
+            break;
+        case LIBP2P_GOSSIPSUB_EVENT_SUBSCRIPTION:
+            result = "subscription";
+            break;
+        case LIBP2P_GOSSIPSUB_EVENT_MESSAGE:
+            result = "message";
+            break;
+        case LIBP2P_GOSSIPSUB_EVENT_IDONTWANT:
+            result = "idontwant";
+            break;
+        case LIBP2P_GOSSIPSUB_EVENT_DROPPED:
+            result = "dropped";
+            break;
+        case LIBP2P_GOSSIPSUB_EVENT_ERROR:
+            result = "error";
+            break;
+        case LIBP2P_GOSSIPSUB_EVENT_NONE:
+        default:
+            result = "none";
+            break;
+    }
+
+    return result;
+}
+
+static void gossipsub_interop_trace_event(const libp2p_gossipsub_event_t *event)
+{
+    char peer_text[GOSSIPSUB_INTEROP_PEER_ID_TEXT_BYTES];
+    size_t peer_text_len = 0U;
+    uint64_t message_id = 0U;
+
+    if ((event != NULL) && (gossipsub_interop_trace_enabled() != 0U))
+    {
+        if ((event->peer.len != 0U) &&
+            (libp2p_peer_id_to_string(
+                 event->peer.data,
+                 event->peer.len,
+                 peer_text,
+                 sizeof(peer_text),
+                 &peer_text_len) != LIBP2P_PEER_ID_OK))
+        {
+            peer_text_len = 0U;
+        }
+        if ((event->message.data.data != NULL) && (event->message.data.len >= 8U))
+        {
+            message_id = gossipsub_interop_message_id_from_bytes(
+                event->message.data.data,
+                event->message.data.len);
+        }
+
+        (void)fprintf(
+            stderr,
+            "c-lean-gossipsub: event=%s type=%u peer=\"",
+            gossipsub_interop_event_name(event->type),
+            (unsigned int)event->type);
+        if (peer_text_len != 0U)
+        {
+            gossipsub_interop_json_escape(stderr, peer_text, peer_text_len);
+        }
+        (void)fprintf(stderr, "\" topic=\"");
+        if ((event->topic.data != NULL) && (event->topic.len != 0U))
+        {
+            gossipsub_interop_json_escape(stderr, (const char *)event->topic.data, event->topic.len);
+        }
+        (void)fprintf(
+            stderr,
+            "\" message_id=%llu drop=%u reason=%u version=%u direction=%u validation=%u\n",
+            (unsigned long long)message_id,
+            (unsigned int)event->drop_reason,
+            (unsigned int)event->reason,
+            (unsigned int)event->protocol_version,
+            (unsigned int)event->direction,
+            (event->validation != NULL) ? 1U : 0U);
+        (void)fflush(stderr);
+    }
 }
 
 static libp2p_gossipsub_err_t gossipsub_interop_message_id_fn(
@@ -1566,6 +1662,19 @@ static gossipsub_interop_err_t gossipsub_interop_publish(
         publish.message_id.data = NULL;
         publish.message_id.len = 0U;
         publish.user_data = NULL;
+        if (gossipsub_interop_trace_enabled() != 0U)
+        {
+            (void)fprintf(
+                stderr,
+                "c-lean-gossipsub: publish message_id=%llu topic=\"",
+                (unsigned long long)instruction->message_id);
+            gossipsub_interop_json_escape(
+                stderr,
+                (const char *)instruction->topic,
+                instruction->topic_len);
+            (void)fprintf(stderr, "\" bytes=%zu\n", instruction->message_size_bytes);
+            (void)fflush(stderr);
+        }
         if (libp2p_gossipsub_publish(app->gossipsub, &publish, NULL, 0U, NULL) !=
             LIBP2P_GOSSIPSUB_OK)
         {
@@ -1775,6 +1884,7 @@ static gossipsub_interop_err_t gossipsub_interop_drain_gossipsub_events(
     while ((result == GOSSIPSUB_INTEROP_OK) &&
            (libp2p_gossipsub_next_event(app->gossipsub, &event) == LIBP2P_GOSSIPSUB_OK))
     {
+        gossipsub_interop_trace_event(&event);
         if (event.type == LIBP2P_GOSSIPSUB_EVENT_MESSAGE)
         {
             gossipsub_interop_log_message(&event);
