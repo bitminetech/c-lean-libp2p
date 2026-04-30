@@ -276,46 +276,49 @@ QUIC_BACKEND_INTERNAL libp2p_quic_err_t quic_backend_stream_write(
 
     if (result == LIBP2P_QUIC_OK)
     {
-        const size_t limit = stream->conn->endpoint->config.initial_stream_window_bytes *
-                             QUIC_BACKEND_STREAM_SEND_MULTIPLIER;
-        if ((quic_backend_size_add_overflow(stream->tx_len, data_len, &required) != 0) ||
-            (required > limit))
+        size_t limit = 0U;
+
+        if (stream->conn->endpoint->config.initial_stream_window_bytes >
+            (SIZE_MAX / QUIC_BACKEND_STREAM_SEND_MULTIPLIER))
+        {
+            result = LIBP2P_QUIC_ERR_LIMIT;
+        }
+        else
+        {
+            limit = stream->conn->endpoint->config.initial_stream_window_bytes *
+                    QUIC_BACKEND_STREAM_SEND_MULTIPLIER;
+        }
+        if ((result == LIBP2P_QUIC_OK) &&
+            ((quic_backend_size_add_overflow(stream->tx_len, data_len, &required) != 0) ||
+             (required > limit)))
         {
             result = LIBP2P_QUIC_ERR_WOULD_BLOCK;
         }
-    }
 
-    if ((result == LIBP2P_QUIC_OK) && (required > stream->tx_cap))
-    {
-        size_t new_cap = 1024U;
-
-        if (stream->tx_cap != 0U)
+        if ((result == LIBP2P_QUIC_OK) && (required > stream->tx_cap))
         {
-            new_cap = stream->tx_cap * 2U;
-        }
-        while ((new_cap < required) && (result == LIBP2P_QUIC_OK))
-        {
-            if (new_cap > (SIZE_MAX / 2U))
+            if (stream->tx_cap != 0U)
             {
-                result = LIBP2P_QUIC_ERR_LIMIT;
+                result = LIBP2P_QUIC_ERR_WOULD_BLOCK;
             }
             else
             {
-                new_cap *= 2U;
-            }
-        }
-        if (result == LIBP2P_QUIC_OK)
-        {
-            new_data =
-                quic_backend_bytes_from_memory(quic_backend_realloc(stream->conn->endpoint, stream->tx_data, new_cap));
-            if (new_data == NULL)
-            {
-                result = LIBP2P_QUIC_ERR_NO_MEMORY;
-            }
-            else
-            {
-                stream->tx_data = new_data;
-                stream->tx_cap = new_cap;
+                /*
+                 * ngtcp2 retains pointers to submitted stream bytes until ACK
+                 * or stream close. Allocate the per-stream send window once so
+                 * later writes cannot move data still eligible for retransmit.
+                 */
+                new_data = quic_backend_bytes_from_memory(
+                    quic_backend_realloc(stream->conn->endpoint, stream->tx_data, limit));
+                if (new_data == NULL)
+                {
+                    result = LIBP2P_QUIC_ERR_NO_MEMORY;
+                }
+                else
+                {
+                    stream->tx_data = new_data;
+                    stream->tx_cap = limit;
+                }
             }
         }
     }
