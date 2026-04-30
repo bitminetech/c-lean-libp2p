@@ -19,9 +19,9 @@
 
 #include "quic_backend_ngtcp2_internal.h"
 
-#define QUIC_BACKEND_DEBUG_MESSAGE_BYTES 96U
-#define QUIC_BACKEND_KEEP_ALIVE_TIMEOUT_US UINT64_C(2000000)
-#define QUIC_BACKEND_KEEP_ALIVE_IDLE_DIVISOR UINT64_C(2)
+#define QUIC_BACKEND_DEBUG_MESSAGE_BYTES     96U
+#define QUIC_BACKEND_KEEP_ALIVE_TIMEOUT_US   ((libp2p_quic_time_us_t)2000000U)
+#define QUIC_BACKEND_KEEP_ALIVE_IDLE_DIVISOR ((libp2p_quic_time_us_t)2U)
 
 static size_t quic_backend_debug_append_text(
     char *out,
@@ -33,11 +33,13 @@ static size_t quic_backend_debug_append_text(
 
     if ((out != NULL) && (text != NULL))
     {
-        while ((text[0] != '\0') && (next < out_len))
+        size_t text_index = 0U;
+
+        while ((text[text_index] != '\0') && (next < out_len))
         {
-            out[next] = text[0];
+            out[next] = text[text_index];
             next++;
-            text = &text[1];
+            text_index++;
         }
     }
 
@@ -154,8 +156,7 @@ static void quic_backend_transport_params_init(
     params->disable_active_migration = 1U;
 }
 
-static ngtcp2_duration quic_backend_keep_alive_timeout(
-    const libp2p_quic_endpoint_t *endpoint)
+static ngtcp2_duration quic_backend_keep_alive_timeout(const libp2p_quic_endpoint_t *endpoint)
 {
     libp2p_quic_time_us_t timeout_us = QUIC_BACKEND_KEEP_ALIVE_TIMEOUT_US;
 

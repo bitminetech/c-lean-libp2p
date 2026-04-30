@@ -152,8 +152,6 @@ static int quic_backend_remove_connection_id_cb(
     void *user_data)
 {
     libp2p_quic_conn_t *conn = quic_backend_conn_from_memory(user_data);
-    uint8_t found = 0U;
-    size_t found_index = 0U;
     int result = 0;
 
     (void)ngconn;
@@ -167,6 +165,9 @@ static int quic_backend_remove_connection_id_cb(
     }
     else
     {
+        uint8_t found = 0U;
+        size_t found_index = 0U;
+
         for (size_t index = 0U; (index < conn->cid_count) && (found == 0U); index++)
         {
             if (ngtcp2_cid_eq(&conn->cids[index], cid) != 0)

@@ -344,7 +344,6 @@ libp2p_host_err_t gossipsub_protocol_on_open(
     gossipsub_stream_state_t *stream_state = NULL;
     size_t peer_index = 0U;
     size_t stream_index = 0U;
-    size_t topic_index = 0U;
     libp2p_gossipsub_event_t event;
     libp2p_gossipsub_err_t result = LIBP2P_GOSSIPSUB_OK;
 
@@ -397,9 +396,8 @@ libp2p_host_err_t gossipsub_protocol_on_open(
     }
     if ((result == LIBP2P_GOSSIPSUB_OK) && (peer->stream != NULL))
     {
-        for (topic_index = 0U;
-             (result == LIBP2P_GOSSIPSUB_OK) &&
-             (topic_index < gossipsub->config.capacity.max_topics);
+        for (size_t topic_index = 0U; (result == LIBP2P_GOSSIPSUB_OK) &&
+                                      (topic_index < gossipsub->config.capacity.max_topics);
              topic_index++)
         {
             if ((gossipsub->topics[topic_index].used == GOSSIPSUB_TOPIC_USED) &&

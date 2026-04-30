@@ -149,17 +149,23 @@ static libp2p_quic_service_t *quic_service_storage_service(void *storage)
     return service;
 }
 
-static size_t quic_service_debug_append_text(char *out, size_t out_len, size_t pos, const char *text)
+static size_t quic_service_debug_append_text(
+    char *out,
+    size_t out_len,
+    size_t pos,
+    const char *text)
 {
     size_t next = pos;
 
     if ((out != NULL) && (text != NULL))
     {
-        while ((text[0] != '\0') && (next < out_len))
+        size_t text_index = 0U;
+
+        while ((text[text_index] != '\0') && (next < out_len))
         {
-            out[next] = text[0];
+            out[next] = text[text_index];
             next++;
-            text = &text[1];
+            text_index++;
         }
     }
 

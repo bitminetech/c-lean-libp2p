@@ -339,7 +339,6 @@ libp2p_gossipsub_err_t gossipsub_enqueue_idontwant_for_received_entry(
     const gossipsub_mcache_entry_t *entry)
 {
     size_t topic_index = 0U;
-    size_t peer_index = 0U;
     libp2p_gossipsub_err_t result = LIBP2P_GOSSIPSUB_OK;
 
     if ((gossipsub == NULL) || (topic == NULL) || (entry == NULL))
@@ -352,7 +351,7 @@ libp2p_gossipsub_err_t gossipsub_enqueue_idontwant_for_received_entry(
     }
     else
     {
-        for (peer_index = 0U;
+        for (size_t peer_index = 0U;
              (result == LIBP2P_GOSSIPSUB_OK) && (peer_index < gossipsub->config.capacity.max_peers);
              peer_index++)
         {
@@ -374,10 +373,10 @@ void gossipsub_drop_queued_publish(
     const uint8_t *message_id,
     size_t message_id_len)
 {
-    size_t index = 0U;
-
     if ((gossipsub != NULL) && (message_id != NULL))
     {
+        size_t index = 0U;
+
         while (index < gossipsub->tx_queue_len)
         {
             const gossipsub_tx_item_t *item = &gossipsub->tx_queue[index];
