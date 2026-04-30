@@ -546,6 +546,11 @@ libp2p_gossipsub_err_t gossipsub_enqueue_publish_entry(
     libp2p_gossipsub_t *gossipsub,
     size_t peer_index,
     const gossipsub_mcache_entry_t *entry);
+libp2p_gossipsub_err_t gossipsub_enqueue_idontwant_for_entry(
+    libp2p_gossipsub_t *gossipsub,
+    size_t peer_index,
+    const gossipsub_topic_state_t *topic,
+    const gossipsub_mcache_entry_t *entry);
 libp2p_gossipsub_err_t gossipsub_flush_peer(
     libp2p_gossipsub_t *gossipsub,
     libp2p_host_t *host,

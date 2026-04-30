@@ -189,22 +189,7 @@ libp2p_gossipsub_err_t libp2p_gossipsub_publish(
             if ((gossipsub->peers[peer_index].used == GOSSIPSUB_PEER_USED) &&
                 (gossipsub->peers[peer_index].stream != NULL))
             {
-                if ((gossipsub->peers[peer_index].version == LIBP2P_GOSSIPSUB_VERSION_12) &&
-                    (gossipsub->config.enable_idontwant != 0U) && (topic->enable_idontwant != 0U) &&
-                    (publish->data.len >= topic->idontwant_min_message_bytes) &&
-                    (gossipsub->peers[peer_index].idontwant_sent_this_heartbeat <
-                     gossipsub->config.max_idontwant_messages_per_peer_per_heartbeat))
-                {
-                    result = gossipsub_enqueue_idontwant(
-                        gossipsub,
-                        peer_index,
-                        message_id,
-                        message_id_len);
-                    if (result == LIBP2P_GOSSIPSUB_OK)
-                    {
-                        gossipsub->peers[peer_index].idontwant_sent_this_heartbeat++;
-                    }
-                }
+                result = gossipsub_enqueue_idontwant_for_entry(gossipsub, peer_index, topic, entry);
                 if ((result == LIBP2P_GOSSIPSUB_OK) &&
                     ((gossipsub_peer_subscribed(gossipsub, peer_index, topic_index) != 0) ||
                      (gossipsub->config.mesh.enable_flood_publish != 0U)))

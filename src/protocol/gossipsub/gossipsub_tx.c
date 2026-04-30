@@ -202,6 +202,44 @@ libp2p_gossipsub_err_t gossipsub_enqueue_publish_entry(
     return gossipsub_enqueue_rpc(gossipsub, peer_index, &rpc);
 }
 
+libp2p_gossipsub_err_t gossipsub_enqueue_idontwant_for_entry(
+    libp2p_gossipsub_t *gossipsub,
+    size_t peer_index,
+    const gossipsub_topic_state_t *topic,
+    const gossipsub_mcache_entry_t *entry)
+{
+    libp2p_gossipsub_err_t result = LIBP2P_GOSSIPSUB_OK;
+
+    if ((gossipsub == NULL) || (topic == NULL) || (entry == NULL) ||
+        (peer_index >= gossipsub->config.capacity.max_peers))
+    {
+        result = LIBP2P_GOSSIPSUB_ERR_INVALID_ARG;
+    }
+    else if (
+        (gossipsub->peers[peer_index].version == LIBP2P_GOSSIPSUB_VERSION_12) &&
+        (gossipsub->config.enable_idontwant != 0U) && (topic->enable_idontwant != 0U) &&
+        (entry->data_len >= topic->idontwant_min_message_bytes) &&
+        (gossipsub->peers[peer_index].idontwant_sent_this_heartbeat <
+         gossipsub->config.max_idontwant_messages_per_peer_per_heartbeat))
+    {
+        result = gossipsub_enqueue_idontwant(
+            gossipsub,
+            peer_index,
+            entry->message_id,
+            entry->message_id_len);
+        if (result == LIBP2P_GOSSIPSUB_OK)
+        {
+            gossipsub->peers[peer_index].idontwant_sent_this_heartbeat++;
+        }
+    }
+    else
+    {
+        result = LIBP2P_GOSSIPSUB_OK;
+    }
+
+    return result;
+}
+
 libp2p_gossipsub_err_t gossipsub_flush_peer(
     libp2p_gossipsub_t *gossipsub,
     libp2p_host_t *host,
@@ -310,11 +348,13 @@ libp2p_gossipsub_err_t gossipsub_forward_entry(
                  entry->message_id_len,
                  gossipsub->next_heartbeat_us) == 0))
         {
-            result = gossipsub_enqueue_publish_entry(gossipsub, peer_index, entry);
+            result = gossipsub_enqueue_idontwant_for_entry(gossipsub, peer_index, topic, entry);
+            if (result == LIBP2P_GOSSIPSUB_OK)
+            {
+                result = gossipsub_enqueue_publish_entry(gossipsub, peer_index, entry);
+            }
         }
     }
-    (void)topic;
-
     return result;
 }
 
