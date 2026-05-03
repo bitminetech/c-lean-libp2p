@@ -790,7 +790,7 @@ static void quic_endpoint_test_stream_write_backpressure(void)
 
     assert(libp2p_quic_conn_open_bidi_stream(client_conn, &client_stream) == LIBP2P_QUIC_OK);
     assert(
-        libp2p_quic_stream_write(client_stream, payload, sizeof(payload), 1, &first_accepted) ==
+        libp2p_quic_stream_write(client_stream, payload, sizeof(payload), 0, &first_accepted) ==
         LIBP2P_QUIC_OK);
     assert(first_accepted == 4096U);
     assert(
@@ -798,9 +798,9 @@ static void quic_endpoint_test_stream_write_backpressure(void)
             client_stream,
             &payload[first_accepted],
             sizeof(payload) - first_accepted,
-            1,
-            &accepted) == LIBP2P_QUIC_ERR_WOULD_BLOCK);
-    assert(accepted == 0U);
+            0,
+            &accepted) == LIBP2P_QUIC_OK);
+    assert(accepted == (sizeof(payload) - first_accepted));
 
     for (index = 0U; (index < 1000U) && (writable_count == 0U); index++)
     {
@@ -809,14 +809,7 @@ static void quic_endpoint_test_stream_write_backpressure(void)
     }
     assert(writable_count != 0U);
 
-    assert(
-        libp2p_quic_stream_write(
-            client_stream,
-            &payload[first_accepted],
-            sizeof(payload) - first_accepted,
-            1,
-            &accepted) == LIBP2P_QUIC_OK);
-    assert(accepted == (sizeof(payload) - first_accepted));
+    assert(libp2p_quic_stream_finish(client_stream) == LIBP2P_QUIC_OK);
 
     for (index = 0U; (index < 1000U) && (fin == 0); index++)
     {

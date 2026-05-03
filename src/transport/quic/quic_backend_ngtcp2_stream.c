@@ -276,7 +276,6 @@ QUIC_BACKEND_INTERNAL libp2p_quic_err_t quic_backend_stream_write(
     size_t required = 0U;
     size_t accept_len = data_len;
     uint8_t *new_data = NULL;
-    const uint8_t fin_only = ((data_len == 0U) && (fin != 0)) ? 1U : 0U;
     uint32_t block_reason = 0U;
     libp2p_quic_err_t result = quic_backend_validate_stream(stream);
 
@@ -292,12 +291,6 @@ QUIC_BACKEND_INTERNAL libp2p_quic_err_t quic_backend_stream_write(
     {
         result = LIBP2P_QUIC_ERR_CLOSED;
     }
-    if ((result == LIBP2P_QUIC_OK) && (fin_only == 0U) && (stream->tx_sent_len < stream->tx_len))
-    {
-        result = LIBP2P_QUIC_ERR_WOULD_BLOCK;
-        block_reason = 1U;
-    }
-
     if (result == LIBP2P_QUIC_OK)
     {
         size_t limit = 0U;
