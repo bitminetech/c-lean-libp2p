@@ -189,7 +189,7 @@ QUIC_BACKEND_INTERNAL libp2p_quic_err_t quic_backend_stream_read(
     size_t *read_len,
     int *fin)
 {
-    libp2p_quic_err_t result = quic_backend_validate_stream(stream);
+    libp2p_quic_err_t result = LIBP2P_QUIC_OK;
 
     if (read_len != NULL)
     {
@@ -198,6 +198,22 @@ QUIC_BACKEND_INTERNAL libp2p_quic_err_t quic_backend_stream_read(
     if (fin != NULL)
     {
         *fin = 0;
+    }
+    if ((stream == NULL) || (stream->magic != QUIC_BACKEND_STREAM_MAGIC) ||
+        (stream->conn == NULL) || (stream->conn->magic != QUIC_BACKEND_CONN_MAGIC))
+    {
+        result = LIBP2P_QUIC_ERR_INVALID_ARG;
+    }
+    else if (stream->state == LIBP2P_QUIC_STREAM_RESET)
+    {
+        result = LIBP2P_QUIC_ERR_CLOSED;
+    }
+    else if (
+        (stream->state == LIBP2P_QUIC_STREAM_CLOSED) &&
+        (stream->rx_read_offset == stream->rx_len) &&
+        ((stream->remote_fin == 0U) || (stream->remote_fin_delivered != 0U)))
+    {
+        result = LIBP2P_QUIC_ERR_CLOSED;
     }
     if ((result == LIBP2P_QUIC_OK) &&
         ((read_len == NULL) || (fin == NULL) || ((out == NULL) && (out_len != 0U))))
@@ -260,6 +276,7 @@ QUIC_BACKEND_INTERNAL libp2p_quic_err_t quic_backend_stream_write(
     size_t required = 0U;
     size_t accept_len = data_len;
     uint8_t *new_data = NULL;
+    const uint8_t fin_only = ((data_len == 0U) && (fin != 0)) ? 1U : 0U;
     libp2p_quic_err_t result = quic_backend_validate_stream(stream);
 
     if (accepted != NULL)
@@ -274,7 +291,7 @@ QUIC_BACKEND_INTERNAL libp2p_quic_err_t quic_backend_stream_write(
     {
         result = LIBP2P_QUIC_ERR_CLOSED;
     }
-    if ((result == LIBP2P_QUIC_OK) && (stream->tx_sent_len < stream->tx_len))
+    if ((result == LIBP2P_QUIC_OK) && (fin_only == 0U) && (stream->tx_sent_len < stream->tx_len))
     {
         result = LIBP2P_QUIC_ERR_WOULD_BLOCK;
     }

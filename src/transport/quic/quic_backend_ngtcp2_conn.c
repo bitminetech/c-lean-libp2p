@@ -669,7 +669,8 @@ QUIC_BACKEND_INTERNAL libp2p_quic_err_t quic_backend_write_conn_datagram(
                 vec_ptr = &vec;
                 vec_count = 1U;
             }
-            if ((stream->local_fin_queued != 0U) && (stream->local_fin_sent == 0U))
+            if ((stream->local_fin_queued != 0U) && (stream->local_fin_sent == 0U) &&
+                (remaining == 0U))
             {
                 flags |= NGTCP2_WRITE_STREAM_FLAG_FIN;
             }

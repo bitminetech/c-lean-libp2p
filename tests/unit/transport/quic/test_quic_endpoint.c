@@ -687,9 +687,10 @@ static void quic_endpoint_test_handshake_and_stream(void)
 
     assert(libp2p_quic_conn_open_bidi_stream(client_conn, &client_stream) == LIBP2P_QUIC_OK);
     assert(
-        libp2p_quic_stream_write(client_stream, message, sizeof(message), 1, &accepted) ==
+        libp2p_quic_stream_write(client_stream, message, sizeof(message), 0, &accepted) ==
         LIBP2P_QUIC_OK);
     assert(accepted == sizeof(message));
+    assert(libp2p_quic_stream_finish(client_stream) == LIBP2P_QUIC_OK);
 
     while ((server_stream == NULL) || (readable_count == 0U))
     {

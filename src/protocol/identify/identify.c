@@ -959,6 +959,7 @@ static libp2p_host_err_t identify_on_event(
         if (slot == NULL)
         {
             if ((kind != LIBP2P_HOST_PROTOCOL_EVENT_READABLE) &&
+                (kind != LIBP2P_HOST_PROTOCOL_EVENT_WRITABLE) &&
                 (kind != LIBP2P_HOST_PROTOCOL_EVENT_RESET) &&
                 (kind != LIBP2P_HOST_PROTOCOL_EVENT_CLOSED))
             {
