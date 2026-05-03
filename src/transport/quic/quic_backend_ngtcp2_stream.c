@@ -258,6 +258,7 @@ QUIC_BACKEND_INTERNAL libp2p_quic_err_t quic_backend_stream_write(
     size_t *accepted)
 {
     size_t required = 0U;
+    size_t accept_len = data_len;
     uint8_t *new_data = NULL;
     libp2p_quic_err_t result = quic_backend_validate_stream(stream);
 
@@ -272,6 +273,10 @@ QUIC_BACKEND_INTERNAL libp2p_quic_err_t quic_backend_stream_write(
     if ((result == LIBP2P_QUIC_OK) && (stream->local_fin_queued != 0U))
     {
         result = LIBP2P_QUIC_ERR_CLOSED;
+    }
+    if ((result == LIBP2P_QUIC_OK) && (stream->tx_sent_len < stream->tx_len))
+    {
+        result = LIBP2P_QUIC_ERR_WOULD_BLOCK;
     }
 
     if (result == LIBP2P_QUIC_OK)
@@ -288,8 +293,12 @@ QUIC_BACKEND_INTERNAL libp2p_quic_err_t quic_backend_stream_write(
             limit = stream->conn->endpoint->config.initial_stream_window_bytes *
                     QUIC_BACKEND_STREAM_SEND_MULTIPLIER;
         }
+        if (accept_len > QUIC_BACKEND_STREAM_WRITE_CHUNK)
+        {
+            accept_len = QUIC_BACKEND_STREAM_WRITE_CHUNK;
+        }
         if ((result == LIBP2P_QUIC_OK) &&
-            ((quic_backend_size_add_overflow(stream->tx_len, data_len, &required) != 0) ||
+            ((quic_backend_size_add_overflow(stream->tx_len, accept_len, &required) != 0) ||
              (required > limit)))
         {
             result = LIBP2P_QUIC_ERR_WOULD_BLOCK;
@@ -325,13 +334,13 @@ QUIC_BACKEND_INTERNAL libp2p_quic_err_t quic_backend_stream_write(
 
     if (result == LIBP2P_QUIC_OK)
     {
-        if (data_len != 0U)
+        if (accept_len != 0U)
         {
-            (void)memcpy(&stream->tx_data[stream->tx_len], data, data_len);
-            stream->tx_len += data_len;
-            *accepted = data_len;
+            (void)memcpy(&stream->tx_data[stream->tx_len], data, accept_len);
+            stream->tx_len += accept_len;
+            *accepted = accept_len;
         }
-        if (fin != 0)
+        if ((fin != 0) && (accept_len == data_len))
         {
             stream->local_fin_queued = 1U;
         }
