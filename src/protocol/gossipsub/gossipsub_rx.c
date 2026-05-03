@@ -45,6 +45,16 @@ libp2p_gossipsub_err_t gossipsub_process_subscription(
             result = gossipsub_event_push(gossipsub, &event);
         }
     }
+    if ((result == LIBP2P_GOSSIPSUB_OK) && (topic != NULL) && (sub->subscribe != 0U) &&
+        (topic->local_subscribed != 0U) &&
+        (gossipsub_mesh_count_topic(gossipsub, topic_index) < gossipsub->config.mesh.d_low))
+    {
+        result = gossipsub_mesh_fill_topic(gossipsub, topic_index, gossipsub->config.mesh.d, 1U);
+    }
+    else if ((result == LIBP2P_GOSSIPSUB_OK) && (sub != NULL) && (sub->subscribe == 0U))
+    {
+        gossipsub_mesh_remove(gossipsub, peer_index, topic_index);
+    }
 
     return result;
 }
@@ -245,6 +255,50 @@ libp2p_gossipsub_err_t gossipsub_process_rpc(
                 peer_index,
                 &rpc->control.idontwant[index],
                 now_us);
+        }
+        for (size_t index = 0U;
+             (result == LIBP2P_GOSSIPSUB_OK) && (index < rpc->control.graft_count);
+             index++)
+        {
+            size_t topic_index = 0U;
+            const gossipsub_topic_state_t *topic = gossipsub_find_or_add_topic(
+                gossipsub,
+                rpc->control.graft[index].topic,
+                &topic_index);
+
+            if (topic == NULL)
+            {
+                result = LIBP2P_GOSSIPSUB_ERR_LIMIT;
+            }
+            else if (topic->local_subscribed == 0U)
+            {
+                result = gossipsub_enqueue_prune(gossipsub, peer_index, topic);
+            }
+            else if (
+                (gossipsub_mesh_contains(gossipsub, peer_index, topic_index) != 0) ||
+                (gossipsub_mesh_count_topic(gossipsub, topic_index) < gossipsub->config.mesh.d_high))
+            {
+                result = gossipsub_mesh_add(gossipsub, peer_index, topic_index);
+            }
+            else
+            {
+                result = gossipsub_enqueue_prune(gossipsub, peer_index, topic);
+            }
+        }
+        for (size_t index = 0U;
+             (result == LIBP2P_GOSSIPSUB_OK) && (index < rpc->control.prune_count);
+             index++)
+        {
+            size_t topic_index = 0U;
+
+            if (gossipsub_find_topic(
+                    gossipsub,
+                    rpc->control.prune[index].topic.data,
+                    rpc->control.prune[index].topic.len,
+                    &topic_index) != NULL)
+            {
+                gossipsub_mesh_remove(gossipsub, peer_index, topic_index);
+            }
         }
         for (size_t index = 0U;
              (result == LIBP2P_GOSSIPSUB_OK) && (index < rpc->control.iwant_count);

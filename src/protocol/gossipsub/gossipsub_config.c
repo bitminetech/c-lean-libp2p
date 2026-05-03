@@ -19,6 +19,7 @@ libp2p_gossipsub_err_t gossipsub_config_validate_storage(const libp2p_gossipsub_
     {
         if ((config->capacity.max_topics == 0U) || (config->capacity.max_peers == 0U) ||
             (config->capacity.max_peer_topics == 0U) || (config->capacity.max_streams == 0U) ||
+            (config->capacity.max_mesh_edges == 0U) ||
             (config->capacity.max_tx_rpc_queue == 0U) || (config->capacity.tx_buffer_bytes == 0U) ||
             (config->capacity.mcache_slots == 0U) || (config->capacity.mcache_bytes == 0U) ||
             (config->capacity.seen_entries == 0U) || (config->capacity.pending_validations == 0U) ||
@@ -117,6 +118,24 @@ libp2p_gossipsub_err_t gossipsub_storage_layout(
                 GOSSIPSUB_STORAGE_ALIGN,
                 bytes,
                 &layout->peer_topics_offset);
+        }
+    }
+    if (result == LIBP2P_GOSSIPSUB_OK)
+    {
+        if (gossipsub_size_mul(
+                config->capacity.max_mesh_edges,
+                sizeof(gossipsub_mesh_edge_state_t),
+                &bytes) != 0)
+        {
+            result = LIBP2P_GOSSIPSUB_ERR_LIMIT;
+        }
+        else
+        {
+            result = gossipsub_reserve(
+                &cursor,
+                GOSSIPSUB_STORAGE_ALIGN,
+                bytes,
+                &layout->mesh_edges_offset);
         }
     }
     if (result == LIBP2P_GOSSIPSUB_OK)
@@ -440,6 +459,8 @@ libp2p_gossipsub_err_t libp2p_gossipsub_init(
         gossipsub_pointer_store((void *)&gossipsub->peers, storage_ptr);
         storage_ptr = gossipsub_storage_at(storage, layout.peer_topics_offset);
         gossipsub_pointer_store((void *)&gossipsub->peer_topics, storage_ptr);
+        storage_ptr = gossipsub_storage_at(storage, layout.mesh_edges_offset);
+        gossipsub_pointer_store((void *)&gossipsub->mesh_edges, storage_ptr);
         storage_ptr = gossipsub_storage_at(storage, layout.streams_offset);
         gossipsub_pointer_store((void *)&gossipsub->streams, storage_ptr);
         storage_ptr = gossipsub_storage_at(storage, layout.tx_queue_offset);

@@ -95,6 +95,19 @@ static void gossipsub_test_attach_peer(
     gossipsub->peers[peer_index].version = LIBP2P_GOSSIPSUB_VERSION_12;
 }
 
+static void gossipsub_test_mark_peer_subscribed(
+    libp2p_gossipsub_t *gossipsub,
+    size_t peer_index,
+    size_t topic_index)
+{
+    gossipsub_peer_topic_state_t *edge = NULL;
+
+    assert(gossipsub != NULL);
+    edge = gossipsub_find_or_add_peer_topic(gossipsub, peer_index, topic_index);
+    assert(edge != NULL);
+    edge->subscribed = 1U;
+}
+
 static libp2p_gossipsub_err_t gossipsub_test_random(uint8_t *out, size_t out_len, void *user_data)
 {
     gossipsub_test_runtime_t *runtime = (gossipsub_test_runtime_t *)user_data;
@@ -716,6 +729,174 @@ static void gossipsub_test_stale_head_message_drops_without_write(void)
     free(storage);
 }
 
+static void gossipsub_test_remote_subscriptions_fill_mesh(void)
+{
+    static const uint8_t topic[] = "blocks";
+    gossipsub_test_runtime_t runtime = {37U};
+    gossipsub_test_write_stream_t write0 = {0U, 0U, 0U, 0U};
+    gossipsub_test_write_stream_t write1 = {0U, 0U, 0U, 0U};
+    libp2p_gossipsub_config_t config;
+    libp2p_gossipsub_t *gossipsub = NULL;
+    libp2p_host_t host;
+    libp2p_host_transport_vtable_t transport;
+    libp2p_host_stream_t stream0;
+    libp2p_host_stream_t stream1;
+    libp2p_gossipsub_topic_config_t topic_config;
+    libp2p_gossipsub_rpc_subscription_t sub;
+    void *storage = NULL;
+    size_t storage_len = 0U;
+    size_t topic_index = 0U;
+
+    gossipsub_test_config_small(&config, &runtime);
+    config.mesh.d = 2U;
+    config.mesh.d_low = 2U;
+    config.mesh.d_high = 3U;
+    assert(libp2p_gossipsub_storage_size(&config, &storage_len) == LIBP2P_GOSSIPSUB_OK);
+    storage = calloc(1U, storage_len);
+    assert(storage != NULL);
+    assert(libp2p_gossipsub_init(storage, storage_len, &config, &gossipsub) == LIBP2P_GOSSIPSUB_OK);
+    gossipsub_test_fake_host_stream(&host, &transport, &stream0, &write0);
+    gossipsub_test_fake_host_stream(&host, &transport, &stream1, &write1);
+    gossipsub_test_attach_peer(gossipsub, 0U, &stream0);
+    gossipsub_test_attach_peer(gossipsub, 1U, &stream1);
+
+    (void)memset(&topic_config, 0, sizeof(topic_config));
+    topic_config.topic.data = topic;
+    topic_config.topic.len = sizeof(topic) - 1U;
+    topic_config.validation_mode = LIBP2P_GOSSIPSUB_VALIDATION_ACCEPT_ALL;
+    topic_config.enable_idontwant = 1U;
+    assert(libp2p_gossipsub_subscribe(gossipsub, &topic_config) == LIBP2P_GOSSIPSUB_OK);
+    assert(gossipsub_find_topic(gossipsub, topic, sizeof(topic) - 1U, &topic_index) != NULL);
+    assert(gossipsub_mesh_count_topic(gossipsub, topic_index) == 0U);
+
+    (void)memset(&sub, 0, sizeof(sub));
+    sub.topic.data = topic;
+    sub.topic.len = sizeof(topic) - 1U;
+    sub.subscribe = 1U;
+    assert(gossipsub_process_subscription(gossipsub, 0U, &sub) == LIBP2P_GOSSIPSUB_OK);
+    assert(gossipsub_mesh_contains(gossipsub, 0U, topic_index) != 0);
+    assert(gossipsub_process_subscription(gossipsub, 1U, &sub) == LIBP2P_GOSSIPSUB_OK);
+    assert(gossipsub_mesh_contains(gossipsub, 1U, topic_index) != 0);
+    assert(gossipsub_mesh_count_topic(gossipsub, topic_index) == 2U);
+
+    libp2p_gossipsub_deinit(gossipsub);
+    free(storage);
+}
+
+static void gossipsub_test_forward_uses_mesh_not_all_subscribers(void)
+{
+    static const uint8_t topic[] = "blocks";
+    static const uint8_t message_id[] = {1U, 2U, 3U, 4U};
+    uint8_t data[1300];
+    gossipsub_test_runtime_t runtime = {41U};
+    gossipsub_test_write_stream_t write0 = {0U, 0U, 0U, 0U};
+    gossipsub_test_write_stream_t write1 = {0U, 0U, 0U, 0U};
+    gossipsub_test_write_stream_t write2 = {0U, 0U, 0U, 0U};
+    libp2p_gossipsub_config_t config;
+    libp2p_gossipsub_t *gossipsub = NULL;
+    libp2p_host_t host;
+    libp2p_host_transport_vtable_t transport;
+    libp2p_host_stream_t stream0;
+    libp2p_host_stream_t stream1;
+    libp2p_host_stream_t stream2;
+    libp2p_gossipsub_bytes_t topic_bytes;
+    libp2p_gossipsub_bytes_t data_bytes;
+    gossipsub_topic_state_t *topic_state = NULL;
+    gossipsub_mcache_entry_t *entry = NULL;
+    void *storage = NULL;
+    size_t storage_len = 0U;
+    size_t topic_index = 0U;
+    size_t mcache_index = 0U;
+
+    (void)memset(data, 0xB5, sizeof(data));
+    (void)memset(&topic_bytes, 0, sizeof(topic_bytes));
+    (void)memset(&data_bytes, 0, sizeof(data_bytes));
+    gossipsub_test_config_small(&config, &runtime);
+    assert(libp2p_gossipsub_storage_size(&config, &storage_len) == LIBP2P_GOSSIPSUB_OK);
+    storage = calloc(1U, storage_len);
+    assert(storage != NULL);
+    assert(libp2p_gossipsub_init(storage, storage_len, &config, &gossipsub) == LIBP2P_GOSSIPSUB_OK);
+    gossipsub_test_fake_host_stream(&host, &transport, &stream0, &write0);
+    gossipsub_test_fake_host_stream(&host, &transport, &stream1, &write1);
+    gossipsub_test_fake_host_stream(&host, &transport, &stream2, &write2);
+    gossipsub_test_attach_peer(gossipsub, 0U, &stream0);
+    gossipsub_test_attach_peer(gossipsub, 1U, &stream1);
+    gossipsub_test_attach_peer(gossipsub, 2U, &stream2);
+    topic_bytes.data = topic;
+    topic_bytes.len = sizeof(topic) - 1U;
+    data_bytes.data = data;
+    data_bytes.len = sizeof(data);
+    topic_state = gossipsub_find_or_add_topic(gossipsub, topic_bytes, &topic_index);
+    assert(topic_state != NULL);
+    topic_state->local_subscribed = 1U;
+    gossipsub_test_mark_peer_subscribed(gossipsub, 0U, topic_index);
+    gossipsub_test_mark_peer_subscribed(gossipsub, 1U, topic_index);
+    gossipsub_test_mark_peer_subscribed(gossipsub, 2U, topic_index);
+    assert(gossipsub_mesh_add(gossipsub, 0U, topic_index) == LIBP2P_GOSSIPSUB_OK);
+    assert(gossipsub_mesh_add(gossipsub, 1U, topic_index) == LIBP2P_GOSSIPSUB_OK);
+    assert(
+        gossipsub_mcache_store(
+            gossipsub,
+            message_id,
+            sizeof(message_id),
+            topic_bytes,
+            data_bytes,
+            &entry,
+            &mcache_index) == LIBP2P_GOSSIPSUB_OK);
+    assert(gossipsub_forward_entry(gossipsub, 0U, entry) == LIBP2P_GOSSIPSUB_OK);
+    assert(gossipsub->peers[0].tx_queue_depth == 0U);
+    assert(gossipsub->peers[1].tx_queue_depth != 0U);
+    assert(gossipsub->peers[2].tx_queue_depth == 0U);
+
+    (void)mcache_index;
+    libp2p_gossipsub_deinit(gossipsub);
+    free(storage);
+}
+
+static void gossipsub_test_prune_removes_mesh_peer(void)
+{
+    static const uint8_t topic[] = "blocks";
+    gossipsub_test_runtime_t runtime = {43U};
+    gossipsub_test_write_stream_t write0 = {0U, 0U, 0U, 0U};
+    libp2p_gossipsub_config_t config;
+    libp2p_gossipsub_t *gossipsub = NULL;
+    libp2p_host_t host;
+    libp2p_host_transport_vtable_t transport;
+    libp2p_host_stream_t stream0;
+    libp2p_gossipsub_bytes_t topic_bytes;
+    gossipsub_topic_state_t *topic_state = NULL;
+    libp2p_gossipsub_control_prune_t prune;
+    libp2p_gossipsub_rpc_t rpc;
+    void *storage = NULL;
+    size_t storage_len = 0U;
+    size_t topic_index = 0U;
+
+    (void)memset(&topic_bytes, 0, sizeof(topic_bytes));
+    (void)memset(&prune, 0, sizeof(prune));
+    (void)memset(&rpc, 0, sizeof(rpc));
+    gossipsub_test_config_small(&config, &runtime);
+    assert(libp2p_gossipsub_storage_size(&config, &storage_len) == LIBP2P_GOSSIPSUB_OK);
+    storage = calloc(1U, storage_len);
+    assert(storage != NULL);
+    assert(libp2p_gossipsub_init(storage, storage_len, &config, &gossipsub) == LIBP2P_GOSSIPSUB_OK);
+    gossipsub_test_fake_host_stream(&host, &transport, &stream0, &write0);
+    gossipsub_test_attach_peer(gossipsub, 0U, &stream0);
+    topic_bytes.data = topic;
+    topic_bytes.len = sizeof(topic) - 1U;
+    topic_state = gossipsub_find_or_add_topic(gossipsub, topic_bytes, &topic_index);
+    assert(topic_state != NULL);
+    topic_state->local_subscribed = 1U;
+    assert(gossipsub_mesh_add(gossipsub, 0U, topic_index) == LIBP2P_GOSSIPSUB_OK);
+    prune.topic = topic_bytes;
+    rpc.control.prune = &prune;
+    rpc.control.prune_count = 1U;
+    assert(gossipsub_process_rpc(gossipsub, 0U, &rpc, 100U) == LIBP2P_GOSSIPSUB_OK);
+    assert(gossipsub_mesh_contains(gossipsub, 0U, topic_index) == 0);
+
+    libp2p_gossipsub_deinit(gossipsub);
+    free(storage);
+}
+
 int main(void)
 {
     gossipsub_test_defaults_and_required_message_id();
@@ -726,5 +907,8 @@ int main(void)
     gossipsub_test_readiness_flips_on_writable();
     gossipsub_test_slice_waits_for_writable_rearm();
     gossipsub_test_stale_head_message_drops_without_write();
+    gossipsub_test_remote_subscriptions_fill_mesh();
+    gossipsub_test_forward_uses_mesh_not_all_subscribers();
+    gossipsub_test_prune_removes_mesh_peer();
     return 0;
 }

@@ -114,6 +114,13 @@ typedef struct
 
 typedef struct
 {
+    uint8_t used;
+    size_t peer_index;
+    size_t topic_index;
+} gossipsub_mesh_edge_state_t;
+
+typedef struct
+{
     uint8_t state;
     libp2p_host_stream_t *stream;
     libp2p_host_conn_t *conn;
@@ -198,6 +205,7 @@ struct libp2p_gossipsub
     gossipsub_topic_state_t *topics;
     gossipsub_peer_state_t *peers;
     gossipsub_peer_topic_state_t *peer_topics;
+    gossipsub_mesh_edge_state_t *mesh_edges;
     gossipsub_stream_state_t *streams;
     gossipsub_tx_item_t *tx_queue;
     uint8_t *tx_buffer;
@@ -232,6 +240,7 @@ typedef struct
     size_t topics_offset;
     size_t peers_offset;
     size_t peer_topics_offset;
+    size_t mesh_edges_offset;
     size_t streams_offset;
     size_t stream_rx_offset;
     size_t tx_queue_offset;
@@ -496,6 +505,32 @@ int gossipsub_peer_subscribed(
     const libp2p_gossipsub_t *gossipsub,
     size_t peer_index,
     size_t topic_index);
+int gossipsub_mesh_contains(
+    const libp2p_gossipsub_t *gossipsub,
+    size_t peer_index,
+    size_t topic_index);
+size_t gossipsub_mesh_count_topic(const libp2p_gossipsub_t *gossipsub, size_t topic_index);
+libp2p_gossipsub_err_t gossipsub_mesh_add(
+    libp2p_gossipsub_t *gossipsub,
+    size_t peer_index,
+    size_t topic_index);
+void gossipsub_mesh_remove(
+    libp2p_gossipsub_t *gossipsub,
+    size_t peer_index,
+    size_t topic_index);
+void gossipsub_mesh_remove_peer(libp2p_gossipsub_t *gossipsub, size_t peer_index);
+void gossipsub_mesh_remove_topic(libp2p_gossipsub_t *gossipsub, size_t topic_index);
+libp2p_gossipsub_err_t gossipsub_mesh_fill_topic(
+    libp2p_gossipsub_t *gossipsub,
+    size_t topic_index,
+    size_t target,
+    uint8_t queue_graft);
+libp2p_gossipsub_err_t gossipsub_mesh_trim_topic(
+    libp2p_gossipsub_t *gossipsub,
+    size_t topic_index,
+    size_t target,
+    uint8_t queue_prune);
+libp2p_gossipsub_err_t gossipsub_mesh_heartbeat(libp2p_gossipsub_t *gossipsub);
 libp2p_gossipsub_err_t gossipsub_compute_message_id(
     libp2p_gossipsub_t *gossipsub,
     const libp2p_gossipsub_message_t *message,
@@ -572,6 +607,14 @@ libp2p_gossipsub_err_t gossipsub_enqueue_iwant(
     libp2p_gossipsub_t *gossipsub,
     size_t peer_index,
     const libp2p_gossipsub_bytes_t *message_id);
+libp2p_gossipsub_err_t gossipsub_enqueue_graft(
+    libp2p_gossipsub_t *gossipsub,
+    size_t peer_index,
+    const gossipsub_topic_state_t *topic);
+libp2p_gossipsub_err_t gossipsub_enqueue_prune(
+    libp2p_gossipsub_t *gossipsub,
+    size_t peer_index,
+    const gossipsub_topic_state_t *topic);
 libp2p_gossipsub_err_t gossipsub_enqueue_publish_entry(
     libp2p_gossipsub_t *gossipsub,
     size_t peer_index,

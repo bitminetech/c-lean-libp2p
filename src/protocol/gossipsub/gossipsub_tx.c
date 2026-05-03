@@ -35,6 +35,47 @@ static uint64_t gossipsub_tx_deadline(uint64_t now_us, uint64_t lifetime_us)
     return result;
 }
 
+static uint64_t gossipsub_tx_backoff_seconds(uint64_t backoff_us)
+{
+    uint64_t result = backoff_us / UINT64_C(1000000);
+
+    if ((backoff_us != 0U) && ((backoff_us % UINT64_C(1000000)) != 0U) &&
+        (result != UINT64_MAX))
+    {
+        result++;
+    }
+
+    return result;
+}
+
+static int gossipsub_tx_is_mesh_route(
+    const libp2p_gossipsub_t *gossipsub,
+    size_t peer_index,
+    size_t topic_index)
+{
+    int result = 0;
+
+    if ((gossipsub != NULL) && (peer_index < gossipsub->config.capacity.max_peers))
+    {
+        if (gossipsub_mesh_contains(gossipsub, peer_index, topic_index) != 0)
+        {
+            result = 1;
+        }
+        else if (
+            (gossipsub->peers[peer_index].explicit_peer != 0U) &&
+            (gossipsub_peer_subscribed(gossipsub, peer_index, topic_index) != 0))
+        {
+            result = 1;
+        }
+        else
+        {
+            result = 0;
+        }
+    }
+
+    return result;
+}
+
 static void gossipsub_tx_set_peer_ready(
     libp2p_gossipsub_t *gossipsub,
     size_t peer_index,
@@ -462,6 +503,62 @@ libp2p_gossipsub_err_t gossipsub_enqueue_iwant(
     return gossipsub_enqueue_rpc(gossipsub, peer_index, &rpc);
 }
 
+libp2p_gossipsub_err_t gossipsub_enqueue_graft(
+    libp2p_gossipsub_t *gossipsub,
+    size_t peer_index,
+    const gossipsub_topic_state_t *topic)
+{
+    libp2p_gossipsub_control_graft_t graft;
+    libp2p_gossipsub_rpc_t rpc;
+    libp2p_gossipsub_err_t result = LIBP2P_GOSSIPSUB_OK;
+
+    (void)memset(&graft, 0, sizeof(graft));
+    (void)memset(&rpc, 0, sizeof(rpc));
+    if (topic == NULL)
+    {
+        result = LIBP2P_GOSSIPSUB_ERR_INVALID_ARG;
+    }
+    else
+    {
+        graft.topic.data = topic->topic;
+        graft.topic.len = topic->topic_len;
+        rpc.control.graft = &graft;
+        rpc.control.graft_count = 1U;
+        result = gossipsub_enqueue_rpc(gossipsub, peer_index, &rpc);
+    }
+
+    return result;
+}
+
+libp2p_gossipsub_err_t gossipsub_enqueue_prune(
+    libp2p_gossipsub_t *gossipsub,
+    size_t peer_index,
+    const gossipsub_topic_state_t *topic)
+{
+    libp2p_gossipsub_control_prune_t prune;
+    libp2p_gossipsub_rpc_t rpc;
+    libp2p_gossipsub_err_t result = LIBP2P_GOSSIPSUB_OK;
+
+    (void)memset(&prune, 0, sizeof(prune));
+    (void)memset(&rpc, 0, sizeof(rpc));
+    if ((gossipsub == NULL) || (topic == NULL))
+    {
+        result = LIBP2P_GOSSIPSUB_ERR_INVALID_ARG;
+    }
+    else
+    {
+        prune.topic.data = topic->topic;
+        prune.topic.len = topic->topic_len;
+        prune.backoff_seconds =
+            gossipsub_tx_backoff_seconds(gossipsub->config.mesh.prune_backoff_us);
+        rpc.control.prune = &prune;
+        rpc.control.prune_count = 1U;
+        result = gossipsub_enqueue_rpc(gossipsub, peer_index, &rpc);
+    }
+
+    return result;
+}
+
 static libp2p_gossipsub_err_t gossipsub_enqueue_publish_entry_with_lifetime(
     libp2p_gossipsub_t *gossipsub,
     size_t peer_index,
@@ -746,7 +843,7 @@ libp2p_gossipsub_err_t gossipsub_enqueue_idontwant_for_received_entry(
         {
             if ((gossipsub->peers[peer_index].used == GOSSIPSUB_PEER_USED) &&
                 (gossipsub->peers[peer_index].stream != NULL) &&
-                (gossipsub_peer_subscribed(gossipsub, peer_index, topic_index) != 0))
+                (gossipsub_mesh_contains(gossipsub, peer_index, topic_index) != 0))
             {
                 result = gossipsub_enqueue_idontwant_for_entry(gossipsub, peer_index, topic, entry);
             }
@@ -827,8 +924,7 @@ libp2p_gossipsub_err_t gossipsub_forward_entry(
         if ((peer_index != source_peer_index) &&
             (gossipsub->peers[peer_index].used == GOSSIPSUB_PEER_USED) &&
             (gossipsub->peers[peer_index].stream != NULL) &&
-            ((gossipsub_peer_subscribed(gossipsub, peer_index, topic_index) != 0) ||
-             (gossipsub->config.mesh.enable_flood_publish != 0U)) &&
+            (gossipsub_tx_is_mesh_route(gossipsub, peer_index, topic_index) != 0) &&
             (gossipsub_peer_idontwant_contains(
                  gossipsub,
                  peer_index,
