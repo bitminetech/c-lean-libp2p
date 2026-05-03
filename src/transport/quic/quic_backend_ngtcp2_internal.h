@@ -225,6 +225,13 @@ QUIC_BACKEND_INTERNAL void quic_backend_debug_text(
     const libp2p_quic_conn_t *conn,
     const char *message);
 
+QUIC_BACKEND_INTERNAL void quic_backend_debug_stream_state(
+    const libp2p_quic_stream_t *stream,
+    const char *tag,
+    uint64_t value0,
+    uint64_t value1,
+    uint32_t reason);
+
 QUIC_BACKEND_INTERNAL libp2p_quic_err_t quic_backend_ngtcp2_err(int rv);
 
 QUIC_BACKEND_INTERNAL SSL_CTX *quic_backend_ssl_ctx_new(

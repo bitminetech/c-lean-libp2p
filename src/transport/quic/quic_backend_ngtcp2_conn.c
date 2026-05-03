@@ -703,6 +703,12 @@ QUIC_BACKEND_INTERNAL libp2p_quic_err_t quic_backend_write_conn_datagram(
             if ((stream != NULL) && (ndatalen >= 0))
             {
                 stream->tx_sent_len += (size_t)ndatalen;
+                quic_backend_debug_stream_state(
+                    stream,
+                    "stream_tx",
+                    (uint64_t)nwrite,
+                    (uint64_t)ndatalen,
+                    flags);
                 if ((ndatalen > 0) && (stream->tx_sent_len == stream->tx_len) &&
                     (stream->local_fin_queued == 0U))
                 {
@@ -738,17 +744,45 @@ QUIC_BACKEND_INTERNAL libp2p_quic_err_t quic_backend_write_conn_datagram(
                 {
                     stream->write_blocked = 0U;
                 }
+                quic_backend_debug_stream_state(
+                    stream,
+                    "stream_tx_writable",
+                    (uint64_t)nwrite,
+                    (uint64_t)ndatalen,
+                    (uint32_t)result);
             }
         }
         else if (nwrite == 0)
         {
             result = LIBP2P_QUIC_ERR_WOULD_BLOCK;
+            if (stream != NULL)
+            {
+                quic_backend_debug_stream_state(stream, "stream_writev_zero", 0U, 0U, 0U);
+            }
         }
-        else if (
-            (nwrite == NGTCP2_ERR_STREAM_DATA_BLOCKED) || (nwrite == NGTCP2_ERR_STREAM_SHUT_WR) ||
-            (nwrite == NGTCP2_ERR_STREAM_NOT_FOUND))
+        else if (nwrite == NGTCP2_ERR_STREAM_DATA_BLOCKED)
         {
             result = LIBP2P_QUIC_ERR_WOULD_BLOCK;
+            if (stream != NULL)
+            {
+                quic_backend_debug_stream_state(stream, "stream_writev_blocked", 0U, 0U, 1U);
+            }
+        }
+        else if (nwrite == NGTCP2_ERR_STREAM_SHUT_WR)
+        {
+            result = LIBP2P_QUIC_ERR_WOULD_BLOCK;
+            if (stream != NULL)
+            {
+                quic_backend_debug_stream_state(stream, "stream_writev_blocked", 0U, 0U, 2U);
+            }
+        }
+        else if (nwrite == NGTCP2_ERR_STREAM_NOT_FOUND)
+        {
+            result = LIBP2P_QUIC_ERR_WOULD_BLOCK;
+            if (stream != NULL)
+            {
+                quic_backend_debug_stream_state(stream, "stream_writev_blocked", 0U, 0U, 3U);
+            }
         }
         else
         {

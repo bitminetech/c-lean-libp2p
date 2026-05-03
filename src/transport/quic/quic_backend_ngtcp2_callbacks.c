@@ -540,6 +540,12 @@ static int quic_backend_wake_blocked_writer(libp2p_quic_stream_t *stream)
         (stream->write_blocked != 0U) && (stream->state != LIBP2P_QUIC_STREAM_CLOSED) &&
         (stream->state != LIBP2P_QUIC_STREAM_RESET))
     {
+        quic_backend_debug_stream_state(
+            stream,
+            "stream_wake_try",
+            (uint64_t)stream->conn->endpoint->event_len,
+            (uint64_t)stream->conn->endpoint->event_cap,
+            0U);
         if (quic_backend_event_push(
                 stream->conn->endpoint,
                 LIBP2P_QUIC_EVENT_STREAM_WRITABLE,
@@ -554,6 +560,12 @@ static int quic_backend_wake_blocked_writer(libp2p_quic_stream_t *stream)
         {
             stream->write_blocked = 0U;
         }
+        quic_backend_debug_stream_state(
+            stream,
+            "stream_wake_done",
+            (uint64_t)stream->conn->endpoint->event_len,
+            (uint64_t)stream->conn->endpoint->event_cap,
+            (uint32_t)result);
     }
 
     return result;
@@ -582,6 +594,7 @@ static int quic_backend_reclaim_acked_stream_data(
         const uint64_t ack_end = offset + datalen;
         const uint64_t sent_end = stream->tx_base_offset + (uint64_t)stream->tx_sent_len;
 
+        quic_backend_debug_stream_state(stream, "stream_ack", offset, datalen, 0U);
         if ((stream->tx_sent_len != 0U) && (ack_end >= sent_end))
         {
             const size_t pending = stream->tx_len - stream->tx_sent_len;
@@ -593,6 +606,12 @@ static int quic_backend_reclaim_acked_stream_data(
             stream->tx_base_offset = sent_end;
             stream->tx_len = pending;
             stream->tx_sent_len = 0U;
+            quic_backend_debug_stream_state(
+                stream,
+                "stream_reclaim",
+                sent_end,
+                (uint64_t)pending,
+                0U);
             result = quic_backend_wake_blocked_writer(stream);
         }
     }
@@ -652,6 +671,7 @@ static int quic_backend_extend_max_stream_data_cb(
         {
             stream = quic_backend_conn_find_stream(conn, stream_id);
         }
+        quic_backend_debug_stream_state(stream, "stream_extend_max_data", max_data, 0U, 0U);
         result = quic_backend_wake_blocked_writer(stream);
     }
 
