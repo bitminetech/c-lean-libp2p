@@ -24,6 +24,7 @@
 #include "multiformats/multiaddr/multiaddr.h"
 #include "peer_id/peer_id.h"
 #include "protocol/gossipsub/gossipsub.h"
+#include "protocol/identify/identify.h"
 #include "transport/quic/quic_identity.h"
 #include "transport/quic/quic_service.h"
 
@@ -37,7 +38,8 @@
 #define GOSSIPSUB_INTEROP_HOSTNAME_BYTES           64U
 #define GOSSIPSUB_INTEROP_IP_TEXT_BYTES            64U
 #define GOSSIPSUB_INTEROP_PATH_BYTES               512U
-#define GOSSIPSUB_INTEROP_PROTOCOLS                LIBP2P_GOSSIPSUB_PROTOCOL_COUNT
+#define GOSSIPSUB_INTEROP_GOSSIPSUB_PROTOCOLS      LIBP2P_GOSSIPSUB_PROTOCOL_COUNT
+#define GOSSIPSUB_INTEROP_PROTOCOLS                (GOSSIPSUB_INTEROP_GOSSIPSUB_PROTOCOLS + 1U)
 #define GOSSIPSUB_INTEROP_CERT_VALIDITY_SECONDS    UINT64_C(315360000)
 #define GOSSIPSUB_INTEROP_CERT_BACKDATE_SECONDS    UINT64_C(3600)
 #define GOSSIPSUB_INTEROP_SHADOW_CERT_UNIX_SECONDS UINT64_C(946684800)
@@ -101,6 +103,8 @@ typedef struct
     libp2p_host_config_t host_config;
     libp2p_host_protocol_t protocols[GOSSIPSUB_INTEROP_PROTOCOLS];
     libp2p_host_t *host;
+    libp2p_identify_config_t identify_config;
+    libp2p_identify_t identify;
     libp2p_gossipsub_config_t gossipsub_config;
     libp2p_gossipsub_t *gossipsub;
     uint8_t listen_multiaddr[GOSSIPSUB_INTEROP_LISTEN_MULTIADDR_BYTES];
@@ -124,6 +128,49 @@ static gossipsub_interop_host_storage_t g_host_storage;
 static gossipsub_interop_router_storage_t g_router_storage;
 static uint8_t g_publish_buffer[GOSSIPSUB_INTEROP_MAX_MESSAGE_BYTES];
 static volatile sig_atomic_t g_stop_requested = 0;
+static const uint8_t g_identify_protocol_version[] = {
+    'i',
+    'p',
+    'f',
+    's',
+    '/',
+    '0',
+    '.',
+    '1',
+    '.',
+    '0'};
+static const uint8_t g_identify_agent_version[] = {
+    'c',
+    '-',
+    'l',
+    'e',
+    'a',
+    'n',
+    '-',
+    'l',
+    'i',
+    'b',
+    'p',
+    '2',
+    'p',
+    '/',
+    'g',
+    'o',
+    's',
+    's',
+    'i',
+    'p',
+    's',
+    'u',
+    'b',
+    '-',
+    'i',
+    'n',
+    't',
+    'e',
+    'r',
+    'o',
+    'p'};
 
 static void gossipsub_interop_trace(const char *message);
 static gossipsub_interop_err_t gossipsub_interop_drive_once(gossipsub_interop_app_t *app);
@@ -944,6 +991,52 @@ static void gossipsub_interop_trace_event(const libp2p_gossipsub_event_t *event)
     }
 }
 
+static const char *gossipsub_interop_identify_event_name(libp2p_identify_event_type_t type)
+{
+    const char *result = "none";
+
+    switch (type)
+    {
+    case LIBP2P_IDENTIFY_EVENT_RECEIVED:
+        result = "received";
+        break;
+    case LIBP2P_IDENTIFY_EVENT_SENT:
+        result = "sent";
+        break;
+    case LIBP2P_IDENTIFY_EVENT_CLOSED:
+        result = "closed";
+        break;
+    case LIBP2P_IDENTIFY_EVENT_ERROR:
+        result = "error";
+        break;
+    case LIBP2P_IDENTIFY_EVENT_NONE:
+    default:
+        result = "none";
+        break;
+    }
+
+    return result;
+}
+
+static void gossipsub_interop_trace_identify_event(const libp2p_identify_event_t *event)
+{
+    if ((event != NULL) && (gossipsub_interop_trace_enabled() != 0U))
+    {
+        (void)fprintf(
+            stderr,
+            "c-lean-identify: event=%s type=%u direction=%u reason=%u protocols=%zu "
+            "listen_addrs=%zu public_key_bytes=%zu\n",
+            gossipsub_interop_identify_event_name(event->type),
+            (unsigned int)event->type,
+            (unsigned int)event->direction,
+            (unsigned int)event->reason,
+            event->message.protocol_count,
+            event->message.listen_addr_count,
+            event->message.public_key.len);
+        (void)fflush(stderr);
+    }
+}
+
 static libp2p_gossipsub_err_t gossipsub_interop_message_id_fn(
     const libp2p_gossipsub_message_t *message,
     uint8_t *out,
@@ -977,6 +1070,48 @@ static libp2p_gossipsub_err_t gossipsub_interop_message_id_fn(
                 out[index] = message->data.data[index];
             }
         }
+    }
+
+    return result;
+}
+
+static gossipsub_interop_err_t gossipsub_interop_configure_identify(
+    gossipsub_interop_app_t *app,
+    size_t protocol_index)
+{
+    gossipsub_interop_err_t result = GOSSIPSUB_INTEROP_OK;
+
+    if ((app == NULL) || (protocol_index >= GOSSIPSUB_INTEROP_PROTOCOLS))
+    {
+        result = GOSSIPSUB_INTEROP_ERR_USAGE;
+    }
+    if ((result == GOSSIPSUB_INTEROP_OK) &&
+        (libp2p_identify_config_default(&app->identify_config) != LIBP2P_IDENTIFY_OK))
+    {
+        result = GOSSIPSUB_INTEROP_ERR_PROTOCOL;
+    }
+    if (result == GOSSIPSUB_INTEROP_OK)
+    {
+        app->identify_config.local_message.protocol_version.data = g_identify_protocol_version;
+        app->identify_config.local_message.protocol_version.len =
+            sizeof(g_identify_protocol_version);
+        app->identify_config.local_message.agent_version.data = g_identify_agent_version;
+        app->identify_config.local_message.agent_version.len = sizeof(g_identify_agent_version);
+        app->identify_config.local_message.public_key.data =
+            app->identity.host_storage.public_key_message;
+        app->identify_config.local_message.public_key.len =
+            app->identity.host_storage.public_key_message_len;
+    }
+    if ((result == GOSSIPSUB_INTEROP_OK) &&
+        (libp2p_identify_init(&app->identify, &app->identify_config) != LIBP2P_IDENTIFY_OK))
+    {
+        result = GOSSIPSUB_INTEROP_ERR_PROTOCOL;
+    }
+    if ((result == GOSSIPSUB_INTEROP_OK) &&
+        (libp2p_identify_protocol(&app->identify, &app->protocols[protocol_index]) !=
+         LIBP2P_IDENTIFY_OK))
+    {
+        result = GOSSIPSUB_INTEROP_ERR_PROTOCOL;
     }
 
     return result;
@@ -1046,14 +1181,19 @@ static gossipsub_interop_err_t gossipsub_interop_configure_gossipsub(gossipsub_i
     if ((result == GOSSIPSUB_INTEROP_OK) && (libp2p_gossipsub_protocols(
                                                  app->gossipsub,
                                                  app->protocols,
-                                                 GOSSIPSUB_INTEROP_PROTOCOLS,
+                                                 GOSSIPSUB_INTEROP_GOSSIPSUB_PROTOCOLS,
                                                  &protocol_count) != LIBP2P_GOSSIPSUB_OK))
     {
         result = GOSSIPSUB_INTEROP_ERR_PROTOCOL;
     }
-    if ((result == GOSSIPSUB_INTEROP_OK) && (protocol_count != GOSSIPSUB_INTEROP_PROTOCOLS))
+    if ((result == GOSSIPSUB_INTEROP_OK) &&
+        (protocol_count != GOSSIPSUB_INTEROP_GOSSIPSUB_PROTOCOLS))
     {
         result = GOSSIPSUB_INTEROP_ERR_PROTOCOL;
+    }
+    if (result == GOSSIPSUB_INTEROP_OK)
+    {
+        result = gossipsub_interop_configure_identify(app, protocol_count);
     }
 
     return result;
@@ -1919,6 +2059,34 @@ static gossipsub_interop_err_t gossipsub_interop_drain_host_events(gossipsub_int
     return result;
 }
 
+static gossipsub_interop_err_t gossipsub_interop_drain_identify_events(
+    gossipsub_interop_app_t *app)
+{
+    libp2p_identify_event_t event;
+    gossipsub_interop_err_t result = GOSSIPSUB_INTEROP_OK;
+
+    if (app == NULL)
+    {
+        result = GOSSIPSUB_INTEROP_ERR_USAGE;
+    }
+    while ((result == GOSSIPSUB_INTEROP_OK) &&
+           (libp2p_identify_next_event(&app->identify, &event) == LIBP2P_IDENTIFY_OK))
+    {
+        gossipsub_interop_trace_identify_event(&event);
+        if (event.type == LIBP2P_IDENTIFY_EVENT_ERROR)
+        {
+            (void)fprintf(
+                stderr,
+                "identify event failure type=%u reason=%u\n",
+                (unsigned int)event.type,
+                (unsigned int)event.reason);
+            (void)fflush(stderr);
+        }
+    }
+
+    return result;
+}
+
 static gossipsub_interop_err_t gossipsub_interop_drain_gossipsub_events(
     gossipsub_interop_app_t *app)
 {
@@ -2065,6 +2233,10 @@ static gossipsub_interop_err_t gossipsub_interop_drive_once(gossipsub_interop_ap
     if (result == GOSSIPSUB_INTEROP_OK)
     {
         result = gossipsub_interop_drain_host_events(app);
+    }
+    if (result == GOSSIPSUB_INTEROP_OK)
+    {
+        result = gossipsub_interop_drain_identify_events(app);
     }
     if (result == GOSSIPSUB_INTEROP_OK)
     {
