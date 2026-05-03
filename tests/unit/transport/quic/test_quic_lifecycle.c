@@ -101,6 +101,44 @@ static void quic_lifecycle_test_multiple_streams(void)
     assert(0 && "multiple stream transfer did not complete");
 }
 
+static void quic_lifecycle_test_stream_writable_after_tx_drain(void)
+{
+    static uint8_t message[4096];
+    quic_test_identity_fixture_t identity;
+    quic_test_pair_t pair;
+    libp2p_quic_stream_t *client_stream = NULL;
+    size_t accepted = 0U;
+    size_t round = 0U;
+
+    (void)memset(message, 0xB7, sizeof(message));
+    quic_test_make_identity(&identity, 35U);
+    quic_test_pair_init(&pair, &identity.identity, 30010U, 30011U, 0U);
+    quic_test_pair_dial(&pair, &identity);
+
+    assert(libp2p_quic_conn_open_bidi_stream(pair.client_conn, &client_stream) == LIBP2P_QUIC_OK);
+    assert(
+        libp2p_quic_stream_write(client_stream, message, sizeof(message), 0, &accepted) ==
+        LIBP2P_QUIC_OK);
+    assert(accepted == sizeof(message));
+
+    for (round = 0U; round < 1000U; round++)
+    {
+        quic_test_events_t client_events;
+
+        (void)memset(&client_events, 0, sizeof(client_events));
+        quic_test_pump(pair.client, pair.server, &pair.now_us);
+        quic_test_drain_events(pair.client, &client_events);
+        if (client_events.writable_count != 0U)
+        {
+            assert(client_events.writable_stream == client_stream);
+            quic_test_pair_deinit(&pair);
+            return;
+        }
+    }
+
+    assert(0 && "stream writable event was not emitted after tx drain");
+}
+
 static void quic_lifecycle_test_stream_reset_propagates(void)
 {
     quic_test_identity_fixture_t identity;
@@ -209,6 +247,7 @@ static void quic_lifecycle_test_idle_timeout_closes(void)
 int main(void)
 {
     quic_lifecycle_test_multiple_streams();
+    quic_lifecycle_test_stream_writable_after_tx_drain();
     quic_lifecycle_test_stream_reset_propagates();
     quic_lifecycle_test_connection_close_propagates();
     quic_lifecycle_test_idle_timeout_closes();

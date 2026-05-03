@@ -664,7 +664,14 @@ libp2p_gossipsub_err_t gossipsub_flush_peer(
         }
         if (peer->tx_queue_depth != 0U)
         {
-            gossipsub_tx_set_peer_ready(gossipsub, peer_index, peer->tx_ready);
+            if (bytes_written != 0U)
+            {
+                gossipsub_tx_set_peer_ready(gossipsub, peer_index, 0U);
+            }
+            else
+            {
+                gossipsub_tx_set_peer_ready(gossipsub, peer_index, peer->tx_ready);
+            }
         }
     }
 
