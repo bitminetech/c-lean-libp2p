@@ -264,6 +264,12 @@ static void identify_test_mock_host_round_trip(void)
     assert(inbound_stream.finish_count == 1U);
     assert(libp2p_identify_next_event(&identify, &identify_event) == LIBP2P_IDENTIFY_OK);
     assert(identify_event.type == LIBP2P_IDENTIFY_EVENT_SENT);
+    identify_test_push_stream_event(
+        &fixture,
+        &conn,
+        &inbound_stream,
+        LIBP2P_HOST_TRANSPORT_EVENT_STREAM_CLOSED);
+    assert(libp2p_host_drive(host, 4U, LIBP2P_HOST_READY_APP, &result) == LIBP2P_HOST_OK);
 
     host_test_stream_add_message(
         &outbound_stream,
@@ -277,7 +283,7 @@ static void identify_test_mock_host_round_trip(void)
     assert(
         libp2p_identify_query(&identify, host, host_conn, &identify, &open) == LIBP2P_IDENTIFY_OK);
     assert(open != NULL);
-    assert(libp2p_host_drive(host, 4U, LIBP2P_HOST_READY_APP, &result) == LIBP2P_HOST_OK);
+    assert(libp2p_host_drive(host, 5U, LIBP2P_HOST_READY_APP, &result) == LIBP2P_HOST_OK);
     assert(outbound_stream.finish_count == 1U);
     identify_test_encode_wire_message(
         &identify_config.local_message,
@@ -296,7 +302,7 @@ static void identify_test_mock_host_round_trip(void)
         &conn,
         &outbound_stream,
         LIBP2P_HOST_TRANSPORT_EVENT_STREAM_READABLE);
-    assert(libp2p_host_drive(host, 5U, LIBP2P_HOST_READY_APP, &result) == LIBP2P_HOST_OK);
+    assert(libp2p_host_drive(host, 6U, LIBP2P_HOST_READY_APP, &result) == LIBP2P_HOST_OK);
     assert(libp2p_identify_next_event(&identify, &identify_event) == LIBP2P_IDENTIFY_OK);
     assert(identify_event.type == LIBP2P_IDENTIFY_EVENT_RECEIVED);
     assert(identify_event.user_data == &identify);

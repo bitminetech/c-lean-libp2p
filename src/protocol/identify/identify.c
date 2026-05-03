@@ -949,51 +949,67 @@ static libp2p_host_err_t identify_on_event(
     size_t slot_index = LIBP2P_IDENTIFY_MAX_STREAMS;
     libp2p_host_err_t result = LIBP2P_HOST_OK;
 
-    slot = identify_find_stream(identify, stream, &slot_index);
-    if ((host == NULL) || (stream == NULL) || (identify == NULL) || (slot == NULL))
+    if ((host == NULL) || (stream == NULL) || (identify == NULL))
     {
         result = LIBP2P_HOST_ERR_INVALID_ARG;
     }
-    else if (libp2p_host_stream_set_user_data(stream, slot) != LIBP2P_HOST_OK)
+    else
     {
-        result = LIBP2P_HOST_ERR_INVALID_ARG;
-    }
-    else if (kind == LIBP2P_HOST_PROTOCOL_EVENT_READABLE)
-    {
-        if (slot->state == LIBP2P_IDENTIFY_SLOT_READING)
+        slot = identify_find_stream(identify, stream, &slot_index);
+        if (slot == NULL)
         {
-            result = identify_read_stream(identify, host, slot_index);
+            if ((kind != LIBP2P_HOST_PROTOCOL_EVENT_RESET) &&
+                (kind != LIBP2P_HOST_PROTOCOL_EVENT_CLOSED))
+            {
+                result = LIBP2P_HOST_ERR_INVALID_ARG;
+            }
         }
     }
-    else if (kind == LIBP2P_HOST_PROTOCOL_EVENT_WRITABLE)
+
+    if ((result == LIBP2P_HOST_OK) && (slot != NULL))
     {
-        if (slot->state == LIBP2P_IDENTIFY_SLOT_WRITING)
+        if (libp2p_host_stream_set_user_data(stream, slot) != LIBP2P_HOST_OK)
         {
-            result = identify_write_stream(identify, host, slot_index);
+            result = LIBP2P_HOST_ERR_INVALID_ARG;
         }
-    }
-    else if (kind == LIBP2P_HOST_PROTOCOL_EVENT_RESET)
-    {
-        result = identify_fail_stream(identify, host, slot_index, LIBP2P_IDENTIFY_ERR_HOST);
-    }
-    else if (kind == LIBP2P_HOST_PROTOCOL_EVENT_CLOSED)
-    {
-        if (slot->state == LIBP2P_IDENTIFY_SLOT_READING)
+        else if (kind == LIBP2P_HOST_PROTOCOL_EVENT_READABLE)
         {
-            result = identify_read_stream(identify, host, slot_index);
-            if ((result == LIBP2P_HOST_OK) && (identify_slot_is_reading(identify, slot_index) != 0))
+            if (slot->state == LIBP2P_IDENTIFY_SLOT_READING)
+            {
+                result = identify_read_stream(identify, host, slot_index);
+            }
+        }
+        else if (kind == LIBP2P_HOST_PROTOCOL_EVENT_WRITABLE)
+        {
+            if (slot->state == LIBP2P_IDENTIFY_SLOT_WRITING)
+            {
+                result = identify_write_stream(identify, host, slot_index);
+            }
+        }
+        else if (kind == LIBP2P_HOST_PROTOCOL_EVENT_RESET)
+        {
+            result = identify_fail_stream(identify, host, slot_index, LIBP2P_IDENTIFY_ERR_HOST);
+        }
+        else if (kind == LIBP2P_HOST_PROTOCOL_EVENT_CLOSED)
+        {
+            if (slot->state == LIBP2P_IDENTIFY_SLOT_READING)
+            {
+                result = identify_read_stream(identify, host, slot_index);
+                if ((result == LIBP2P_HOST_OK) &&
+                    (identify_slot_is_reading(identify, slot_index) != 0))
+                {
+                    result = identify_emit_simple(identify, slot_index, LIBP2P_IDENTIFY_EVENT_CLOSED);
+                }
+            }
+            else
             {
                 result = identify_emit_simple(identify, slot_index, LIBP2P_IDENTIFY_EVENT_CLOSED);
             }
         }
         else
         {
-            result = identify_emit_simple(identify, slot_index, LIBP2P_IDENTIFY_EVENT_CLOSED);
+            result = LIBP2P_HOST_ERR_PROTOCOL;
         }
-    }
-    else
-    {
-        result = LIBP2P_HOST_ERR_PROTOCOL;
     }
 
     return result;
