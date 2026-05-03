@@ -108,6 +108,31 @@ static void gossipsub_test_mark_peer_subscribed(
     edge->subscribed = 1U;
 }
 
+static void gossipsub_test_decode_peer_head(
+    const libp2p_gossipsub_t *gossipsub,
+    size_t peer_index,
+    libp2p_gossipsub_rpc_decode_storage_t *decode_storage,
+    libp2p_gossipsub_rpc_t *out_rpc)
+{
+    size_t item_index = GOSSIPSUB_TX_NO_ITEM;
+
+    assert(gossipsub != NULL);
+    assert(peer_index < gossipsub->config.capacity.max_peers);
+    assert(decode_storage != NULL);
+    assert(out_rpc != NULL);
+    item_index = gossipsub->peers[peer_index].tx_head;
+    assert(item_index != GOSSIPSUB_TX_NO_ITEM);
+    assert(item_index < gossipsub->config.capacity.max_tx_rpc_queue);
+    assert(
+        libp2p_gossipsub_rpc_frame_decode(
+            gossipsub->peers[peer_index].version,
+            &gossipsub->config.limits,
+            &gossipsub->tx_buffer[gossipsub->tx_queue[item_index].offset],
+            gossipsub->tx_queue[item_index].len,
+            decode_storage,
+            out_rpc) == LIBP2P_GOSSIPSUB_OK);
+}
+
 static libp2p_gossipsub_err_t gossipsub_test_random(uint8_t *out, size_t out_len, void *user_data)
 {
     gossipsub_test_runtime_t *runtime = (gossipsub_test_runtime_t *)user_data;
@@ -891,6 +916,207 @@ static void gossipsub_test_forward_uses_mesh_not_all_subscribers(void)
     free(storage);
 }
 
+static void gossipsub_test_heartbeat_gossip_ihave_to_non_mesh_peers(void)
+{
+    static const uint8_t topic[] = "blocks";
+    static const uint8_t message_id[] = {9U, 8U, 7U, 6U};
+    static const uint8_t data[] = {1U};
+    gossipsub_test_runtime_t runtime = {47U};
+    gossipsub_test_write_stream_t write0 = {0U, 0U, 0U, 0U};
+    gossipsub_test_write_stream_t write1 = {0U, 0U, 0U, 0U};
+    gossipsub_test_write_stream_t write2 = {0U, 0U, 0U, 0U};
+    gossipsub_test_write_stream_t write3 = {0U, 0U, 0U, 0U};
+    libp2p_gossipsub_config_t config;
+    libp2p_gossipsub_t *gossipsub = NULL;
+    libp2p_host_t host;
+    libp2p_host_transport_vtable_t transport;
+    libp2p_host_stream_t stream0;
+    libp2p_host_stream_t stream1;
+    libp2p_host_stream_t stream2;
+    libp2p_host_stream_t stream3;
+    libp2p_gossipsub_bytes_t topic_bytes;
+    libp2p_gossipsub_bytes_t data_bytes;
+    gossipsub_topic_state_t *topic_state = NULL;
+    gossipsub_mcache_entry_t *entry = NULL;
+    libp2p_gossipsub_rpc_decode_storage_t decode_storage;
+    libp2p_gossipsub_control_ihave_t ihave[2];
+    libp2p_gossipsub_bytes_t decoded_ids[4];
+    libp2p_gossipsub_rpc_t rpc;
+    void *storage = NULL;
+    size_t storage_len = 0U;
+    size_t topic_index = 0U;
+    size_t mcache_index = 0U;
+
+    (void)memset(&topic_bytes, 0, sizeof(topic_bytes));
+    (void)memset(&data_bytes, 0, sizeof(data_bytes));
+    (void)memset(&decode_storage, 0, sizeof(decode_storage));
+    (void)memset(ihave, 0, sizeof(ihave));
+    (void)memset(decoded_ids, 0, sizeof(decoded_ids));
+    (void)memset(&rpc, 0, sizeof(rpc));
+    gossipsub_test_config_small(&config, &runtime);
+    config.mesh.d_low = 0U;
+    config.mesh.d_lazy = 4U;
+    assert(libp2p_gossipsub_storage_size(&config, &storage_len) == LIBP2P_GOSSIPSUB_OK);
+    storage = calloc(1U, storage_len);
+    assert(storage != NULL);
+    assert(libp2p_gossipsub_init(storage, storage_len, &config, &gossipsub) == LIBP2P_GOSSIPSUB_OK);
+    gossipsub_test_fake_host_stream(&host, &transport, &stream0, &write0);
+    gossipsub_test_fake_host_stream(&host, &transport, &stream1, &write1);
+    gossipsub_test_fake_host_stream(&host, &transport, &stream2, &write2);
+    gossipsub_test_fake_host_stream(&host, &transport, &stream3, &write3);
+    gossipsub_test_attach_peer(gossipsub, 0U, &stream0);
+    gossipsub_test_attach_peer(gossipsub, 1U, &stream1);
+    gossipsub_test_attach_peer(gossipsub, 2U, &stream2);
+    gossipsub_test_attach_peer(gossipsub, 3U, &stream3);
+    gossipsub->peers[3].explicit_peer = 1U;
+
+    topic_bytes.data = topic;
+    topic_bytes.len = sizeof(topic) - 1U;
+    data_bytes.data = data;
+    data_bytes.len = sizeof(data);
+    topic_state = gossipsub_find_or_add_topic(gossipsub, topic_bytes, &topic_index);
+    assert(topic_state != NULL);
+    topic_state->local_subscribed = 1U;
+    gossipsub_test_mark_peer_subscribed(gossipsub, 0U, topic_index);
+    gossipsub_test_mark_peer_subscribed(gossipsub, 1U, topic_index);
+    gossipsub_test_mark_peer_subscribed(gossipsub, 2U, topic_index);
+    gossipsub_test_mark_peer_subscribed(gossipsub, 3U, topic_index);
+    assert(gossipsub_mesh_add(gossipsub, 0U, topic_index) == LIBP2P_GOSSIPSUB_OK);
+    assert(
+        gossipsub_mcache_store(
+            gossipsub,
+            message_id,
+            sizeof(message_id),
+            topic_bytes,
+            data_bytes,
+            &entry,
+            &mcache_index) == LIBP2P_GOSSIPSUB_OK);
+
+    gossipsub_heartbeat(gossipsub, 100U);
+    assert(gossipsub->peers[0].tx_queue_depth == 0U);
+    assert(gossipsub->peers[1].tx_queue_depth == 1U);
+    assert(gossipsub->peers[2].tx_queue_depth == 1U);
+    assert(gossipsub->peers[3].tx_queue_depth == 0U);
+    decode_storage.ihave = ihave;
+    decode_storage.ihave_capacity = 2U;
+    decode_storage.message_ids = decoded_ids;
+    decode_storage.message_id_capacity = 4U;
+    gossipsub_test_decode_peer_head(gossipsub, 1U, &decode_storage, &rpc);
+    assert(rpc.control.ihave_count == 1U);
+    assert(rpc.control.ihave[0].message_id_count == 1U);
+    assert(rpc.control.ihave[0].topic.len == sizeof(topic) - 1U);
+    assert(memcmp(rpc.control.ihave[0].topic.data, topic, sizeof(topic) - 1U) == 0);
+    assert(rpc.control.ihave[0].message_ids[0].len == sizeof(message_id));
+    assert(memcmp(rpc.control.ihave[0].message_ids[0].data, message_id, sizeof(message_id)) == 0);
+
+    (void)entry;
+    (void)mcache_index;
+    libp2p_gossipsub_deinit(gossipsub);
+    free(storage);
+}
+
+static void gossipsub_test_gossip_ihave_caps_message_ids(void)
+{
+    static const uint8_t topic[] = "blocks";
+    static const uint8_t id0[] = {0U, 0U, 0U, 0U};
+    static const uint8_t id1[] = {0U, 0U, 0U, 1U};
+    static const uint8_t id2[] = {0U, 0U, 0U, 2U};
+    static const uint8_t data[] = {3U};
+    gossipsub_test_runtime_t runtime = {53U};
+    gossipsub_test_write_stream_t write0 = {0U, 0U, 0U, 0U};
+    gossipsub_test_write_stream_t write1 = {0U, 0U, 0U, 0U};
+    libp2p_gossipsub_config_t config;
+    libp2p_gossipsub_t *gossipsub = NULL;
+    libp2p_host_t host;
+    libp2p_host_transport_vtable_t transport;
+    libp2p_host_stream_t stream0;
+    libp2p_host_stream_t stream1;
+    libp2p_gossipsub_bytes_t topic_bytes;
+    libp2p_gossipsub_bytes_t data_bytes;
+    gossipsub_topic_state_t *topic_state = NULL;
+    gossipsub_mcache_entry_t *entry = NULL;
+    libp2p_gossipsub_rpc_decode_storage_t decode_storage;
+    libp2p_gossipsub_control_ihave_t ihave[1];
+    libp2p_gossipsub_bytes_t decoded_ids[4];
+    libp2p_gossipsub_rpc_t rpc;
+    void *storage = NULL;
+    size_t storage_len = 0U;
+    size_t topic_index = 0U;
+    size_t mcache_index = 0U;
+
+    (void)memset(&topic_bytes, 0, sizeof(topic_bytes));
+    (void)memset(&data_bytes, 0, sizeof(data_bytes));
+    (void)memset(&decode_storage, 0, sizeof(decode_storage));
+    (void)memset(ihave, 0, sizeof(ihave));
+    (void)memset(decoded_ids, 0, sizeof(decoded_ids));
+    (void)memset(&rpc, 0, sizeof(rpc));
+    gossipsub_test_config_small(&config, &runtime);
+    config.limits.max_message_ids_per_rpc = 2U;
+    config.mesh.d_lazy = 4U;
+    assert(libp2p_gossipsub_storage_size(&config, &storage_len) == LIBP2P_GOSSIPSUB_OK);
+    storage = calloc(1U, storage_len);
+    assert(storage != NULL);
+    assert(libp2p_gossipsub_init(storage, storage_len, &config, &gossipsub) == LIBP2P_GOSSIPSUB_OK);
+    gossipsub_test_fake_host_stream(&host, &transport, &stream0, &write0);
+    gossipsub_test_fake_host_stream(&host, &transport, &stream1, &write1);
+    gossipsub_test_attach_peer(gossipsub, 0U, &stream0);
+    gossipsub_test_attach_peer(gossipsub, 1U, &stream1);
+
+    topic_bytes.data = topic;
+    topic_bytes.len = sizeof(topic) - 1U;
+    data_bytes.data = data;
+    data_bytes.len = sizeof(data);
+    topic_state = gossipsub_find_or_add_topic(gossipsub, topic_bytes, &topic_index);
+    assert(topic_state != NULL);
+    topic_state->local_subscribed = 1U;
+    gossipsub_test_mark_peer_subscribed(gossipsub, 0U, topic_index);
+    gossipsub_test_mark_peer_subscribed(gossipsub, 1U, topic_index);
+    assert(gossipsub_mesh_add(gossipsub, 0U, topic_index) == LIBP2P_GOSSIPSUB_OK);
+    assert(
+        gossipsub_mcache_store(
+            gossipsub,
+            id0,
+            sizeof(id0),
+            topic_bytes,
+            data_bytes,
+            &entry,
+            &mcache_index) == LIBP2P_GOSSIPSUB_OK);
+    assert(
+        gossipsub_mcache_store(
+            gossipsub,
+            id1,
+            sizeof(id1),
+            topic_bytes,
+            data_bytes,
+            &entry,
+            &mcache_index) == LIBP2P_GOSSIPSUB_OK);
+    assert(
+        gossipsub_mcache_store(
+            gossipsub,
+            id2,
+            sizeof(id2),
+            topic_bytes,
+            data_bytes,
+            &entry,
+            &mcache_index) == LIBP2P_GOSSIPSUB_OK);
+    assert(gossipsub_emit_gossip(gossipsub) == LIBP2P_GOSSIPSUB_OK);
+    assert(gossipsub->peers[1].tx_queue_depth == 1U);
+    decode_storage.ihave = ihave;
+    decode_storage.ihave_capacity = 1U;
+    decode_storage.message_ids = decoded_ids;
+    decode_storage.message_id_capacity = 4U;
+    gossipsub_test_decode_peer_head(gossipsub, 1U, &decode_storage, &rpc);
+    assert(rpc.control.ihave_count == 1U);
+    assert(rpc.control.ihave[0].message_id_count == 2U);
+    assert(memcmp(rpc.control.ihave[0].message_ids[0].data, id0, sizeof(id0)) == 0);
+    assert(memcmp(rpc.control.ihave[0].message_ids[1].data, id1, sizeof(id1)) == 0);
+
+    (void)entry;
+    (void)mcache_index;
+    libp2p_gossipsub_deinit(gossipsub);
+    free(storage);
+}
+
 static void gossipsub_test_prune_removes_mesh_peer(void)
 {
     static const uint8_t topic[] = "blocks";
@@ -948,6 +1174,8 @@ int main(void)
     gossipsub_test_stale_follower_message_drops_behind_partial_head();
     gossipsub_test_remote_subscriptions_fill_mesh();
     gossipsub_test_forward_uses_mesh_not_all_subscribers();
+    gossipsub_test_heartbeat_gossip_ihave_to_non_mesh_peers();
+    gossipsub_test_gossip_ihave_caps_message_ids();
     gossipsub_test_prune_removes_mesh_peer();
     return 0;
 }

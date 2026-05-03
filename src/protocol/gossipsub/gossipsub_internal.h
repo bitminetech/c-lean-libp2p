@@ -69,6 +69,7 @@
 #define GOSSIPSUB_TX_BYTES_PER_PEER_PER_DRIVE  4096U
 #define GOSSIPSUB_TX_LOCAL_PUBLISH_LIFETIME_US UINT64_C(5000000)
 #define GOSSIPSUB_TX_FORWARD_LIFETIME_US       UINT64_C(1000000)
+#define GOSSIPSUB_GOSSIP_FACTOR_DENOMINATOR    UINT32_C(1000000)
 
 typedef struct
 {
@@ -531,6 +532,7 @@ libp2p_gossipsub_err_t gossipsub_mesh_trim_topic(
     size_t target,
     uint8_t queue_prune);
 libp2p_gossipsub_err_t gossipsub_mesh_heartbeat(libp2p_gossipsub_t *gossipsub);
+libp2p_gossipsub_err_t gossipsub_emit_gossip(libp2p_gossipsub_t *gossipsub);
 libp2p_gossipsub_err_t gossipsub_compute_message_id(
     libp2p_gossipsub_t *gossipsub,
     const libp2p_gossipsub_message_t *message,
@@ -607,6 +609,12 @@ libp2p_gossipsub_err_t gossipsub_enqueue_iwant(
     libp2p_gossipsub_t *gossipsub,
     size_t peer_index,
     const libp2p_gossipsub_bytes_t *message_id);
+libp2p_gossipsub_err_t gossipsub_enqueue_ihave(
+    libp2p_gossipsub_t *gossipsub,
+    size_t peer_index,
+    const gossipsub_topic_state_t *topic,
+    const libp2p_gossipsub_bytes_t *message_ids,
+    size_t message_id_count);
 libp2p_gossipsub_err_t gossipsub_enqueue_graft(
     libp2p_gossipsub_t *gossipsub,
     size_t peer_index,

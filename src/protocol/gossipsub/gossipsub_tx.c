@@ -512,6 +512,42 @@ libp2p_gossipsub_err_t gossipsub_enqueue_iwant(
     return gossipsub_enqueue_rpc(gossipsub, peer_index, &rpc);
 }
 
+libp2p_gossipsub_err_t gossipsub_enqueue_ihave(
+    libp2p_gossipsub_t *gossipsub,
+    size_t peer_index,
+    const gossipsub_topic_state_t *topic,
+    const libp2p_gossipsub_bytes_t *message_ids,
+    size_t message_id_count)
+{
+    libp2p_gossipsub_control_ihave_t ihave;
+    libp2p_gossipsub_rpc_t rpc;
+    libp2p_gossipsub_err_t result = LIBP2P_GOSSIPSUB_OK;
+
+    (void)memset(&ihave, 0, sizeof(ihave));
+    (void)memset(&rpc, 0, sizeof(rpc));
+    if ((topic == NULL) || (message_ids == NULL) || (message_id_count == 0U))
+    {
+        result = LIBP2P_GOSSIPSUB_ERR_INVALID_ARG;
+    }
+    else
+    {
+        ihave.topic.data = topic->topic;
+        ihave.topic.len = topic->topic_len;
+        ihave.message_ids = message_ids;
+        ihave.message_id_count = message_id_count;
+        rpc.control.ihave = &ihave;
+        rpc.control.ihave_count = 1U;
+        result = gossipsub_enqueue_rpc_with_lifetime(
+            gossipsub,
+            peer_index,
+            &rpc,
+            GOSSIPSUB_TX_FORWARD_LIFETIME_US,
+            NULL);
+    }
+
+    return result;
+}
+
 libp2p_gossipsub_err_t gossipsub_enqueue_graft(
     libp2p_gossipsub_t *gossipsub,
     size_t peer_index,

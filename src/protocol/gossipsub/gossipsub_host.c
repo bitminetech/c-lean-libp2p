@@ -149,6 +149,7 @@ void gossipsub_heartbeat(libp2p_gossipsub_t *gossipsub, uint64_t now_us)
             }
         }
         (void)gossipsub_mesh_heartbeat(gossipsub);
+        (void)gossipsub_emit_gossip(gossipsub);
         for (size_t index = 0U; index < gossipsub->config.capacity.mcache_slots; index++)
         {
             if (gossipsub->mcache[index].used != 0U)
