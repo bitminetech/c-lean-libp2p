@@ -684,7 +684,14 @@ static void gossipsub_interop_debug(const gossipsub_interop_app_t *app, const ch
 
 static uint8_t gossipsub_interop_trace_enabled(void)
 {
-    return (getenv("C_LEAN_LIBP2P_GOSSIPSUB_TRACE") != NULL) ? 1U : 0U;
+    uint8_t result = (getenv("C_LEAN_LIBP2P_GOSSIPSUB_TRACE") != NULL) ? 1U : 0U;
+
+    if (result == 0U)
+    {
+        result = gossipsub_interop_env_enabled("LIBP2P_QUIC_DEBUG");
+    }
+
+    return result;
 }
 
 static void gossipsub_interop_trace(const char *message)
@@ -692,6 +699,46 @@ static void gossipsub_interop_trace(const char *message)
     if ((message != NULL) && (gossipsub_interop_trace_enabled() != 0U))
     {
         (void)fprintf(stderr, "c-lean-gossipsub: %s\n", message);
+        (void)fflush(stderr);
+    }
+}
+
+static void gossipsub_interop_trace_tx_peers(const gossipsub_interop_app_t *app, uint64_t now_us)
+{
+    if ((app != NULL) && (gossipsub_interop_trace_enabled() != 0U))
+    {
+        for (size_t peer_index = 0U; peer_index < app->gossipsub_config.capacity.max_peers;
+             peer_index++)
+        {
+            libp2p_gossipsub_tx_peer_stats_t stats;
+
+            (void)memset(&stats, 0, sizeof(stats));
+            if (libp2p_gossipsub_tx_peer_stats(app->gossipsub, peer_index, now_us, &stats) ==
+                LIBP2P_GOSSIPSUB_OK)
+            {
+                if ((stats.queue_depth != 0U) || (stats.would_block_count != 0U))
+                {
+                    (void)fprintf(
+                        stderr,
+                        "c-lean-gossipsub: tx peer_index=%zu used=%u ready=%u depth=%zu "
+                        "oldest_age_us=%llu current_pos=%zu current_len=%zu publish=%u "
+                        "bytes_accepted=%llu would_block=%llu last_writable_us=%llu "
+                        "last_tx_offset=%llu\n",
+                        peer_index,
+                        (unsigned int)stats.used,
+                        (unsigned int)stats.ready,
+                        stats.queue_depth,
+                        (unsigned long long)stats.oldest_age_us,
+                        stats.current_pos,
+                        stats.current_len,
+                        (unsigned int)stats.current_publish,
+                        (unsigned long long)stats.bytes_accepted,
+                        (unsigned long long)stats.would_block_count,
+                        (unsigned long long)stats.last_writable_us,
+                        (unsigned long long)stats.last_tx_offset);
+                }
+            }
+        }
         (void)fflush(stderr);
     }
 }
@@ -810,34 +857,34 @@ static const char *gossipsub_interop_event_name(libp2p_gossipsub_event_type_t ty
 
     switch (type)
     {
-        case LIBP2P_GOSSIPSUB_EVENT_PEER_OPENED:
-            result = "peer_opened";
-            break;
-        case LIBP2P_GOSSIPSUB_EVENT_PEER_CLOSED:
-            result = "peer_closed";
-            break;
-        case LIBP2P_GOSSIPSUB_EVENT_PEER_FAILED:
-            result = "peer_failed";
-            break;
-        case LIBP2P_GOSSIPSUB_EVENT_SUBSCRIPTION:
-            result = "subscription";
-            break;
-        case LIBP2P_GOSSIPSUB_EVENT_MESSAGE:
-            result = "message";
-            break;
-        case LIBP2P_GOSSIPSUB_EVENT_IDONTWANT:
-            result = "idontwant";
-            break;
-        case LIBP2P_GOSSIPSUB_EVENT_DROPPED:
-            result = "dropped";
-            break;
-        case LIBP2P_GOSSIPSUB_EVENT_ERROR:
-            result = "error";
-            break;
-        case LIBP2P_GOSSIPSUB_EVENT_NONE:
-        default:
-            result = "none";
-            break;
+    case LIBP2P_GOSSIPSUB_EVENT_PEER_OPENED:
+        result = "peer_opened";
+        break;
+    case LIBP2P_GOSSIPSUB_EVENT_PEER_CLOSED:
+        result = "peer_closed";
+        break;
+    case LIBP2P_GOSSIPSUB_EVENT_PEER_FAILED:
+        result = "peer_failed";
+        break;
+    case LIBP2P_GOSSIPSUB_EVENT_SUBSCRIPTION:
+        result = "subscription";
+        break;
+    case LIBP2P_GOSSIPSUB_EVENT_MESSAGE:
+        result = "message";
+        break;
+    case LIBP2P_GOSSIPSUB_EVENT_IDONTWANT:
+        result = "idontwant";
+        break;
+    case LIBP2P_GOSSIPSUB_EVENT_DROPPED:
+        result = "dropped";
+        break;
+    case LIBP2P_GOSSIPSUB_EVENT_ERROR:
+        result = "error";
+        break;
+    case LIBP2P_GOSSIPSUB_EVENT_NONE:
+    default:
+        result = "none";
+        break;
     }
 
     return result;
@@ -851,13 +898,12 @@ static void gossipsub_interop_trace_event(const libp2p_gossipsub_event_t *event)
 
     if ((event != NULL) && (gossipsub_interop_trace_enabled() != 0U))
     {
-        if ((event->peer.len != 0U) &&
-            (libp2p_peer_id_to_string(
-                 event->peer.data,
-                 event->peer.len,
-                 peer_text,
-                 sizeof(peer_text),
-                 &peer_text_len) != LIBP2P_PEER_ID_OK))
+        if ((event->peer.len != 0U) && (libp2p_peer_id_to_string(
+                                            event->peer.data,
+                                            event->peer.len,
+                                            peer_text,
+                                            sizeof(peer_text),
+                                            &peer_text_len) != LIBP2P_PEER_ID_OK))
         {
             peer_text_len = 0U;
         }
@@ -880,7 +926,10 @@ static void gossipsub_interop_trace_event(const libp2p_gossipsub_event_t *event)
         (void)fprintf(stderr, "\" topic=\"");
         if ((event->topic.data != NULL) && (event->topic.len != 0U))
         {
-            gossipsub_interop_json_escape(stderr, (const char *)event->topic.data, event->topic.len);
+            gossipsub_interop_json_escape(
+                stderr,
+                (const char *)event->topic.data,
+                event->topic.len);
         }
         (void)fprintf(
             stderr,
@@ -2040,6 +2089,14 @@ static gossipsub_interop_err_t gossipsub_interop_drive_once(gossipsub_interop_ap
                 gossipsub_drive_result.validations_expired,
                 (unsigned int)gossipsub_drive_result.made_progress);
             result = GOSSIPSUB_INTEROP_ERR_PROTOCOL;
+        }
+        else if (gossipsub_drive_result.made_progress != 0U)
+        {
+            gossipsub_interop_trace_tx_peers(app, gossipsub_interop_now_us());
+        }
+        else
+        {
+            result = GOSSIPSUB_INTEROP_OK;
         }
     }
     if (result == GOSSIPSUB_INTEROP_OK)

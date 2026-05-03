@@ -214,6 +214,8 @@ libp2p_gossipsub_err_t gossipsub_peer_from_conn(
                     peer = &gossipsub->peers[index];
                     (void)memset(peer, 0, sizeof(*peer));
                     peer->used = GOSSIPSUB_PEER_USED;
+                    peer->tx_head = GOSSIPSUB_TX_NO_ITEM;
+                    peer->tx_tail = GOSSIPSUB_TX_NO_ITEM;
                     peer->peer_id_len = peer_id_len;
                     (void)memcpy(peer->peer_id, peer_id, peer_id_len);
                     gossipsub->peer_count++;

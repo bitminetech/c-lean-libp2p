@@ -497,6 +497,22 @@ typedef struct
     uint8_t made_progress;
 } libp2p_gossipsub_drive_result_t;
 
+/** Read-only snapshot of one peer's outbound writer state for debug traces. */
+typedef struct
+{
+    uint8_t used;
+    uint8_t ready;
+    uint8_t current_publish;
+    size_t queue_depth;
+    size_t current_pos;
+    size_t current_len;
+    uint64_t oldest_age_us;
+    uint64_t last_writable_us;
+    uint64_t last_tx_offset;
+    uint64_t bytes_accepted;
+    uint64_t would_block_count;
+} libp2p_gossipsub_tx_peer_stats_t;
+
 /**
  * Fill gossipsub config with production defaults.
  *
@@ -578,6 +594,15 @@ libp2p_gossipsub_err_t libp2p_gossipsub_drive(
     libp2p_host_t *host,
     libp2p_host_time_us_t now_us,
     libp2p_gossipsub_drive_result_t *out_result);
+
+/**
+ * Return debug counters for one peer outbound writer.
+ */
+libp2p_gossipsub_err_t libp2p_gossipsub_tx_peer_stats(
+    const libp2p_gossipsub_t *gossipsub,
+    size_t peer_index,
+    libp2p_host_time_us_t now_us,
+    libp2p_gossipsub_tx_peer_stats_t *out_stats);
 
 /**
  * Feed a public host event into the gossipsub router.

@@ -65,6 +65,11 @@
 #define GOSSIPSUB_VALIDATION_FREE    0U
 #define GOSSIPSUB_VALIDATION_PENDING 1U
 
+#define GOSSIPSUB_TX_NO_ITEM                   SIZE_MAX
+#define GOSSIPSUB_TX_BYTES_PER_PEER_PER_DRIVE  4096U
+#define GOSSIPSUB_TX_LOCAL_PUBLISH_LIFETIME_US UINT64_C(5000000)
+#define GOSSIPSUB_TX_FORWARD_LIFETIME_US       UINT64_C(1000000)
+
 typedef struct
 {
     uint8_t used;
@@ -88,6 +93,14 @@ typedef struct
     uint8_t peer_id[LIBP2P_PEER_ID_MAX_BYTES];
     size_t peer_id_len;
     size_t idontwant_sent_this_heartbeat;
+    size_t tx_head;
+    size_t tx_tail;
+    size_t tx_queue_depth;
+    uint8_t tx_ready;
+    uint64_t tx_last_writable_us;
+    uint64_t tx_last_offset;
+    uint64_t tx_bytes_accepted;
+    uint64_t tx_would_block_count;
     void *user_data;
 } gossipsub_peer_state_t;
 
@@ -119,6 +132,9 @@ typedef struct
     size_t offset;
     size_t len;
     size_t pos;
+    size_t next;
+    uint64_t enqueued_us;
+    uint64_t deadline_us;
     uint8_t message_id[LIBP2P_GOSSIPSUB_DEFAULT_MAX_MESSAGE_ID_BYTES];
     size_t message_id_len;
 } gossipsub_tx_item_t;
@@ -173,6 +189,7 @@ struct libp2p_gossipsub
     uint8_t started;
     uint8_t closing;
     uint64_t next_heartbeat_us;
+    uint64_t last_drive_us;
     uint8_t *storage_base;
     size_t storage_len;
 
@@ -196,6 +213,8 @@ struct libp2p_gossipsub
     size_t topic_count;
     size_t peer_count;
     size_t tx_queue_len;
+    size_t tx_ready_count;
+    size_t tx_next_peer;
     size_t event_head;
     size_t event_len;
     size_t mcache_next;
@@ -525,8 +544,16 @@ libp2p_gossipsub_err_t gossipsub_tx_alloc(
     libp2p_gossipsub_t *gossipsub,
     size_t peer_index,
     size_t frame_len,
-    uint8_t **out);
+    uint64_t lifetime_us,
+    uint8_t **out,
+    size_t *out_index);
 void gossipsub_tx_remove(libp2p_gossipsub_t *gossipsub, size_t index);
+uint64_t gossipsub_tx_next_deadline(const libp2p_gossipsub_t *gossipsub, uint64_t current_deadline);
+size_t gossipsub_tx_drop_stale(libp2p_gossipsub_t *gossipsub, uint64_t now_us);
+void gossipsub_tx_mark_peer_ready(
+    libp2p_gossipsub_t *gossipsub,
+    size_t peer_index,
+    uint64_t now_us);
 libp2p_gossipsub_err_t gossipsub_enqueue_rpc(
     libp2p_gossipsub_t *gossipsub,
     size_t peer_index,
@@ -549,6 +576,10 @@ libp2p_gossipsub_err_t gossipsub_enqueue_publish_entry(
     libp2p_gossipsub_t *gossipsub,
     size_t peer_index,
     const gossipsub_mcache_entry_t *entry);
+libp2p_gossipsub_err_t gossipsub_enqueue_local_publish_entry(
+    libp2p_gossipsub_t *gossipsub,
+    size_t peer_index,
+    const gossipsub_mcache_entry_t *entry);
 libp2p_gossipsub_err_t gossipsub_enqueue_idontwant_for_entry(
     libp2p_gossipsub_t *gossipsub,
     size_t peer_index,
@@ -563,11 +594,20 @@ void gossipsub_drop_queued_publish(
     size_t peer_index,
     const uint8_t *message_id,
     size_t message_id_len);
+void gossipsub_drop_queued_peer(libp2p_gossipsub_t *gossipsub, size_t peer_index);
 libp2p_gossipsub_err_t gossipsub_flush_peer(
     libp2p_gossipsub_t *gossipsub,
     libp2p_host_t *host,
     size_t peer_index,
-    uint8_t *made_progress);
+    uint64_t now_us,
+    uint8_t *made_progress,
+    size_t *rpcs_sent);
+libp2p_gossipsub_err_t gossipsub_flush_ready_peers(
+    libp2p_gossipsub_t *gossipsub,
+    libp2p_host_t *host,
+    uint64_t now_us,
+    uint8_t *made_progress,
+    size_t *rpcs_sent);
 libp2p_gossipsub_err_t gossipsub_forward_entry(
     libp2p_gossipsub_t *gossipsub,
     size_t source_peer_index,

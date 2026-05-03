@@ -421,6 +421,10 @@ libp2p_gossipsub_err_t gossipsub_stream_read(
     {
         result = LIBP2P_GOSSIPSUB_ERR_INVALID_ARG;
     }
+    else
+    {
+        gossipsub->last_drive_us = now_us;
+    }
     while ((result == LIBP2P_GOSSIPSUB_OK) && (keep_reading != 0U))
     {
         if (stream_state->rx_len >=

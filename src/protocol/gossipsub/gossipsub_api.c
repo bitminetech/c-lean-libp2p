@@ -194,7 +194,7 @@ libp2p_gossipsub_err_t libp2p_gossipsub_publish(
                     ((gossipsub_peer_subscribed(gossipsub, peer_index, topic_index) != 0) ||
                      (gossipsub->config.mesh.enable_flood_publish != 0U)))
                 {
-                    result = gossipsub_enqueue_publish_entry(gossipsub, peer_index, entry);
+                    result = gossipsub_enqueue_local_publish_entry(gossipsub, peer_index, entry);
                 }
             }
         }

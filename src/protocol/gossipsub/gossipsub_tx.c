@@ -3,16 +3,158 @@
 
 #include "gossipsub_internal.h"
 
+static uint64_t gossipsub_tx_effective_now_us(const libp2p_gossipsub_t *gossipsub)
+{
+    uint64_t result = 0U;
+
+    if (gossipsub != NULL)
+    {
+        result = gossipsub->last_drive_us;
+        if (result == 0U)
+        {
+            result = gossipsub->next_heartbeat_us;
+        }
+    }
+
+    return result;
+}
+
+static uint64_t gossipsub_tx_deadline(uint64_t now_us, uint64_t lifetime_us)
+{
+    uint64_t result = 0U;
+
+    if (lifetime_us != 0U)
+    {
+        result = UINT64_MAX;
+        if (now_us <= (UINT64_MAX - lifetime_us))
+        {
+            result = now_us + lifetime_us;
+        }
+    }
+
+    return result;
+}
+
+static void gossipsub_tx_set_peer_ready(
+    libp2p_gossipsub_t *gossipsub,
+    size_t peer_index,
+    uint8_t ready)
+{
+    if ((gossipsub != NULL) && (peer_index < gossipsub->config.capacity.max_peers))
+    {
+        gossipsub_peer_state_t *peer = &gossipsub->peers[peer_index];
+        const uint8_t can_write = ((peer->used == GOSSIPSUB_PEER_USED) && (peer->stream != NULL) &&
+                                   (peer->tx_queue_depth != 0U))
+                                      ? 1U
+                                      : 0U;
+        const uint8_t next_ready = ((ready != 0U) && (can_write != 0U)) ? 1U : 0U;
+
+        if ((next_ready != 0U) && (peer->tx_ready == 0U))
+        {
+            peer->tx_ready = 1U;
+            gossipsub->tx_ready_count++;
+        }
+        else if ((next_ready == 0U) && (peer->tx_ready != 0U))
+        {
+            peer->tx_ready = 0U;
+            if (gossipsub->tx_ready_count != 0U)
+            {
+                gossipsub->tx_ready_count--;
+            }
+        }
+        else
+        {
+            peer->tx_ready = next_ready;
+        }
+    }
+}
+
+void gossipsub_tx_mark_peer_ready(libp2p_gossipsub_t *gossipsub, size_t peer_index, uint64_t now_us)
+{
+    if ((gossipsub != NULL) && (peer_index < gossipsub->config.capacity.max_peers))
+    {
+        gossipsub->peers[peer_index].tx_last_writable_us = now_us;
+        gossipsub_tx_set_peer_ready(gossipsub, peer_index, 1U);
+    }
+}
+
+static void gossipsub_tx_clear_item(gossipsub_tx_item_t *item)
+{
+    if (item != NULL)
+    {
+        (void)memset(item, 0, sizeof(*item));
+        item->next = GOSSIPSUB_TX_NO_ITEM;
+    }
+}
+
+static int gossipsub_tx_item_stale(const gossipsub_tx_item_t *item, uint64_t now_us)
+{
+    int result = 0;
+
+    if ((item != NULL) && (item->deadline_us != 0U) && (item->pos == 0U) &&
+        (now_us >= item->deadline_us))
+    {
+        result = 1;
+    }
+
+    return result;
+}
+
+static size_t gossipsub_tx_find_free(const libp2p_gossipsub_t *gossipsub)
+{
+    size_t result = GOSSIPSUB_TX_NO_ITEM;
+
+    if (gossipsub != NULL)
+    {
+        for (size_t index = 0U; (index < gossipsub->config.capacity.max_tx_rpc_queue) &&
+                                (result == GOSSIPSUB_TX_NO_ITEM);
+             index++)
+        {
+            if (gossipsub->tx_queue[index].used == 0U)
+            {
+                result = index;
+            }
+        }
+    }
+
+    return result;
+}
+
+static void gossipsub_tx_append_peer_item(
+    libp2p_gossipsub_t *gossipsub,
+    size_t peer_index,
+    size_t item_index)
+{
+    gossipsub_peer_state_t *peer = &gossipsub->peers[peer_index];
+
+    if (peer->tx_queue_depth == 0U)
+    {
+        peer->tx_head = item_index;
+        peer->tx_tail = item_index;
+    }
+    else
+    {
+        gossipsub->tx_queue[peer->tx_tail].next = item_index;
+        peer->tx_tail = item_index;
+    }
+    peer->tx_queue_depth++;
+    gossipsub_tx_set_peer_ready(gossipsub, peer_index, 1U);
+}
+
 libp2p_gossipsub_err_t gossipsub_tx_alloc(
     libp2p_gossipsub_t *gossipsub,
     size_t peer_index,
     size_t frame_len,
-    uint8_t **out)
+    uint64_t lifetime_us,
+    uint8_t **out,
+    size_t *out_index)
 {
-    gossipsub_tx_item_t *item = NULL;
+    size_t item_index = GOSSIPSUB_TX_NO_ITEM;
+    const uint64_t now_us = gossipsub_tx_effective_now_us(gossipsub);
     libp2p_gossipsub_err_t result = LIBP2P_GOSSIPSUB_OK;
 
-    if ((gossipsub == NULL) || (out == NULL))
+    if ((gossipsub == NULL) || (out == NULL) || (out_index == NULL) ||
+        (peer_index >= gossipsub->config.capacity.max_peers))
     {
         result = LIBP2P_GOSSIPSUB_ERR_INVALID_ARG;
     }
@@ -34,19 +176,29 @@ libp2p_gossipsub_err_t gossipsub_tx_alloc(
         }
         else
         {
-            item = &gossipsub->tx_queue[gossipsub->tx_queue_len];
-            item->used = 1U;
-            item->publish = 0U;
-            item->peer_index = peer_index;
-            item->offset = gossipsub->tx_buffer_used;
-            item->len = frame_len;
-            item->pos = 0U;
-            (void)memset(item->message_id, 0, sizeof(item->message_id));
-            item->message_id_len = 0U;
-            *out = &gossipsub->tx_buffer[gossipsub->tx_buffer_used];
-            gossipsub->tx_buffer_used += frame_len;
-            gossipsub->tx_queue_len++;
+            item_index = gossipsub_tx_find_free(gossipsub);
+            if (item_index == GOSSIPSUB_TX_NO_ITEM)
+            {
+                result = LIBP2P_GOSSIPSUB_ERR_LIMIT;
+            }
         }
+    }
+    if (result == LIBP2P_GOSSIPSUB_OK)
+    {
+        gossipsub_tx_item_t *item = &gossipsub->tx_queue[item_index];
+
+        gossipsub_tx_clear_item(item);
+        item->used = 1U;
+        item->peer_index = peer_index;
+        item->offset = gossipsub->tx_buffer_used;
+        item->len = frame_len;
+        item->enqueued_us = now_us;
+        item->deadline_us = gossipsub_tx_deadline(now_us, lifetime_us);
+        *out = &gossipsub->tx_buffer[gossipsub->tx_buffer_used];
+        *out_index = item_index;
+        gossipsub->tx_buffer_used += frame_len;
+        gossipsub->tx_queue_len++;
+        gossipsub_tx_append_peer_item(gossipsub, peer_index, item_index);
     }
 
     return result;
@@ -54,18 +206,60 @@ libp2p_gossipsub_err_t gossipsub_tx_alloc(
 
 void gossipsub_tx_remove(libp2p_gossipsub_t *gossipsub, size_t index)
 {
-    if ((gossipsub != NULL) && (index < gossipsub->tx_queue_len))
+    if ((gossipsub != NULL) && (index < gossipsub->config.capacity.max_tx_rpc_queue) &&
+        (gossipsub->tx_queue[index].used != 0U))
     {
-        const size_t remaining = gossipsub->tx_queue_len - index - 1U;
+        const size_t peer_index = gossipsub->tx_queue[index].peer_index;
 
-        if (remaining != 0U)
+        if (peer_index < gossipsub->config.capacity.max_peers)
         {
-            (void)memmove(
-                &gossipsub->tx_queue[index],
-                &gossipsub->tx_queue[index + 1U],
-                remaining * sizeof(gossipsub_tx_item_t));
+            gossipsub_peer_state_t *peer = &gossipsub->peers[peer_index];
+            size_t previous = GOSSIPSUB_TX_NO_ITEM;
+            size_t current = peer->tx_head;
+            uint8_t found = 0U;
+
+            while ((current != GOSSIPSUB_TX_NO_ITEM) && (found == 0U))
+            {
+                if (current == index)
+                {
+                    const size_t next = gossipsub->tx_queue[current].next;
+
+                    if (previous == GOSSIPSUB_TX_NO_ITEM)
+                    {
+                        peer->tx_head = next;
+                    }
+                    else
+                    {
+                        gossipsub->tx_queue[previous].next = next;
+                    }
+                    if (peer->tx_tail == current)
+                    {
+                        peer->tx_tail = previous;
+                    }
+                    if (peer->tx_queue_depth != 0U)
+                    {
+                        peer->tx_queue_depth--;
+                    }
+                    found = 1U;
+                }
+                else
+                {
+                    previous = current;
+                    current = gossipsub->tx_queue[current].next;
+                }
+            }
+            if (peer->tx_queue_depth == 0U)
+            {
+                peer->tx_head = GOSSIPSUB_TX_NO_ITEM;
+                peer->tx_tail = GOSSIPSUB_TX_NO_ITEM;
+                gossipsub_tx_set_peer_ready(gossipsub, peer_index, 0U);
+            }
         }
-        gossipsub->tx_queue_len--;
+        gossipsub_tx_clear_item(&gossipsub->tx_queue[index]);
+        if (gossipsub->tx_queue_len != 0U)
+        {
+            gossipsub->tx_queue_len--;
+        }
         if (gossipsub->tx_queue_len == 0U)
         {
             gossipsub->tx_buffer_used = 0U;
@@ -73,13 +267,81 @@ void gossipsub_tx_remove(libp2p_gossipsub_t *gossipsub, size_t index)
     }
 }
 
-libp2p_gossipsub_err_t gossipsub_enqueue_rpc(
+uint64_t gossipsub_tx_next_deadline(const libp2p_gossipsub_t *gossipsub, uint64_t current_deadline)
+{
+    uint64_t result = current_deadline;
+
+    if (gossipsub != NULL)
+    {
+        for (size_t peer_index = 0U; peer_index < gossipsub->config.capacity.max_peers;
+             peer_index++)
+        {
+            const gossipsub_peer_state_t *peer = &gossipsub->peers[peer_index];
+
+            if ((peer->tx_queue_depth != 0U) && (peer->tx_head != GOSSIPSUB_TX_NO_ITEM))
+            {
+                const gossipsub_tx_item_t *item = &gossipsub->tx_queue[peer->tx_head];
+
+                if ((item->used != 0U) && (item->deadline_us != 0U) && (item->pos == 0U) &&
+                    (item->deadline_us < result))
+                {
+                    result = item->deadline_us;
+                }
+            }
+        }
+    }
+
+    return result;
+}
+
+size_t gossipsub_tx_drop_stale(libp2p_gossipsub_t *gossipsub, uint64_t now_us)
+{
+    size_t result = 0U;
+
+    if (gossipsub != NULL)
+    {
+        for (size_t peer_index = 0U; peer_index < gossipsub->config.capacity.max_peers;
+             peer_index++)
+        {
+            const gossipsub_peer_state_t *peer = &gossipsub->peers[peer_index];
+            uint8_t keep_dropping = 1U;
+
+            while ((peer->tx_queue_depth != 0U) && (peer->tx_head != GOSSIPSUB_TX_NO_ITEM) &&
+                   (keep_dropping != 0U))
+            {
+                const size_t item_index = peer->tx_head;
+
+                if ((item_index >= gossipsub->config.capacity.max_tx_rpc_queue) ||
+                    (gossipsub->tx_queue[item_index].used == 0U))
+                {
+                    keep_dropping = 0U;
+                }
+                else if (gossipsub_tx_item_stale(&gossipsub->tx_queue[item_index], now_us) != 0)
+                {
+                    gossipsub_tx_remove(gossipsub, item_index);
+                    result++;
+                }
+                else
+                {
+                    keep_dropping = 0U;
+                }
+            }
+        }
+    }
+
+    return result;
+}
+
+static libp2p_gossipsub_err_t gossipsub_enqueue_rpc_with_lifetime(
     libp2p_gossipsub_t *gossipsub,
     size_t peer_index,
-    const libp2p_gossipsub_rpc_t *rpc)
+    const libp2p_gossipsub_rpc_t *rpc,
+    uint64_t lifetime_us,
+    size_t *out_index)
 {
     size_t frame_len = 0U;
     size_t written = 0U;
+    size_t tx_index = GOSSIPSUB_TX_NO_ITEM;
     uint8_t *out = NULL;
     const gossipsub_peer_state_t *peer = NULL;
     libp2p_gossipsub_err_t result = LIBP2P_GOSSIPSUB_OK;
@@ -107,7 +369,7 @@ libp2p_gossipsub_err_t gossipsub_enqueue_rpc(
     }
     if (result == LIBP2P_GOSSIPSUB_OK)
     {
-        result = gossipsub_tx_alloc(gossipsub, peer_index, frame_len, &out);
+        result = gossipsub_tx_alloc(gossipsub, peer_index, frame_len, lifetime_us, &out, &tx_index);
     }
     if (result == LIBP2P_GOSSIPSUB_OK)
     {
@@ -123,8 +385,20 @@ libp2p_gossipsub_err_t gossipsub_enqueue_rpc(
             result = LIBP2P_GOSSIPSUB_ERR_INTERNAL;
         }
     }
+    if ((result == LIBP2P_GOSSIPSUB_OK) && (out_index != NULL))
+    {
+        *out_index = tx_index;
+    }
 
     return result;
+}
+
+libp2p_gossipsub_err_t gossipsub_enqueue_rpc(
+    libp2p_gossipsub_t *gossipsub,
+    size_t peer_index,
+    const libp2p_gossipsub_rpc_t *rpc)
+{
+    return gossipsub_enqueue_rpc_with_lifetime(gossipsub, peer_index, rpc, 0U, NULL);
 }
 
 libp2p_gossipsub_err_t gossipsub_enqueue_subscription(
@@ -188,14 +462,15 @@ libp2p_gossipsub_err_t gossipsub_enqueue_iwant(
     return gossipsub_enqueue_rpc(gossipsub, peer_index, &rpc);
 }
 
-libp2p_gossipsub_err_t gossipsub_enqueue_publish_entry(
+static libp2p_gossipsub_err_t gossipsub_enqueue_publish_entry_with_lifetime(
     libp2p_gossipsub_t *gossipsub,
     size_t peer_index,
-    const gossipsub_mcache_entry_t *entry)
+    const gossipsub_mcache_entry_t *entry,
+    uint64_t lifetime_us)
 {
     libp2p_gossipsub_message_t message;
     libp2p_gossipsub_rpc_t rpc;
-    size_t tx_index = 0U;
+    size_t tx_index = GOSSIPSUB_TX_NO_ITEM;
     libp2p_gossipsub_err_t result = LIBP2P_GOSSIPSUB_OK;
 
     (void)memset(&message, 0, sizeof(message));
@@ -206,14 +481,17 @@ libp2p_gossipsub_err_t gossipsub_enqueue_publish_entry(
     }
     else
     {
-        tx_index = gossipsub->tx_queue_len;
         gossipsub_entry_message(gossipsub, entry, &message);
         rpc.publish = &message;
         rpc.publish_count = 1U;
-
-        result = gossipsub_enqueue_rpc(gossipsub, peer_index, &rpc);
+        result = gossipsub_enqueue_rpc_with_lifetime(
+            gossipsub,
+            peer_index,
+            &rpc,
+            lifetime_us,
+            &tx_index);
     }
-    if ((result == LIBP2P_GOSSIPSUB_OK) && (tx_index < gossipsub->tx_queue_len))
+    if ((result == LIBP2P_GOSSIPSUB_OK) && (tx_index != GOSSIPSUB_TX_NO_ITEM))
     {
         gossipsub_tx_item_t *item = &gossipsub->tx_queue[tx_index];
 
@@ -223,6 +501,30 @@ libp2p_gossipsub_err_t gossipsub_enqueue_publish_entry(
     }
 
     return result;
+}
+
+libp2p_gossipsub_err_t gossipsub_enqueue_publish_entry(
+    libp2p_gossipsub_t *gossipsub,
+    size_t peer_index,
+    const gossipsub_mcache_entry_t *entry)
+{
+    return gossipsub_enqueue_publish_entry_with_lifetime(
+        gossipsub,
+        peer_index,
+        entry,
+        GOSSIPSUB_TX_FORWARD_LIFETIME_US);
+}
+
+libp2p_gossipsub_err_t gossipsub_enqueue_local_publish_entry(
+    libp2p_gossipsub_t *gossipsub,
+    size_t peer_index,
+    const gossipsub_mcache_entry_t *entry)
+{
+    return gossipsub_enqueue_publish_entry_with_lifetime(
+        gossipsub,
+        peer_index,
+        entry,
+        GOSSIPSUB_TX_LOCAL_PUBLISH_LIFETIME_US);
 }
 
 libp2p_gossipsub_err_t gossipsub_enqueue_idontwant_for_entry(
@@ -267,65 +569,145 @@ libp2p_gossipsub_err_t gossipsub_flush_peer(
     libp2p_gossipsub_t *gossipsub,
     libp2p_host_t *host,
     size_t peer_index,
-    uint8_t *made_progress)
+    uint64_t now_us,
+    uint8_t *made_progress,
+    size_t *rpcs_sent)
 {
     libp2p_gossipsub_err_t result = LIBP2P_GOSSIPSUB_OK;
 
-    if ((gossipsub == NULL) || (host == NULL) || (made_progress == NULL) ||
+    if ((gossipsub == NULL) || (host == NULL) || (made_progress == NULL) || (rpcs_sent == NULL) ||
         (peer_index >= gossipsub->config.capacity.max_peers))
     {
         result = LIBP2P_GOSSIPSUB_ERR_INVALID_ARG;
     }
     else if (gossipsub->peers[peer_index].stream == NULL)
     {
-        result = LIBP2P_GOSSIPSUB_OK;
+        gossipsub_tx_set_peer_ready(gossipsub, peer_index, 0U);
     }
     else
     {
-        size_t index = 0U;
+        gossipsub_peer_state_t *peer = &gossipsub->peers[peer_index];
+        size_t bytes_written = 0U;
         uint8_t keep_writing = 1U;
 
-        while ((result == LIBP2P_GOSSIPSUB_OK) && (index < gossipsub->tx_queue_len) &&
-               (keep_writing != 0U))
+        while ((result == LIBP2P_GOSSIPSUB_OK) && (peer->tx_queue_depth != 0U) &&
+               (keep_writing != 0U) && (bytes_written < GOSSIPSUB_TX_BYTES_PER_PEER_PER_DRIVE))
         {
-            gossipsub_tx_item_t *item = &gossipsub->tx_queue[index];
+            const size_t item_index = peer->tx_head;
 
-            if (item->peer_index != peer_index)
+            if ((item_index == GOSSIPSUB_TX_NO_ITEM) ||
+                (item_index >= gossipsub->config.capacity.max_tx_rpc_queue) ||
+                (gossipsub->tx_queue[item_index].used == 0U))
             {
-                index++;
+                gossipsub_tx_set_peer_ready(gossipsub, peer_index, 0U);
+                keep_writing = 0U;
+            }
+            else if (gossipsub_tx_item_stale(&gossipsub->tx_queue[item_index], now_us) != 0)
+            {
+                gossipsub_tx_remove(gossipsub, item_index);
+                *made_progress = 1U;
             }
             else
             {
+                gossipsub_tx_item_t *item = &gossipsub->tx_queue[item_index];
+                const size_t remaining = item->len - item->pos;
+                size_t write_len = GOSSIPSUB_TX_BYTES_PER_PEER_PER_DRIVE - bytes_written;
                 size_t accepted = 0U;
+                uint8_t blocked = 0U;
 
+                if (write_len > remaining)
+                {
+                    write_len = remaining;
+                }
                 result = gossipsub_host_to_err(libp2p_host_stream_write(
                     host,
-                    gossipsub->peers[peer_index].stream,
+                    peer->stream,
                     &gossipsub->tx_buffer[item->offset + item->pos],
-                    item->len - item->pos,
+                    write_len,
                     0,
                     &accepted));
                 if (result == LIBP2P_GOSSIPSUB_ERR_WOULD_BLOCK)
                 {
                     result = LIBP2P_GOSSIPSUB_OK;
+                    blocked = 1U;
+                    peer->tx_would_block_count++;
+                    gossipsub_tx_set_peer_ready(gossipsub, peer_index, 0U);
                     keep_writing = 0U;
                 }
-                if (result == LIBP2P_GOSSIPSUB_OK)
+                if ((result == LIBP2P_GOSSIPSUB_OK) && (blocked == 0U))
                 {
                     if (accepted != 0U)
                     {
                         *made_progress = 1U;
                         item->pos += accepted;
+                        bytes_written += accepted;
+                        peer->tx_last_offset = item->pos;
+                        peer->tx_bytes_accepted += (uint64_t)accepted;
                     }
                     if (item->pos == item->len)
                     {
-                        gossipsub_tx_remove(gossipsub, index);
+                        gossipsub_tx_remove(gossipsub, item_index);
+                        (*rpcs_sent)++;
+                    }
+                    else if (accepted == 0U)
+                    {
+                        peer->tx_would_block_count++;
+                        gossipsub_tx_set_peer_ready(gossipsub, peer_index, 0U);
+                        keep_writing = 0U;
                     }
                     else
                     {
                         keep_writing = 0U;
                     }
                 }
+            }
+        }
+        if (peer->tx_queue_depth != 0U)
+        {
+            gossipsub_tx_set_peer_ready(gossipsub, peer_index, peer->tx_ready);
+        }
+    }
+
+    return result;
+}
+
+libp2p_gossipsub_err_t gossipsub_flush_ready_peers(
+    libp2p_gossipsub_t *gossipsub,
+    libp2p_host_t *host,
+    uint64_t now_us,
+    uint8_t *made_progress,
+    size_t *rpcs_sent)
+{
+    size_t visited = 0U;
+    libp2p_gossipsub_err_t result = LIBP2P_GOSSIPSUB_OK;
+
+    if ((gossipsub == NULL) || (host == NULL) || (made_progress == NULL) || (rpcs_sent == NULL))
+    {
+        result = LIBP2P_GOSSIPSUB_ERR_INVALID_ARG;
+    }
+    while ((result == LIBP2P_GOSSIPSUB_OK) && (gossipsub->tx_ready_count != 0U) &&
+           (visited < gossipsub->config.capacity.max_peers))
+    {
+        const size_t peer_index = gossipsub->tx_next_peer;
+        const gossipsub_peer_state_t *peer = &gossipsub->peers[peer_index];
+
+        gossipsub->tx_next_peer =
+            (gossipsub->tx_next_peer + 1U) % gossipsub->config.capacity.max_peers;
+        visited++;
+        if ((peer->tx_ready != 0U) && (peer->tx_queue_depth != 0U))
+        {
+            uint8_t peer_progress = 0U;
+
+            result = gossipsub_flush_peer(
+                gossipsub,
+                host,
+                peer_index,
+                now_us,
+                &peer_progress,
+                rpcs_sent);
+            if (peer_progress != 0U)
+            {
+                *made_progress = 1U;
             }
         }
     }
@@ -373,25 +755,39 @@ void gossipsub_drop_queued_publish(
     const uint8_t *message_id,
     size_t message_id_len)
 {
-    if ((gossipsub != NULL) && (message_id != NULL))
+    if ((gossipsub != NULL) && (message_id != NULL) &&
+        (peer_index < gossipsub->config.capacity.max_peers))
     {
-        size_t index = 0U;
+        const gossipsub_peer_state_t *peer = &gossipsub->peers[peer_index];
+        size_t item_index = peer->tx_head;
 
-        while (index < gossipsub->tx_queue_len)
+        while (item_index != GOSSIPSUB_TX_NO_ITEM)
         {
-            const gossipsub_tx_item_t *item = &gossipsub->tx_queue[index];
+            const gossipsub_tx_item_t *item = &gossipsub->tx_queue[item_index];
+            const size_t next = item->next;
 
-            if ((item->peer_index == peer_index) && (item->publish != 0U) && (item->pos == 0U) &&
+            if ((item->publish != 0U) && (item->pos == 0U) &&
                 (item->message_id_len == message_id_len) &&
                 (memcmp(item->message_id, message_id, message_id_len) == 0))
             {
-                gossipsub_tx_remove(gossipsub, index);
+                gossipsub_tx_remove(gossipsub, item_index);
             }
-            else
-            {
-                index++;
-            }
+            item_index = next;
         }
+    }
+}
+
+void gossipsub_drop_queued_peer(libp2p_gossipsub_t *gossipsub, size_t peer_index)
+{
+    if ((gossipsub != NULL) && (peer_index < gossipsub->config.capacity.max_peers))
+    {
+        const gossipsub_peer_state_t *peer = &gossipsub->peers[peer_index];
+
+        while (peer->tx_head != GOSSIPSUB_TX_NO_ITEM)
+        {
+            gossipsub_tx_remove(gossipsub, peer->tx_head);
+        }
+        gossipsub_tx_set_peer_ready(gossipsub, peer_index, 0U);
     }
 }
 
@@ -431,7 +827,7 @@ libp2p_gossipsub_err_t gossipsub_forward_entry(
                  peer_index,
                  entry->message_id,
                  entry->message_id_len,
-                 gossipsub->next_heartbeat_us) == 0))
+                 gossipsub_tx_effective_now_us(gossipsub)) == 0))
         {
             result = gossipsub_enqueue_idontwant_for_entry(gossipsub, peer_index, topic, entry);
             if (result == LIBP2P_GOSSIPSUB_OK)
@@ -440,6 +836,52 @@ libp2p_gossipsub_err_t gossipsub_forward_entry(
             }
         }
     }
+    return result;
+}
+
+libp2p_gossipsub_err_t libp2p_gossipsub_tx_peer_stats(
+    const libp2p_gossipsub_t *gossipsub,
+    size_t peer_index,
+    libp2p_host_time_us_t now_us,
+    libp2p_gossipsub_tx_peer_stats_t *out_stats)
+{
+    libp2p_gossipsub_err_t result = LIBP2P_GOSSIPSUB_OK;
+
+    if ((gossipsub == NULL) || (out_stats == NULL) ||
+        (peer_index >= gossipsub->config.capacity.max_peers))
+    {
+        result = LIBP2P_GOSSIPSUB_ERR_INVALID_ARG;
+    }
+    else
+    {
+        const gossipsub_peer_state_t *peer = &gossipsub->peers[peer_index];
+
+        (void)memset(out_stats, 0, sizeof(*out_stats));
+        out_stats->used = (peer->used == GOSSIPSUB_PEER_USED) ? 1U : 0U;
+        out_stats->ready = peer->tx_ready;
+        out_stats->queue_depth = peer->tx_queue_depth;
+        out_stats->last_writable_us = peer->tx_last_writable_us;
+        out_stats->last_tx_offset = peer->tx_last_offset;
+        out_stats->bytes_accepted = peer->tx_bytes_accepted;
+        out_stats->would_block_count = peer->tx_would_block_count;
+        if ((peer->tx_head != GOSSIPSUB_TX_NO_ITEM) &&
+            (peer->tx_head < gossipsub->config.capacity.max_tx_rpc_queue))
+        {
+            const gossipsub_tx_item_t *item = &gossipsub->tx_queue[peer->tx_head];
+
+            if (item->used != 0U)
+            {
+                out_stats->current_publish = item->publish;
+                out_stats->current_pos = item->pos;
+                out_stats->current_len = item->len;
+                if (now_us >= item->enqueued_us)
+                {
+                    out_stats->oldest_age_us = now_us - item->enqueued_us;
+                }
+            }
+        }
+    }
+
     return result;
 }
 
