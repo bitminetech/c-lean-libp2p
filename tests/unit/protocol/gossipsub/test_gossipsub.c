@@ -729,6 +729,45 @@ static void gossipsub_test_stale_head_message_drops_without_write(void)
     free(storage);
 }
 
+static void gossipsub_test_stale_follower_message_drops_behind_partial_head(void)
+{
+    gossipsub_test_runtime_t runtime = {33U};
+    gossipsub_test_write_stream_t write0 = {0U, 0U, 0U, 0U};
+    libp2p_gossipsub_config_t config;
+    libp2p_gossipsub_t *gossipsub = NULL;
+    libp2p_host_t host;
+    libp2p_host_transport_vtable_t transport;
+    libp2p_host_stream_t stream0;
+    uint8_t *out = NULL;
+    void *storage = NULL;
+    size_t storage_len = 0U;
+    size_t head = GOSSIPSUB_TX_NO_ITEM;
+    size_t stale = GOSSIPSUB_TX_NO_ITEM;
+
+    gossipsub_test_config_small(&config, &runtime);
+    assert(libp2p_gossipsub_storage_size(&config, &storage_len) == LIBP2P_GOSSIPSUB_OK);
+    storage = calloc(1U, storage_len);
+    assert(storage != NULL);
+    assert(libp2p_gossipsub_init(storage, storage_len, &config, &gossipsub) == LIBP2P_GOSSIPSUB_OK);
+    gossipsub_test_fake_host_stream(&host, &transport, &stream0, &write0);
+    gossipsub_test_attach_peer(gossipsub, 0U, &stream0);
+
+    assert(gossipsub_tx_alloc(gossipsub, 0U, 16U, 0U, &out, &head) == LIBP2P_GOSSIPSUB_OK);
+    assert(out != NULL);
+    gossipsub->tx_queue[head].pos = 4U;
+    assert(gossipsub_tx_alloc(gossipsub, 0U, 8U, 10U, &out, &stale) == LIBP2P_GOSSIPSUB_OK);
+    assert(out != NULL);
+    assert(gossipsub->peers[0].tx_queue_depth == 2U);
+    assert(gossipsub_tx_drop_stale(gossipsub, 11U) == 1U);
+    assert(gossipsub->peers[0].tx_queue_depth == 1U);
+    assert(gossipsub->peers[0].tx_head == head);
+    assert(gossipsub->peers[0].tx_tail == head);
+    assert(gossipsub->tx_queue[stale].used == 0U);
+
+    libp2p_gossipsub_deinit(gossipsub);
+    free(storage);
+}
+
 static void gossipsub_test_remote_subscriptions_fill_mesh(void)
 {
     static const uint8_t topic[] = "blocks";
@@ -907,6 +946,7 @@ int main(void)
     gossipsub_test_readiness_flips_on_writable();
     gossipsub_test_slice_waits_for_writable_rearm();
     gossipsub_test_stale_head_message_drops_without_write();
+    gossipsub_test_stale_follower_message_drops_behind_partial_head();
     gossipsub_test_remote_subscriptions_fill_mesh();
     gossipsub_test_forward_uses_mesh_not_all_subscribers();
     gossipsub_test_prune_removes_mesh_peer();

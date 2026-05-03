@@ -318,15 +318,25 @@ uint64_t gossipsub_tx_next_deadline(const libp2p_gossipsub_t *gossipsub, uint64_
              peer_index++)
         {
             const gossipsub_peer_state_t *peer = &gossipsub->peers[peer_index];
+            size_t item_index = peer->tx_head;
 
-            if ((peer->tx_queue_depth != 0U) && (peer->tx_head != GOSSIPSUB_TX_NO_ITEM))
+            while (item_index != GOSSIPSUB_TX_NO_ITEM)
             {
-                const gossipsub_tx_item_t *item = &gossipsub->tx_queue[peer->tx_head];
+                const gossipsub_tx_item_t *item = NULL;
 
-                if ((item->used != 0U) && (item->deadline_us != 0U) && (item->pos == 0U) &&
-                    (item->deadline_us < result))
+                if (item_index >= gossipsub->config.capacity.max_tx_rpc_queue)
                 {
-                    result = item->deadline_us;
+                    item_index = GOSSIPSUB_TX_NO_ITEM;
+                }
+                else
+                {
+                    item = &gossipsub->tx_queue[item_index];
+                    if ((item->used != 0U) && (item->deadline_us != 0U) && (item->pos == 0U) &&
+                        (item->deadline_us < result))
+                    {
+                        result = item->deadline_us;
+                    }
+                    item_index = item->next;
                 }
             }
         }
@@ -345,26 +355,25 @@ size_t gossipsub_tx_drop_stale(libp2p_gossipsub_t *gossipsub, uint64_t now_us)
              peer_index++)
         {
             const gossipsub_peer_state_t *peer = &gossipsub->peers[peer_index];
-            uint8_t keep_dropping = 1U;
+            size_t item_index = peer->tx_head;
 
-            while ((peer->tx_queue_depth != 0U) && (peer->tx_head != GOSSIPSUB_TX_NO_ITEM) &&
-                   (keep_dropping != 0U))
+            while (item_index != GOSSIPSUB_TX_NO_ITEM)
             {
-                const size_t item_index = peer->tx_head;
-
                 if ((item_index >= gossipsub->config.capacity.max_tx_rpc_queue) ||
                     (gossipsub->tx_queue[item_index].used == 0U))
                 {
-                    keep_dropping = 0U;
-                }
-                else if (gossipsub_tx_item_stale(&gossipsub->tx_queue[item_index], now_us) != 0)
-                {
-                    gossipsub_tx_remove(gossipsub, item_index);
-                    result++;
+                    item_index = GOSSIPSUB_TX_NO_ITEM;
                 }
                 else
                 {
-                    keep_dropping = 0U;
+                    const size_t next = gossipsub->tx_queue[item_index].next;
+
+                    if (gossipsub_tx_item_stale(&gossipsub->tx_queue[item_index], now_us) != 0)
+                    {
+                        gossipsub_tx_remove(gossipsub, item_index);
+                        result++;
+                    }
+                    item_index = next;
                 }
             }
         }
