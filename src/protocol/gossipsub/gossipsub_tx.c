@@ -695,6 +695,7 @@ libp2p_gossipsub_err_t gossipsub_flush_peer(
         gossipsub_peer_state_t *peer = &gossipsub->peers[peer_index];
         size_t bytes_written = 0U;
         uint8_t keep_writing = 1U;
+        uint8_t peer_blocked = 0U;
 
         while ((result == LIBP2P_GOSSIPSUB_OK) && (peer->tx_queue_depth != 0U) &&
                (keep_writing != 0U) && (bytes_written < GOSSIPSUB_TX_BYTES_PER_PEER_PER_DRIVE))
@@ -736,6 +737,7 @@ libp2p_gossipsub_err_t gossipsub_flush_peer(
                 {
                     result = LIBP2P_GOSSIPSUB_OK;
                     blocked = 1U;
+                    peer_blocked = 1U;
                     peer->tx_would_block_count++;
                     gossipsub_tx_set_peer_ready(gossipsub, peer_index, 0U);
                     keep_writing = 0U;
@@ -757,6 +759,7 @@ libp2p_gossipsub_err_t gossipsub_flush_peer(
                     }
                     else if (accepted == 0U)
                     {
+                        peer_blocked = 1U;
                         peer->tx_would_block_count++;
                         gossipsub_tx_set_peer_ready(gossipsub, peer_index, 0U);
                         keep_writing = 0U;
@@ -770,9 +773,13 @@ libp2p_gossipsub_err_t gossipsub_flush_peer(
         }
         if (peer->tx_queue_depth != 0U)
         {
-            if (bytes_written != 0U)
+            if (peer_blocked != 0U)
             {
                 gossipsub_tx_set_peer_ready(gossipsub, peer_index, 0U);
+            }
+            else if (bytes_written != 0U)
+            {
+                gossipsub_tx_set_peer_ready(gossipsub, peer_index, 1U);
             }
             else
             {

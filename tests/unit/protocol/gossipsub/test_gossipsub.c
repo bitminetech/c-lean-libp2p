@@ -630,7 +630,7 @@ static void gossipsub_test_readiness_flips_on_writable(void)
     free(storage);
 }
 
-static void gossipsub_test_slice_waits_for_writable_rearm(void)
+static void gossipsub_test_slice_progress_keeps_peer_ready(void)
 {
     const size_t frame_len = GOSSIPSUB_TX_BYTES_PER_PEER_PER_DRIVE + 17U;
     gossipsub_test_runtime_t runtime = {31U};
@@ -667,12 +667,11 @@ static void gossipsub_test_slice_waits_for_writable_rearm(void)
     assert(write0.calls == 1U);
     assert(write0.bytes == GOSSIPSUB_TX_BYTES_PER_PEER_PER_DRIVE);
     assert(gossipsub->peers[0].tx_queue_depth == 1U);
-    assert(gossipsub->peers[0].tx_ready == 0U);
-    assert(gossipsub->tx_ready_count == 0U);
+    assert(gossipsub->peers[0].tx_ready != 0U);
+    assert(gossipsub->tx_ready_count == 1U);
     assert(libp2p_gossipsub_tx_peer_stats(gossipsub, 0U, 100U, &stats) == LIBP2P_GOSSIPSUB_OK);
     assert(stats.current_pos == GOSSIPSUB_TX_BYTES_PER_PEER_PER_DRIVE);
 
-    gossipsub_tx_mark_peer_ready(gossipsub, 0U, 200U);
     made_progress = 0U;
     assert(
         gossipsub_flush_ready_peers(gossipsub, &host, 201U, &made_progress, &rpcs_sent) ==
@@ -944,7 +943,7 @@ int main(void)
     gossipsub_test_per_peer_queue_state();
     gossipsub_test_fair_scheduler_skips_blocked_peer();
     gossipsub_test_readiness_flips_on_writable();
-    gossipsub_test_slice_waits_for_writable_rearm();
+    gossipsub_test_slice_progress_keeps_peer_ready();
     gossipsub_test_stale_head_message_drops_without_write();
     gossipsub_test_stale_follower_message_drops_behind_partial_head();
     gossipsub_test_remote_subscriptions_fill_mesh();
