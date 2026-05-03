@@ -5,6 +5,7 @@
 #include <string.h>
 
 #include "host_test_support.h"
+#include "multiformats/unsigned_varint/unsigned_varint.h"
 #include "multiformats/multistream-select/multistream_select.h"
 #include "protocol/identify/identify.h"
 #include "protocol_loopback_support.h"
@@ -36,6 +37,51 @@ static void identify_test_message(libp2p_identify_message_t *message)
     message->protocol_version.len = sizeof(identify_test_protocol_version) - 1U;
     message->agent_version.data = identify_test_agent_version;
     message->agent_version.len = sizeof(identify_test_agent_version) - 1U;
+}
+
+static void identify_test_encode_wire_message(
+    const libp2p_identify_message_t *message,
+    uint8_t *out,
+    size_t out_len,
+    size_t *written)
+{
+    uint8_t body[256];
+    size_t body_len = 0U;
+    size_t prefix_len = 0U;
+
+    assert(message != NULL);
+    assert(out != NULL);
+    assert(written != NULL);
+    assert(
+        libp2p_identify_message_encode(message, body, sizeof(body), &body_len) ==
+        LIBP2P_IDENTIFY_OK);
+    assert(
+        libp2p_uvarint_encode((uint64_t)body_len, out, out_len, &prefix_len) ==
+        LIBP2P_UVARINT_OK);
+    assert(body_len <= (out_len - prefix_len));
+    (void)memcpy(&out[prefix_len], body, body_len);
+    *written = prefix_len + body_len;
+}
+
+static void identify_test_decode_wire_message(
+    const uint8_t *in,
+    size_t in_len,
+    libp2p_identify_message_t *message)
+{
+    uint64_t body_len_u64 = 0U;
+    size_t prefix_len = 0U;
+    size_t body_len = 0U;
+
+    assert(in != NULL);
+    assert(message != NULL);
+    assert(
+        libp2p_uvarint_decode(in, in_len, &body_len_u64, &prefix_len) ==
+        LIBP2P_UVARINT_OK);
+    body_len = (size_t)body_len_u64;
+    assert(body_len <= (in_len - prefix_len));
+    assert(
+        libp2p_identify_message_decode(&in[prefix_len], body_len, message) ==
+        LIBP2P_IDENTIFY_OK);
 }
 
 static libp2p_host_t *identify_test_init_mock(
@@ -200,11 +246,10 @@ static void identify_test_mock_host_round_trip(void)
     offset = host_test_encoded_message_size(LIBP2P_MULTISTREAM_SELECT_PROTOCOL_ID_LEN) +
              host_test_encoded_message_size(LIBP2P_IDENTIFY_PROTOCOL_ID_LEN);
     assert(inbound_stream.write_len > offset);
-    assert(
-        libp2p_identify_message_decode(
-            &inbound_stream.write_buf[offset],
-            inbound_stream.write_len - offset,
-            &local_message) == LIBP2P_IDENTIFY_OK);
+    identify_test_decode_wire_message(
+        &inbound_stream.write_buf[offset],
+        inbound_stream.write_len - offset,
+        &local_message);
     assert(local_message.protocol_count == 1U);
     assert(local_message.protocols[0].len == LIBP2P_IDENTIFY_PROTOCOL_ID_LEN);
     assert(
@@ -234,12 +279,11 @@ static void identify_test_mock_host_round_trip(void)
     assert(open != NULL);
     assert(libp2p_host_drive(host, 4U, LIBP2P_HOST_READY_APP, &result) == LIBP2P_HOST_OK);
     assert(outbound_stream.finish_count == 1U);
-    assert(
-        libp2p_identify_message_encode(
-            &identify_config.local_message,
-            remote_message,
-            sizeof(remote_message),
-            &remote_message_len) == LIBP2P_IDENTIFY_OK);
+    identify_test_encode_wire_message(
+        &identify_config.local_message,
+        remote_message,
+        sizeof(remote_message),
+        &remote_message_len);
     assert((outbound_stream.read_len + remote_message_len) < sizeof(outbound_stream.read_buf));
     (void)memcpy(
         &outbound_stream.read_buf[outbound_stream.read_len],

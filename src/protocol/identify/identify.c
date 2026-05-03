@@ -281,6 +281,46 @@ static libp2p_identify_err_t identify_write_field(
     return result;
 }
 
+static libp2p_identify_err_t identify_frame_decode(
+    const uint8_t *in,
+    size_t in_len,
+    libp2p_identify_message_t *out)
+{
+    uint64_t body_len_u64 = 0U;
+    size_t prefix_len = 0U;
+    size_t body_len = 0U;
+    libp2p_identify_err_t result = LIBP2P_IDENTIFY_OK;
+
+    if ((in == NULL) || (out == NULL))
+    {
+        result = LIBP2P_IDENTIFY_ERR_INVALID_ARG;
+    }
+    if (result == LIBP2P_IDENTIFY_OK)
+    {
+        result = identify_uvarint_err(
+            libp2p_uvarint_decode(in, in_len, &body_len_u64, &prefix_len));
+    }
+    if ((result == LIBP2P_IDENTIFY_OK) &&
+        (body_len_u64 > (uint64_t)LIBP2P_IDENTIFY_MAX_MESSAGE_BYTES))
+    {
+        result = LIBP2P_IDENTIFY_ERR_LIMIT;
+    }
+    if (result == LIBP2P_IDENTIFY_OK)
+    {
+        body_len = (size_t)body_len_u64;
+        if ((body_len == 0U) || (body_len > (in_len - prefix_len)))
+        {
+            result = LIBP2P_IDENTIFY_ERR_TRUNCATED;
+        }
+    }
+    if (result == LIBP2P_IDENTIFY_OK)
+    {
+        result = libp2p_identify_message_decode(&in[prefix_len], body_len, out);
+    }
+
+    return result;
+}
+
 static libp2p_identify_err_t identify_event_push(
     libp2p_identify_t *identify,
     size_t slot_index,
@@ -534,11 +574,39 @@ static libp2p_identify_err_t identify_prepare_tx(
         sizeof(observed_addr));
     if (result == LIBP2P_IDENTIFY_OK)
     {
-        result = libp2p_identify_message_encode(
-            &message,
-            slot->tx,
-            sizeof(slot->tx),
-            &slot->tx_len);
+        size_t prefix_len = 0U;
+        size_t body_len = 0U;
+
+        result = libp2p_identify_message_size(&message, &body_len);
+        if ((result == LIBP2P_IDENTIFY_OK) &&
+            (libp2p_uvarint_encode(
+                 (uint64_t)body_len,
+                 slot->tx,
+                 sizeof(slot->tx),
+                 &prefix_len) != LIBP2P_UVARINT_OK))
+        {
+            result = LIBP2P_IDENTIFY_ERR_BUF_TOO_SMALL;
+        }
+        if ((result == LIBP2P_IDENTIFY_OK) && ((prefix_len > sizeof(slot->tx)) ||
+                                               (body_len > (sizeof(slot->tx) - prefix_len))))
+        {
+            result = LIBP2P_IDENTIFY_ERR_BUF_TOO_SMALL;
+        }
+        if (result == LIBP2P_IDENTIFY_OK)
+        {
+            result = libp2p_identify_message_encode(
+                &message,
+                &slot->tx[prefix_len],
+                sizeof(slot->tx) - prefix_len,
+                &slot->tx_len);
+        }
+        if (result == LIBP2P_IDENTIFY_OK)
+        {
+            slot->tx_len += prefix_len;
+        }
+    }
+    if (result == LIBP2P_IDENTIFY_OK)
+    {
         slot->tx_pos = 0U;
     }
 
@@ -646,7 +714,7 @@ static libp2p_host_err_t identify_read_stream(
                 libp2p_identify_err_t err;
 
                 (void)memset(&event, 0, sizeof(event));
-                err = libp2p_identify_message_decode(slot->rx, slot->rx_len, &slot->decoded);
+                err = identify_frame_decode(slot->rx, slot->rx_len, &slot->decoded);
                 if (err == LIBP2P_IDENTIFY_OK)
                 {
                     event.type = LIBP2P_IDENTIFY_EVENT_RECEIVED;
@@ -675,7 +743,7 @@ static libp2p_host_err_t identify_read_stream(
                 libp2p_identify_err_t err;
 
                 (void)memset(&event, 0, sizeof(event));
-                err = libp2p_identify_message_decode(slot->rx, slot->rx_len, &slot->decoded);
+                err = identify_frame_decode(slot->rx, slot->rx_len, &slot->decoded);
                 if (err == LIBP2P_IDENTIFY_OK)
                 {
                     event.type = LIBP2P_IDENTIFY_EVENT_RECEIVED;
