@@ -199,12 +199,13 @@ static void quic_endpoint_make_identity(
     fixture->identity.peer_id_len = fixture->peer_id_len;
 }
 
-static void quic_endpoint_init_pair(
+static void quic_endpoint_init_pair_with_stream_window(
     libp2p_quic_endpoint_t **client,
     void **client_storage,
     libp2p_quic_endpoint_t **server,
     void **server_storage,
-    const libp2p_quic_local_identity_t *identity)
+    const libp2p_quic_local_identity_t *identity,
+    size_t stream_window)
 {
     libp2p_quic_endpoint_config_t client_config;
     libp2p_quic_endpoint_config_t server_config;
@@ -217,6 +218,11 @@ static void quic_endpoint_init_pair(
 
     assert(libp2p_quic_endpoint_config_default(&client_config) == LIBP2P_QUIC_OK);
     assert(libp2p_quic_endpoint_config_default(&server_config) == LIBP2P_QUIC_OK);
+    if (stream_window != 0U)
+    {
+        client_config.initial_stream_window_bytes = stream_window;
+        server_config.initial_stream_window_bytes = stream_window;
+    }
     client_config.allocator = quic_endpoint_test_allocator();
     server_config.allocator = quic_endpoint_test_allocator();
     client_random = 1U;
@@ -249,6 +255,22 @@ static void quic_endpoint_init_pair(
     assert(libp2p_quic_addr_from_ip4(ip4, 30001U, &server_addr) == LIBP2P_QUIC_OK);
     assert(libp2p_quic_endpoint_bind(*client, &client_addr) == LIBP2P_QUIC_OK);
     assert(libp2p_quic_endpoint_bind(*server, &server_addr) == LIBP2P_QUIC_OK);
+}
+
+static void quic_endpoint_init_pair(
+    libp2p_quic_endpoint_t **client,
+    void **client_storage,
+    libp2p_quic_endpoint_t **server,
+    void **server_storage,
+    const libp2p_quic_local_identity_t *identity)
+{
+    quic_endpoint_init_pair_with_stream_window(
+        client,
+        client_storage,
+        server,
+        server_storage,
+        identity,
+        0U);
 }
 
 static void quic_endpoint_deinit_pair(
@@ -840,6 +862,136 @@ static void quic_endpoint_test_stream_write_backpressure(void)
     quic_endpoint_deinit_pair(client, client_storage, server, server_storage);
 }
 
+static void quic_endpoint_test_stream_write_reclaims_acked_bytes(void)
+{
+    enum
+    {
+        STREAM_WINDOW = 8192,
+        PAYLOAD_LEN = 24576,
+        READ_CHUNK = 2048
+    };
+    quic_endpoint_identity_fixture_t identity;
+    libp2p_quic_endpoint_t *client = NULL;
+    libp2p_quic_endpoint_t *server = NULL;
+    libp2p_quic_conn_t *client_conn = NULL;
+    libp2p_quic_conn_t *server_conn = NULL;
+    libp2p_quic_stream_t *client_stream = NULL;
+    libp2p_quic_stream_t *server_stream = NULL;
+    libp2p_quic_stream_t *accepted_stream = NULL;
+    void *client_storage = NULL;
+    void *server_storage = NULL;
+    uint8_t ip4[4] = {127U, 0U, 0U, 1U};
+    uint8_t payload[PAYLOAD_LEN];
+    uint8_t read_buf[PAYLOAD_LEN];
+    libp2p_quic_addr_t remote_addr;
+    libp2p_quic_dial_config_t dial_config;
+    libp2p_quic_time_us_t now_us = 0U;
+    size_t established_count = 0U;
+    size_t readable_count = 0U;
+    size_t sent_total = 0U;
+    size_t read_total = 0U;
+    size_t round = 0U;
+    int fin = 0;
+
+    quic_endpoint_make_identity(&identity, 29U);
+    quic_endpoint_init_pair_with_stream_window(
+        &client,
+        &client_storage,
+        &server,
+        &server_storage,
+        &identity.identity,
+        (size_t)STREAM_WINDOW);
+    for (size_t index = 0U; index < sizeof(payload); index++)
+    {
+        payload[index] = (uint8_t)(index & 0xFFU);
+    }
+    (void)memset(read_buf, 0, sizeof(read_buf));
+
+    assert(libp2p_quic_addr_from_ip4(ip4, 30001U, &remote_addr) == LIBP2P_QUIC_OK);
+    assert(
+        libp2p_quic_addr_set_peer_id(&remote_addr, identity.peer_id, identity.peer_id_len) ==
+        LIBP2P_QUIC_OK);
+    dial_config.remote_addr = remote_addr;
+    dial_config.user_data = NULL;
+
+    assert(libp2p_quic_endpoint_dial(client, &dial_config, &client_conn) == LIBP2P_QUIC_OK);
+    quic_endpoint_wait_established(client, server, client_conn, &server_conn, &now_us);
+    quic_endpoint_drain_events(client, NULL, NULL, NULL, NULL);
+
+    assert(libp2p_quic_conn_open_bidi_stream(client_conn, &client_stream) == LIBP2P_QUIC_OK);
+    for (round = 0U; (round < 10000U) && (fin == 0); round++)
+    {
+        if (sent_total < sizeof(payload))
+        {
+            size_t accepted = 0U;
+            const libp2p_quic_err_t write_result = libp2p_quic_stream_write(
+                client_stream,
+                &payload[sent_total],
+                sizeof(payload) - sent_total,
+                1,
+                &accepted);
+
+            if (write_result == LIBP2P_QUIC_OK)
+            {
+                assert(accepted != 0U);
+                sent_total += accepted;
+            }
+            else
+            {
+                assert(write_result == LIBP2P_QUIC_ERR_WOULD_BLOCK);
+            }
+        }
+
+        quic_endpoint_pump(client, server, &now_us);
+        quic_endpoint_drain_events(client, NULL, &established_count, NULL, NULL);
+        quic_endpoint_drain_events(
+            server,
+            NULL,
+            &established_count,
+            &server_stream,
+            &readable_count);
+
+        if ((server_stream != NULL) && (accepted_stream == NULL))
+        {
+            assert(libp2p_quic_conn_accept_stream(server_conn, &accepted_stream) == LIBP2P_QUIC_OK);
+            assert(accepted_stream == server_stream);
+        }
+        while ((accepted_stream != NULL) && (fin == 0) && (read_total < sizeof(read_buf)))
+        {
+            size_t read_len = 0U;
+            size_t read_cap = sizeof(read_buf) - read_total;
+            libp2p_quic_err_t read_result = LIBP2P_QUIC_OK;
+
+            if (read_cap > (size_t)READ_CHUNK)
+            {
+                read_cap = (size_t)READ_CHUNK;
+            }
+            read_result = libp2p_quic_stream_read(
+                accepted_stream,
+                &read_buf[read_total],
+                read_cap,
+                &read_len,
+                &fin);
+            if (read_result == LIBP2P_QUIC_OK)
+            {
+                read_total += read_len;
+            }
+            else
+            {
+                assert(read_result == LIBP2P_QUIC_ERR_WOULD_BLOCK);
+                break;
+            }
+        }
+    }
+
+    assert(sent_total == sizeof(payload));
+    assert(fin == 1);
+    assert(read_total == sizeof(payload));
+    assert(memcmp(read_buf, payload, sizeof(payload)) == 0);
+
+    quic_endpoint_deinit_pair(client, client_storage, server, server_storage);
+}
+
 static uint16_t quic_endpoint_next_tx_port(
     libp2p_quic_endpoint_t *endpoint,
     libp2p_quic_time_us_t now_us)
@@ -969,6 +1121,7 @@ int main(void)
 {
     quic_endpoint_test_handshake_and_stream();
     quic_endpoint_test_stream_write_backpressure();
+    quic_endpoint_test_stream_write_reclaims_acked_bytes();
     quic_endpoint_test_tx_rotates_between_connections();
     return 0;
 }

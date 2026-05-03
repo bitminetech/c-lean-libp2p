@@ -528,6 +528,136 @@ static int quic_backend_stream_reset_cb(
     return result;
 }
 
+static int quic_backend_wake_blocked_writer(libp2p_quic_stream_t *stream)
+{
+    int result = 0;
+
+    if (stream == NULL)
+    {
+        result = NGTCP2_ERR_CALLBACK_FAILURE;
+    }
+    else if (
+        (stream->write_blocked != 0U) && (stream->state != LIBP2P_QUIC_STREAM_CLOSED) &&
+        (stream->state != LIBP2P_QUIC_STREAM_RESET))
+    {
+        if (quic_backend_event_push(
+                stream->conn->endpoint,
+                LIBP2P_QUIC_EVENT_STREAM_WRITABLE,
+                stream->conn,
+                stream,
+                0U,
+                0U) != LIBP2P_QUIC_OK)
+        {
+            result = NGTCP2_ERR_CALLBACK_FAILURE;
+        }
+        else
+        {
+            stream->write_blocked = 0U;
+        }
+    }
+
+    return result;
+}
+
+static int quic_backend_reclaim_acked_stream_data(
+    libp2p_quic_stream_t *stream,
+    uint64_t offset,
+    uint64_t datalen)
+{
+    int result = 0;
+
+    if (stream == NULL)
+    {
+        result = NGTCP2_ERR_CALLBACK_FAILURE;
+    }
+    else if (
+        (datalen > (UINT64_MAX - offset)) ||
+        (stream->tx_len < stream->tx_sent_len) ||
+        ((uint64_t)stream->tx_sent_len > (UINT64_MAX - stream->tx_base_offset)))
+    {
+        result = NGTCP2_ERR_CALLBACK_FAILURE;
+    }
+    else
+    {
+        const uint64_t ack_end = offset + datalen;
+        const uint64_t sent_end = stream->tx_base_offset + (uint64_t)stream->tx_sent_len;
+
+        if ((stream->tx_sent_len != 0U) && (ack_end >= sent_end))
+        {
+            const size_t pending = stream->tx_len - stream->tx_sent_len;
+
+            if (pending != 0U)
+            {
+                (void)memmove(stream->tx_data, &stream->tx_data[stream->tx_sent_len], pending);
+            }
+            stream->tx_base_offset = sent_end;
+            stream->tx_len = pending;
+            stream->tx_sent_len = 0U;
+            result = quic_backend_wake_blocked_writer(stream);
+        }
+    }
+
+    return result;
+}
+
+static int quic_backend_acked_stream_data_offset_cb(
+    ngtcp2_conn *ngconn,
+    int64_t stream_id,
+    uint64_t offset,
+    uint64_t datalen,
+    void *user_data,
+    void *stream_user_data)
+{
+    const libp2p_quic_conn_t *const conn = quic_backend_conn_from_memory(user_data);
+    libp2p_quic_stream_t *stream = quic_backend_stream_from_memory(stream_user_data);
+    int result = 0;
+
+    (void)ngconn;
+    if (conn == NULL)
+    {
+        result = NGTCP2_ERR_CALLBACK_FAILURE;
+    }
+    else
+    {
+        if (stream == NULL)
+        {
+            stream = quic_backend_conn_find_stream(conn, stream_id);
+        }
+        result = quic_backend_reclaim_acked_stream_data(stream, offset, datalen);
+    }
+
+    return result;
+}
+
+static int quic_backend_extend_max_stream_data_cb(
+    ngtcp2_conn *ngconn,
+    int64_t stream_id,
+    uint64_t max_data,
+    void *user_data,
+    void *stream_user_data)
+{
+    const libp2p_quic_conn_t *const conn = quic_backend_conn_from_memory(user_data);
+    libp2p_quic_stream_t *stream = quic_backend_stream_from_memory(stream_user_data);
+    int result = 0;
+
+    (void)ngconn;
+    (void)max_data;
+    if (conn == NULL)
+    {
+        result = NGTCP2_ERR_CALLBACK_FAILURE;
+    }
+    else
+    {
+        if (stream == NULL)
+        {
+            stream = quic_backend_conn_find_stream(conn, stream_id);
+        }
+        result = quic_backend_wake_blocked_writer(stream);
+    }
+
+    return result;
+}
+
 static int quic_backend_handshake_completed_cb(ngtcp2_conn *ngconn, void *user_data)
 {
     libp2p_quic_conn_t *conn = quic_backend_conn_from_memory(user_data);
@@ -577,6 +707,7 @@ QUIC_BACKEND_INTERNAL const ngtcp2_callbacks quic_backend_callbacks = {
     .decrypt = ngtcp2_crypto_decrypt_cb,
     .hp_mask = ngtcp2_crypto_hp_mask_cb,
     .recv_stream_data = quic_backend_recv_stream_data_cb,
+    .acked_stream_data_offset = quic_backend_acked_stream_data_offset_cb,
     .stream_open = quic_backend_stream_open_cb,
     .stream_close = quic_backend_stream_close_cb,
     .recv_retry = ngtcp2_crypto_recv_retry_cb,
@@ -591,4 +722,5 @@ QUIC_BACKEND_INTERNAL const ngtcp2_callbacks quic_backend_callbacks = {
     .remove_connection_id = quic_backend_remove_connection_id_cb,
     .get_new_connection_id2 = quic_backend_get_new_connection_id_cb,
     .get_path_challenge_data2 = quic_backend_get_path_challenge_data_cb,
+    .extend_max_stream_data = quic_backend_extend_max_stream_data_cb,
 };

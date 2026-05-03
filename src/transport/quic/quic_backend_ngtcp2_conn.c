@@ -734,6 +734,10 @@ QUIC_BACKEND_INTERNAL libp2p_quic_err_t quic_backend_write_conn_datagram(
                     stream,
                     0U,
                     0U);
+                if (result == LIBP2P_QUIC_OK)
+                {
+                    stream->write_blocked = 0U;
+                }
             }
         }
         else if (nwrite == 0)

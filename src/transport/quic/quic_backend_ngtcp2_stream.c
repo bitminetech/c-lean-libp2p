@@ -370,6 +370,17 @@ QUIC_BACKEND_INTERNAL libp2p_quic_err_t quic_backend_stream_write(
             0U,
             0U);
     }
+    if ((stream != NULL) && (stream->magic == QUIC_BACKEND_STREAM_MAGIC))
+    {
+        if (result == LIBP2P_QUIC_ERR_WOULD_BLOCK)
+        {
+            stream->write_blocked = 1U;
+        }
+        else if (result == LIBP2P_QUIC_OK)
+        {
+            stream->write_blocked = 0U;
+        }
+    }
 
     return result;
 }

@@ -65,6 +65,8 @@ struct libp2p_quic_stream
     size_t tx_len;
     size_t tx_sent_len;
     size_t tx_cap;
+    uint64_t tx_base_offset;
+    uint8_t write_blocked;
 };
 
 struct quic_backend_stream_vec
