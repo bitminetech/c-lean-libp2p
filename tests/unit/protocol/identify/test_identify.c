@@ -264,11 +264,12 @@ static void identify_test_mock_host_round_trip(void)
     assert(inbound_stream.finish_count == 1U);
     assert(libp2p_identify_next_event(&identify, &identify_event) == LIBP2P_IDENTIFY_OK);
     assert(identify_event.type == LIBP2P_IDENTIFY_EVENT_SENT);
+    inbound_stream.read_fin = 1;
     identify_test_push_stream_event(
         &fixture,
         &conn,
         &inbound_stream,
-        LIBP2P_HOST_TRANSPORT_EVENT_STREAM_CLOSED);
+        LIBP2P_HOST_TRANSPORT_EVENT_STREAM_READABLE);
     assert(libp2p_host_drive(host, 4U, LIBP2P_HOST_READY_APP, &result) == LIBP2P_HOST_OK);
 
     host_test_stream_add_message(
