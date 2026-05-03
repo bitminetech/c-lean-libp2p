@@ -350,6 +350,7 @@ libp2p_host_err_t gossipsub_protocol_on_open(
     size_t stream_index = 0U;
     libp2p_gossipsub_event_t event;
     libp2p_gossipsub_err_t result = LIBP2P_GOSSIPSUB_OK;
+    uint8_t selected_writer = 0U;
 
     gossipsub_keep_mutable_host_arg(host);
     gossipsub_keep_mutable_void_arg(protocol_user_data);
@@ -381,11 +382,12 @@ libp2p_host_err_t gossipsub_protocol_on_open(
         stream_state->direction = direction;
         stream_state->version = version;
         stream_state->peer_index = peer_index;
-        if ((direction == LIBP2P_HOST_STREAM_OUTBOUND) || (peer->stream == NULL))
+        if ((direction == LIBP2P_HOST_STREAM_OUTBOUND) && (peer->stream == NULL))
         {
             peer->stream = stream;
             peer->direction = direction;
             peer->version = version;
+            selected_writer = 1U;
         }
         result = gossipsub_host_to_err(libp2p_host_stream_set_user_data(stream, stream_state));
     }
@@ -398,7 +400,7 @@ libp2p_host_err_t gossipsub_protocol_on_open(
         event.protocol_version = version;
         result = gossipsub_event_push(gossipsub, &event);
     }
-    if ((result == LIBP2P_GOSSIPSUB_OK) && (peer->stream != NULL))
+    if ((result == LIBP2P_GOSSIPSUB_OK) && (selected_writer != 0U))
     {
         for (size_t topic_index = 0U; (result == LIBP2P_GOSSIPSUB_OK) &&
                                       (topic_index < gossipsub->config.capacity.max_topics);
@@ -452,13 +454,20 @@ libp2p_host_err_t gossipsub_protocol_on_event(
             }
         }
     }
-    if ((result == LIBP2P_GOSSIPSUB_OK) && (kind == LIBP2P_HOST_PROTOCOL_EVENT_READABLE))
+    if ((result == LIBP2P_GOSSIPSUB_OK) && (kind == LIBP2P_HOST_PROTOCOL_EVENT_READABLE) &&
+        (stream_state->direction == LIBP2P_HOST_STREAM_INBOUND))
     {
         result = gossipsub_stream_read(gossipsub, host, stream_state, gossipsub->last_drive_us);
     }
     else if ((result == LIBP2P_GOSSIPSUB_OK) && (kind == LIBP2P_HOST_PROTOCOL_EVENT_WRITABLE))
     {
-        gossipsub_tx_mark_peer_ready(gossipsub, stream_state->peer_index, gossipsub->last_drive_us);
+        if (gossipsub->peers[stream_state->peer_index].stream == stream_state->stream)
+        {
+            gossipsub_tx_mark_peer_ready(
+                gossipsub,
+                stream_state->peer_index,
+                gossipsub->last_drive_us);
+        }
     }
     else if (
         (result == LIBP2P_GOSSIPSUB_OK) &&

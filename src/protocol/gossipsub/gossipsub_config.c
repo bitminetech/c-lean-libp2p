@@ -491,6 +491,7 @@ libp2p_gossipsub_err_t libp2p_gossipsub_init(
         {
             gossipsub->peers[index].tx_head = GOSSIPSUB_TX_NO_ITEM;
             gossipsub->peers[index].tx_tail = GOSSIPSUB_TX_NO_ITEM;
+            gossipsub->peers[index].tx_priority_tail = GOSSIPSUB_TX_NO_ITEM;
         }
         for (size_t index = 0U; index < config->capacity.max_tx_rpc_queue; index++)
         {

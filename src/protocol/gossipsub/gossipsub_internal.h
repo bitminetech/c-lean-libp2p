@@ -96,7 +96,9 @@ typedef struct
     size_t idontwant_sent_this_heartbeat;
     size_t tx_head;
     size_t tx_tail;
+    size_t tx_priority_tail;
     size_t tx_queue_depth;
+    size_t tx_priority_depth;
     uint8_t tx_ready;
     uint64_t tx_last_writable_us;
     uint64_t tx_last_offset;
@@ -135,6 +137,7 @@ typedef struct
 typedef struct
 {
     uint8_t used;
+    uint8_t priority;
     uint8_t publish;
     size_t peer_index;
     size_t offset;
