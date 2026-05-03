@@ -406,16 +406,32 @@ static libp2p_quic_err_t quic_backend_endpoint_next_datagram(
     if (result == LIBP2P_QUIC_OK)
     {
         result = LIBP2P_QUIC_ERR_WOULD_BLOCK;
-        for (size_t index = 0U;
-             (index < endpoint->connection_count) && (result == LIBP2P_QUIC_ERR_WOULD_BLOCK);
-             index++)
+        if (endpoint->connection_count != 0U)
         {
-            libp2p_quic_conn_t *conn = endpoint->connections[index];
+            size_t start = 0U;
 
-            if ((conn != NULL) && (conn->state != LIBP2P_QUIC_CONN_CLOSED) &&
-                (conn->state != LIBP2P_QUIC_CONN_DRAINED))
+            if (endpoint->next_tx_connection < endpoint->connection_count)
             {
-                result = quic_backend_write_conn_datagram(conn, datagram, now_us);
+                start = endpoint->next_tx_connection;
+            }
+
+            for (size_t index = 0U;
+                 (index < endpoint->connection_count) && (result == LIBP2P_QUIC_ERR_WOULD_BLOCK);
+                 index++)
+            {
+                const size_t conn_index = (start + index) % endpoint->connection_count;
+                libp2p_quic_conn_t *conn = endpoint->connections[conn_index];
+
+                if ((conn != NULL) && (conn->state != LIBP2P_QUIC_CONN_CLOSED) &&
+                    (conn->state != LIBP2P_QUIC_CONN_DRAINED))
+                {
+                    result = quic_backend_write_conn_datagram(conn, datagram, now_us);
+                    if (result == LIBP2P_QUIC_OK)
+                    {
+                        endpoint->next_tx_connection =
+                            (conn_index + 1U) % endpoint->connection_count;
+                    }
+                }
             }
         }
     }

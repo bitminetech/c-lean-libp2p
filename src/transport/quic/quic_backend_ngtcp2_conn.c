@@ -575,19 +575,30 @@ quic_backend_handle_conn_error(libp2p_quic_conn_t *conn, int rv)
 
 static libp2p_quic_stream_t *quic_backend_conn_next_tx_stream(libp2p_quic_conn_t *conn)
 {
-    size_t index = 0U;
     libp2p_quic_stream_t *result = NULL;
 
-    for (index = 0U; (index < conn->streams.len) && (result == NULL); index++)
+    if (conn->streams.len != 0U)
     {
-        libp2p_quic_stream_t *stream = conn->streams.items[index];
+        size_t start = conn->next_tx_stream;
 
-        if ((stream != NULL) && (stream->state != LIBP2P_QUIC_STREAM_CLOSED) &&
-            (stream->state != LIBP2P_QUIC_STREAM_RESET) &&
-            ((stream->tx_sent_len < stream->tx_len) ||
-             ((stream->local_fin_queued != 0U) && (stream->local_fin_sent == 0U))))
+        if (start >= conn->streams.len)
         {
-            result = stream;
+            start = 0U;
+        }
+
+        for (size_t index = 0U; (index < conn->streams.len) && (result == NULL); index++)
+        {
+            const size_t stream_index = (start + index) % conn->streams.len;
+            libp2p_quic_stream_t *stream = conn->streams.items[stream_index];
+
+            if ((stream != NULL) && (stream->state != LIBP2P_QUIC_STREAM_CLOSED) &&
+                (stream->state != LIBP2P_QUIC_STREAM_RESET) &&
+                ((stream->tx_sent_len < stream->tx_len) ||
+                 ((stream->local_fin_queued != 0U) && (stream->local_fin_sent == 0U))))
+            {
+                result = stream;
+                conn->next_tx_stream = (stream_index + 1U) % conn->streams.len;
+            }
         }
     }
 

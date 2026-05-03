@@ -92,6 +92,7 @@ struct libp2p_quic_conn
     ngtcp2_cid cids[QUIC_BACKEND_MAX_CONN_IDS_PER_CONN];
     size_t cid_count;
     quic_backend_stream_vec_t streams;
+    size_t next_tx_stream;
     uint8_t close_requested;
     uint8_t close_sent;
     ngtcp2_ccerr close_error;
@@ -115,6 +116,7 @@ struct libp2p_quic_endpoint
     size_t connection_count;
     size_t incoming_connection_count;
     size_t outgoing_connection_count;
+    size_t next_tx_connection;
     libp2p_quic_event_t *events;
     size_t event_cap;
     size_t event_head;
