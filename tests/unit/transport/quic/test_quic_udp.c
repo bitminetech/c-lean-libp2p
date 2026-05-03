@@ -1,7 +1,12 @@
 #include <assert.h>
+#include <limits.h>
 #include <stddef.h>
 #include <stdint.h>
 #include <string.h>
+
+#if !defined(_WIN32)
+#include <poll.h>
+#endif
 
 #include "quic_test_support.h"
 #include "transport/quic/quic_udp.h"
@@ -217,6 +222,23 @@ static void quic_udp_wait_established(quic_udp_fixture_t *fixture)
     assert(0 && "real UDP QUIC handshake did not complete");
 }
 
+static void quic_udp_wait_server_readable(const quic_udp_fixture_t *fixture)
+{
+#if !defined(_WIN32)
+    struct pollfd pfd;
+
+    assert(fixture != NULL);
+    assert(fixture->server_socket.fd <= (libp2p_quic_udp_fd_t)INT_MAX);
+    pfd.fd = (int)fixture->server_socket.fd;
+    pfd.events = POLLIN;
+    pfd.revents = 0;
+    assert(poll(&pfd, (nfds_t)1, 1000) > 0);
+    assert((pfd.revents & POLLIN) != 0);
+#else
+    (void)fixture;
+#endif
+}
+
 static void quic_udp_test_real_socket_handshake_and_stream(void)
 {
     static const uint8_t message[] = {'u', 'd', 'p', '-', 'q', 'u', 'i', 'c'};
@@ -286,8 +308,65 @@ static void quic_udp_test_real_socket_handshake_and_stream(void)
     quic_udp_fixture_deinit(&fixture);
 }
 
+static void quic_udp_test_send_prepared_datagram(void)
+{
+    quic_udp_fixture_t fixture;
+    libp2p_quic_addr_t server_addr;
+    libp2p_quic_dial_config_t dial_config;
+    libp2p_quic_tx_datagram_t datagram;
+    libp2p_quic_rx_datagram_t received;
+    uint8_t tx[LIBP2P_QUIC_DEFAULT_MAX_DATAGRAM_BYTES];
+    uint8_t rx[LIBP2P_QUIC_DEFAULT_MAX_DATAGRAM_BYTES];
+    libp2p_quic_err_t recv_result = LIBP2P_QUIC_ERR_WOULD_BLOCK;
+    size_t round = 0U;
+
+    quic_udp_fixture_init(&fixture);
+    assert(
+        libp2p_quic_udp_socket_local_addr(&fixture.server_socket, &server_addr) == LIBP2P_QUIC_OK);
+    assert(
+        libp2p_quic_addr_set_peer_id(
+            &server_addr,
+            fixture.identity.peer_id,
+            fixture.identity.peer_id_len) == LIBP2P_QUIC_OK);
+    dial_config.remote_addr = server_addr;
+    dial_config.user_data = NULL;
+
+    assert(
+        libp2p_quic_endpoint_dial(fixture.client, &dial_config, &fixture.client_conn) ==
+        LIBP2P_QUIC_OK);
+
+    (void)memset(&datagram, 0, sizeof(datagram));
+    datagram.data = tx;
+    datagram.data_cap = sizeof(tx);
+    assert(
+        libp2p_quic_endpoint_next_datagram(fixture.client, &datagram, fixture.now_us) ==
+        LIBP2P_QUIC_OK);
+    assert(datagram.data_len != 0U);
+
+    assert(
+        libp2p_quic_udp_socket_send_datagram(&fixture.client_socket, &datagram) ==
+        LIBP2P_QUIC_OK);
+    quic_udp_wait_server_readable(&fixture);
+    for (round = 0U; (round < 64U) && (recv_result == LIBP2P_QUIC_ERR_WOULD_BLOCK); round++)
+    {
+        recv_result = libp2p_quic_udp_socket_recv_datagram(
+            &fixture.server_socket,
+            &received,
+            rx,
+            sizeof(rx));
+        fixture.now_us += 1000U;
+    }
+    assert(recv_result == LIBP2P_QUIC_OK);
+    assert(received.data == rx);
+    assert(received.data_len == datagram.data_len);
+    assert(memcmp(rx, tx, datagram.data_len) == 0);
+
+    quic_udp_fixture_deinit(&fixture);
+}
+
 int main(void)
 {
+    quic_udp_test_send_prepared_datagram();
     quic_udp_test_real_socket_handshake_and_stream();
     return 0;
 }

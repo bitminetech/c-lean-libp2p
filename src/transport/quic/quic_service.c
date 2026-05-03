@@ -61,6 +61,8 @@ struct libp2p_quic_service
     uint8_t *rx_buffer;
     uint8_t *tx_buffer;
     size_t datagram_buffer_len;
+    libp2p_quic_tx_datagram_t pending_tx_datagram;
+    uint8_t has_pending_tx_datagram;
     uint8_t tx_pending;
     uint8_t closed;
 };
@@ -779,6 +781,47 @@ static libp2p_quic_err_t quic_service_drive_rx(
     return result_code;
 }
 
+static void quic_service_clear_pending_tx_datagram(libp2p_quic_service_t *service)
+{
+    if (service != NULL)
+    {
+        service->has_pending_tx_datagram = 0U;
+        (void)memset(&service->pending_tx_datagram, 0, sizeof(service->pending_tx_datagram));
+    }
+}
+
+static libp2p_quic_err_t quic_service_prepare_tx_datagram(
+    libp2p_quic_service_t *service,
+    libp2p_quic_time_us_t now_us)
+{
+    libp2p_quic_err_t result = LIBP2P_QUIC_OK;
+
+    if (service == NULL)
+    {
+        result = LIBP2P_QUIC_ERR_INVALID_ARG;
+    }
+    else if (service->has_pending_tx_datagram != 0U)
+    {
+        result = LIBP2P_QUIC_OK;
+    }
+    else
+    {
+        (void)memset(&service->pending_tx_datagram, 0, sizeof(service->pending_tx_datagram));
+        service->pending_tx_datagram.data = service->tx_buffer;
+        service->pending_tx_datagram.data_cap = service->datagram_buffer_len;
+        result = libp2p_quic_endpoint_next_datagram(
+            service->endpoint,
+            &service->pending_tx_datagram,
+            now_us);
+        if (result == LIBP2P_QUIC_OK)
+        {
+            service->has_pending_tx_datagram = 1U;
+        }
+    }
+
+    return result;
+}
+
 static libp2p_quic_err_t quic_service_drive_tx(
     libp2p_quic_service_t *service,
     libp2p_quic_time_us_t now_us,
@@ -791,25 +834,29 @@ static libp2p_quic_err_t quic_service_drive_tx(
                      (result_code == LIBP2P_QUIC_OK) && (result->tx_drained == 0U);
          index++)
     {
-        libp2p_quic_err_t err = libp2p_quic_udp_socket_send(
-            &service->socket,
-            service->endpoint,
-            service->tx_buffer,
-            service->datagram_buffer_len,
-            now_us);
+        libp2p_quic_err_t err = quic_service_prepare_tx_datagram(service, now_us);
         if (err == LIBP2P_QUIC_OK)
         {
+            err = libp2p_quic_udp_socket_send_datagram(
+                &service->socket,
+                &service->pending_tx_datagram);
+        }
+
+        if (err == LIBP2P_QUIC_OK)
+        {
+            quic_service_clear_pending_tx_datagram(service);
             result->tx_datagrams++;
             result->made_progress = 1U;
             service->tx_pending = 1U;
         }
         else if (err == LIBP2P_QUIC_ERR_WOULD_BLOCK)
         {
-            service->tx_pending = 0U;
+            service->tx_pending = service->has_pending_tx_datagram;
             result->tx_drained = 1U;
         }
         else
         {
+            quic_service_clear_pending_tx_datagram(service);
             result_code = err;
         }
     }
@@ -1085,7 +1132,7 @@ libp2p_quic_err_t libp2p_quic_service_io_interest(
         else
         {
             *out_interest = LIBP2P_QUIC_SERVICE_INTEREST_READ;
-            if (service->tx_pending != 0U)
+            if ((service->tx_pending != 0U) || (service->has_pending_tx_datagram != 0U))
             {
                 *out_interest |= LIBP2P_QUIC_SERVICE_INTEREST_WRITE;
             }

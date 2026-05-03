@@ -520,20 +520,23 @@ libp2p_quic_err_t libp2p_quic_udp_socket_listen_addr(
     return result;
 }
 
-libp2p_quic_err_t libp2p_quic_udp_socket_recv(
+libp2p_quic_err_t libp2p_quic_udp_socket_recv_datagram(
     const libp2p_quic_udp_socket_t *udp_socket,
-    libp2p_quic_endpoint_t *endpoint,
+    libp2p_quic_rx_datagram_t *datagram,
     uint8_t *buffer,
-    size_t buffer_len,
-    libp2p_quic_time_us_t now_us)
+    size_t buffer_len)
 {
     struct sockaddr_storage remote_storage;
     quic_udp_socklen_t remote_len = (quic_udp_socklen_t)sizeof(remote_storage);
     quic_udp_io_result_t received = 0;
-    libp2p_quic_rx_datagram_t datagram;
     libp2p_quic_err_t result = LIBP2P_QUIC_OK;
 
-    if ((udp_socket == NULL) || (endpoint == NULL) || (buffer == NULL) || (buffer_len == 0U))
+    if (datagram != NULL)
+    {
+        (void)memset(datagram, 0, sizeof(*datagram));
+    }
+
+    if ((udp_socket == NULL) || (datagram == NULL) || (buffer == NULL) || (buffer_len == 0U))
     {
         result = LIBP2P_QUIC_ERR_INVALID_ARG;
     }
@@ -564,35 +567,119 @@ libp2p_quic_err_t libp2p_quic_udp_socket_recv(
         }
         else
         {
-            (void)memset(&datagram, 0, sizeof(datagram));
-            datagram.local_addr = udp_socket->local_addr;
+            datagram->local_addr = udp_socket->local_addr;
             result = quic_udp_sockaddr_to_addr(
                 (const struct sockaddr *)&remote_storage,
                 remote_len,
-                &datagram.remote_addr);
+                &datagram->remote_addr);
         }
     }
 
     if (result == LIBP2P_QUIC_OK)
     {
-        datagram.data = buffer;
-        datagram.data_len = (size_t)received;
-        datagram.ecn = LIBP2P_QUIC_ECN_NOT_ECT;
+        datagram->data = buffer;
+        datagram->data_len = (size_t)received;
+        datagram->ecn = LIBP2P_QUIC_ECN_NOT_ECT;
+    }
+
+    return result;
+}
+
+libp2p_quic_err_t libp2p_quic_udp_socket_recv(
+    const libp2p_quic_udp_socket_t *udp_socket,
+    libp2p_quic_endpoint_t *endpoint,
+    uint8_t *buffer,
+    size_t buffer_len,
+    libp2p_quic_time_us_t now_us)
+{
+    libp2p_quic_rx_datagram_t datagram;
+    libp2p_quic_err_t result = LIBP2P_QUIC_OK;
+
+    (void)memset(&datagram, 0, sizeof(datagram));
+
+    if (endpoint == NULL)
+    {
+        result = LIBP2P_QUIC_ERR_INVALID_ARG;
+    }
+    else
+    {
+        result = libp2p_quic_udp_socket_recv_datagram(udp_socket, &datagram, buffer, buffer_len);
+    }
+
+    if (result == LIBP2P_QUIC_OK)
+    {
         result = libp2p_quic_endpoint_recv_datagram(endpoint, &datagram, now_us);
     }
 
     return result;
 }
 
+libp2p_quic_err_t libp2p_quic_udp_socket_send_datagram(
+    const libp2p_quic_udp_socket_t *udp_socket,
+    const libp2p_quic_tx_datagram_t *datagram)
+{
+    struct sockaddr_storage remote_storage;
+    quic_udp_socklen_t remote_len = 0;
+    libp2p_quic_err_t result = LIBP2P_QUIC_OK;
+
+    if ((udp_socket == NULL) || (datagram == NULL) || (datagram->data == NULL) ||
+        (datagram->data_len == 0U))
+    {
+        result = LIBP2P_QUIC_ERR_INVALID_ARG;
+    }
+    else if ((udp_socket->open == 0U) || (quic_udp_fd_is_native_valid(udp_socket->fd) == 0))
+    {
+        result = LIBP2P_QUIC_ERR_STATE;
+    }
+    else if ((datagram->data_cap < datagram->data_len) || (datagram->data_len > (size_t)INT_MAX))
+    {
+        result = LIBP2P_QUIC_ERR_LIMIT;
+    }
+
+    if ((result == LIBP2P_QUIC_OK) &&
+        (libp2p_quic_addr_equal(&datagram->local_addr, &udp_socket->local_addr, 0) == 0))
+    {
+        result = LIBP2P_QUIC_ERR_ADDR;
+    }
+
+    if (result == LIBP2P_QUIC_OK)
+    {
+        result = quic_udp_addr_to_sockaddr(&datagram->remote_addr, &remote_storage, &remote_len);
+    }
+
+    if (result == LIBP2P_QUIC_OK)
+    {
+        quic_udp_io_result_t sent = sendto(
+            quic_udp_to_native_fd(udp_socket->fd),
+            (const char *)datagram->data,
+            (quic_udp_buffer_len_t)datagram->data_len,
+            0,
+            (const struct sockaddr *)&remote_storage,
+            remote_len);
+        if (sent < 0)
+        {
+            result = quic_udp_errno_to_err(quic_udp_last_error());
+        }
+        else if ((size_t)sent != datagram->data_len)
+        {
+            result = LIBP2P_QUIC_ERR_INTERNAL;
+        }
+        else
+        {
+            result = LIBP2P_QUIC_OK;
+        }
+    }
+
+    return result;
+}
+
 libp2p_quic_err_t libp2p_quic_udp_socket_send(
-    libp2p_quic_udp_socket_t *udp_socket,
+    const libp2p_quic_udp_socket_t *udp_socket,
     libp2p_quic_endpoint_t *endpoint,
     uint8_t *buffer,
     size_t buffer_len,
     libp2p_quic_time_us_t now_us)
 {
-    struct sockaddr_storage remote_storage;
-    quic_udp_socklen_t remote_len = 0;
     libp2p_quic_tx_datagram_t datagram;
     libp2p_quic_err_t result = LIBP2P_QUIC_OK;
 
@@ -602,10 +689,6 @@ libp2p_quic_err_t libp2p_quic_udp_socket_send(
     {
         result = LIBP2P_QUIC_ERR_INVALID_ARG;
     }
-    else if ((udp_socket->open == 0U) || (quic_udp_fd_is_native_valid(udp_socket->fd) == 0))
-    {
-        result = LIBP2P_QUIC_ERR_STATE;
-    }
     else if (buffer_len > (size_t)INT_MAX)
     {
         result = LIBP2P_QUIC_ERR_LIMIT;
@@ -614,45 +697,12 @@ libp2p_quic_err_t libp2p_quic_udp_socket_send(
     {
         datagram.data = buffer;
         datagram.data_cap = buffer_len;
-    }
-
-    if (result == LIBP2P_QUIC_OK)
-    {
         result = libp2p_quic_endpoint_next_datagram(endpoint, &datagram, now_us);
     }
 
-    if ((result == LIBP2P_QUIC_OK) &&
-        (libp2p_quic_addr_equal(&datagram.local_addr, &udp_socket->local_addr, 0) == 0))
-    {
-        result = LIBP2P_QUIC_ERR_ADDR;
-    }
-
     if (result == LIBP2P_QUIC_OK)
     {
-        result = quic_udp_addr_to_sockaddr(&datagram.remote_addr, &remote_storage, &remote_len);
-    }
-
-    if (result == LIBP2P_QUIC_OK)
-    {
-        quic_udp_io_result_t sent = sendto(
-            quic_udp_to_native_fd(udp_socket->fd),
-            (const char *)datagram.data,
-            (quic_udp_buffer_len_t)datagram.data_len,
-            0,
-            (const struct sockaddr *)&remote_storage,
-            remote_len);
-        if (sent < 0)
-        {
-            result = quic_udp_errno_to_err(quic_udp_last_error());
-        }
-        else if ((size_t)sent != datagram.data_len)
-        {
-            result = LIBP2P_QUIC_ERR_INTERNAL;
-        }
-        else
-        {
-            result = LIBP2P_QUIC_OK;
-        }
+        result = libp2p_quic_udp_socket_send_datagram(udp_socket, &datagram);
     }
 
     return result;
