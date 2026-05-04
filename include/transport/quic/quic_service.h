@@ -108,6 +108,13 @@ typedef struct
     uint64_t tx_sent;
     uint64_t tx_acked;
     uint64_t tx_lost;
+    uint64_t write_data_packets;
+    uint64_t write_control_packets;
+    uint64_t write_zero_count;
+    uint64_t write_stream_blocked_count;
+    uint64_t write_stream_shut_wr_count;
+    uint64_t write_stream_not_found_count;
+    uint64_t write_other_error_count;
     uint64_t last_rx_us;
     uint64_t last_tx_us;
     uint64_t idle_deadline_us;

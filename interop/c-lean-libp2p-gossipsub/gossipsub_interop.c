@@ -1077,6 +1077,8 @@ static void gossipsub_interop_autopsy_dump_quic(
                     stderr,
                     "\" closed=%u cwnd=%llu bytes_in_flight=%llu tx_buffered=%llu tx_sent=%llu "
                     "tx_acked=%llu tx_lost=%llu last_rx_us=%llu last_tx_us=%llu "
+                    "write_data=%llu write_control=%llu write_zero=%llu write_stream_blocked=%llu "
+                    "write_stream_shut_wr=%llu write_stream_not_found=%llu write_other_error=%llu "
                     "idle_deadline_us=%llu streams=\"",
                     (unsigned int)snapshot.closed,
                     (unsigned long long)snapshot.cwnd,
@@ -1087,6 +1089,13 @@ static void gossipsub_interop_autopsy_dump_quic(
                     (unsigned long long)snapshot.tx_lost,
                     (unsigned long long)snapshot.last_rx_us,
                     (unsigned long long)snapshot.last_tx_us,
+                    (unsigned long long)snapshot.write_data_packets,
+                    (unsigned long long)snapshot.write_control_packets,
+                    (unsigned long long)snapshot.write_zero_count,
+                    (unsigned long long)snapshot.write_stream_blocked_count,
+                    (unsigned long long)snapshot.write_stream_shut_wr_count,
+                    (unsigned long long)snapshot.write_stream_not_found_count,
+                    (unsigned long long)snapshot.write_other_error_count,
                     (unsigned long long)snapshot.idle_deadline_us);
                 for (size_t stream_index = 0U;
                      (stream_index < snapshot.stream_count) &&

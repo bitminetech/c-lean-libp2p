@@ -102,6 +102,13 @@ struct libp2p_quic_conn
     libp2p_quic_err_t callback_error;
     uint64_t autopsy_tx_sent_bytes;
     uint64_t autopsy_tx_acked_bytes;
+    uint64_t autopsy_write_data_packets;
+    uint64_t autopsy_write_control_packets;
+    uint64_t autopsy_write_zero_count;
+    uint64_t autopsy_write_stream_blocked_count;
+    uint64_t autopsy_write_stream_shut_wr_count;
+    uint64_t autopsy_write_stream_not_found_count;
+    uint64_t autopsy_write_other_error_count;
     uint64_t autopsy_last_rx_us;
     uint64_t autopsy_last_tx_us;
 };

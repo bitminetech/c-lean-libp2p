@@ -698,6 +698,14 @@ QUIC_BACKEND_INTERNAL libp2p_quic_err_t quic_backend_write_conn_datagram(
 
             ngtcp2_conn_update_pkt_tx_time(conn->ngconn, ts);
             conn->autopsy_tx_sent_bytes += (uint64_t)nwrite;
+            if (ndatalen >= 0)
+            {
+                conn->autopsy_write_data_packets++;
+            }
+            else
+            {
+                conn->autopsy_write_control_packets++;
+            }
             conn->autopsy_last_tx_us = now_us;
             datagram->local_addr = conn->local_addr;
             datagram->remote_addr = conn->remote_addr;
@@ -758,6 +766,7 @@ QUIC_BACKEND_INTERNAL libp2p_quic_err_t quic_backend_write_conn_datagram(
         }
         else if (nwrite == 0)
         {
+            conn->autopsy_write_zero_count++;
             result = LIBP2P_QUIC_ERR_WOULD_BLOCK;
             if (stream != NULL)
             {
@@ -766,6 +775,7 @@ QUIC_BACKEND_INTERNAL libp2p_quic_err_t quic_backend_write_conn_datagram(
         }
         else if (nwrite == NGTCP2_ERR_STREAM_DATA_BLOCKED)
         {
+            conn->autopsy_write_stream_blocked_count++;
             result = LIBP2P_QUIC_ERR_WOULD_BLOCK;
             if (stream != NULL)
             {
@@ -774,6 +784,7 @@ QUIC_BACKEND_INTERNAL libp2p_quic_err_t quic_backend_write_conn_datagram(
         }
         else if (nwrite == NGTCP2_ERR_STREAM_SHUT_WR)
         {
+            conn->autopsy_write_stream_shut_wr_count++;
             result = LIBP2P_QUIC_ERR_WOULD_BLOCK;
             if (stream != NULL)
             {
@@ -782,6 +793,7 @@ QUIC_BACKEND_INTERNAL libp2p_quic_err_t quic_backend_write_conn_datagram(
         }
         else if (nwrite == NGTCP2_ERR_STREAM_NOT_FOUND)
         {
+            conn->autopsy_write_stream_not_found_count++;
             result = LIBP2P_QUIC_ERR_WOULD_BLOCK;
             if (stream != NULL)
             {
@@ -790,6 +802,7 @@ QUIC_BACKEND_INTERNAL libp2p_quic_err_t quic_backend_write_conn_datagram(
         }
         else
         {
+            conn->autopsy_write_other_error_count++;
             result = quic_backend_handle_conn_error(conn, (int)nwrite);
             if (result == LIBP2P_QUIC_OK)
             {
