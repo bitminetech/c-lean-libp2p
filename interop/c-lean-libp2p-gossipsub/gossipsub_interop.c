@@ -1168,6 +1168,9 @@ static const char *gossipsub_interop_autopsy_outcome_name(gossipsub_autopsy_outc
     case GOSSIPSUB_AUTOPSY_OUTCOME_DROPPED_PEER:
         result = "dropped-peer";
         break;
+    case GOSSIPSUB_AUTOPSY_OUTCOME_DROPPED_QUEUE_FULL:
+        result = "dropped-queue-full";
+        break;
     default:
         result = "unknown";
         break;

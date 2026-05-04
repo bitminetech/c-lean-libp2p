@@ -407,6 +407,60 @@ static void gossipsub_tx_append_peer_item(
     }
 }
 
+static void gossipsub_tx_compact_buffer(libp2p_gossipsub_t *gossipsub)
+{
+    if ((gossipsub != NULL) && (gossipsub->tx_queue_len != 0U))
+    {
+        size_t cursor = 0U;
+        size_t search_offset = 0U;
+        size_t moved = 0U;
+
+        while (moved < gossipsub->tx_queue_len)
+        {
+            size_t best_index = GOSSIPSUB_TX_NO_ITEM;
+            size_t best_offset = SIZE_MAX;
+
+            for (size_t index = 0U; index < gossipsub->config.capacity.max_tx_rpc_queue; index++)
+            {
+                const gossipsub_tx_item_t *item = &gossipsub->tx_queue[index];
+
+                if ((item->used != 0U) && (item->offset >= search_offset) &&
+                    (item->offset < best_offset))
+                {
+                    best_index = index;
+                    best_offset = item->offset;
+                }
+            }
+            if (best_index == GOSSIPSUB_TX_NO_ITEM)
+            {
+                moved = gossipsub->tx_queue_len;
+            }
+            else
+            {
+                gossipsub_tx_item_t *item = &gossipsub->tx_queue[best_index];
+                const size_t old_offset = item->offset;
+
+                if ((item->len != 0U) && (old_offset != cursor))
+                {
+                    (void)memmove(
+                        &gossipsub->tx_buffer[cursor],
+                        &gossipsub->tx_buffer[old_offset],
+                        item->len);
+                }
+                item->offset = cursor;
+                cursor += item->len;
+                search_offset = old_offset + item->len;
+                if (search_offset == old_offset)
+                {
+                    search_offset++;
+                }
+                moved++;
+            }
+        }
+        gossipsub->tx_buffer_used = cursor;
+    }
+}
+
 static libp2p_gossipsub_err_t gossipsub_tx_alloc_with_priority(
     libp2p_gossipsub_t *gossipsub,
     size_t peer_index,
@@ -436,6 +490,12 @@ static libp2p_gossipsub_err_t gossipsub_tx_alloc_with_priority(
             (gossipsub->tx_queue_len == 0U))
         {
             gossipsub->tx_buffer_used = 0U;
+        }
+        if ((frame_len >
+             (gossipsub->config.capacity.tx_buffer_bytes - gossipsub->tx_buffer_used)) &&
+            (gossipsub->tx_queue_len != 0U))
+        {
+            gossipsub_tx_compact_buffer(gossipsub);
         }
         if (frame_len > (gossipsub->config.capacity.tx_buffer_bytes - gossipsub->tx_buffer_used))
         {
@@ -1327,13 +1387,28 @@ void gossipsub_drop_queued_peer(libp2p_gossipsub_t *gossipsub, size_t peer_index
     }
 }
 
+static void gossipsub_autopsy_record_queue_full_drop(
+    const libp2p_gossipsub_t *gossipsub,
+    size_t peer_index,
+    const gossipsub_mcache_entry_t *entry)
+{
+    if (entry != NULL)
+    {
+        gossipsub_autopsy_record_attempt(
+            gossipsub,
+            peer_index,
+            entry->message_id,
+            entry->message_id_len,
+            GOSSIPSUB_AUTOPSY_OUTCOME_DROPPED_QUEUE_FULL);
+    }
+}
+
 libp2p_gossipsub_err_t gossipsub_forward_entry(
     libp2p_gossipsub_t *gossipsub,
     size_t source_peer_index,
     const gossipsub_mcache_entry_t *entry)
 {
     size_t topic_index = 0U;
-    size_t peer_index = 0U;
     const gossipsub_topic_state_t *topic = NULL;
     libp2p_gossipsub_err_t result = LIBP2P_GOSSIPSUB_OK;
 
@@ -1349,25 +1424,41 @@ libp2p_gossipsub_err_t gossipsub_forward_entry(
             result = LIBP2P_GOSSIPSUB_ERR_NOT_FOUND;
         }
     }
-    for (peer_index = 0U;
-         (result == LIBP2P_GOSSIPSUB_OK) && (peer_index < gossipsub->config.capacity.max_peers);
-         peer_index++)
+    if (result == LIBP2P_GOSSIPSUB_OK)
     {
-        if ((peer_index != source_peer_index) &&
-            (gossipsub->peers[peer_index].used == GOSSIPSUB_PEER_USED) &&
-            (gossipsub->peers[peer_index].stream != NULL) &&
-            (gossipsub_tx_is_mesh_route(gossipsub, peer_index, topic_index) != 0) &&
-            (gossipsub_peer_idontwant_contains(
-                 gossipsub,
-                 peer_index,
-                 entry->message_id,
-                 entry->message_id_len,
-                 gossipsub_tx_effective_now_us(gossipsub)) == 0))
+        for (size_t peer_index = 0U; peer_index < gossipsub->config.capacity.max_peers; peer_index++)
         {
-            result = gossipsub_enqueue_idontwant_for_entry(gossipsub, peer_index, topic, entry);
-            if (result == LIBP2P_GOSSIPSUB_OK)
+            if ((result == LIBP2P_GOSSIPSUB_OK) && (peer_index != source_peer_index) &&
+                (gossipsub->peers[peer_index].used == GOSSIPSUB_PEER_USED) &&
+                (gossipsub->peers[peer_index].stream != NULL) &&
+                (gossipsub_tx_is_mesh_route(gossipsub, peer_index, topic_index) != 0) &&
+                (gossipsub_peer_idontwant_contains(
+                     gossipsub,
+                     peer_index,
+                     entry->message_id,
+                     entry->message_id_len,
+                     gossipsub_tx_effective_now_us(gossipsub)) == 0))
             {
-                result = gossipsub_enqueue_publish_entry(gossipsub, peer_index, entry);
+                libp2p_gossipsub_err_t enqueue_result =
+                    gossipsub_enqueue_idontwant_for_entry(gossipsub, peer_index, topic, entry);
+
+                if ((enqueue_result == LIBP2P_GOSSIPSUB_OK) ||
+                    (enqueue_result == LIBP2P_GOSSIPSUB_ERR_LIMIT))
+                {
+                    enqueue_result = gossipsub_enqueue_publish_entry(gossipsub, peer_index, entry);
+                }
+                if (enqueue_result == LIBP2P_GOSSIPSUB_ERR_LIMIT)
+                {
+                    gossipsub_autopsy_record_queue_full_drop(gossipsub, peer_index, entry);
+                }
+                else if (enqueue_result != LIBP2P_GOSSIPSUB_OK)
+                {
+                    result = enqueue_result;
+                }
+                else
+                {
+                    result = LIBP2P_GOSSIPSUB_OK;
+                }
             }
         }
     }
