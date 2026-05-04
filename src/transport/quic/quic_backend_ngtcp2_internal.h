@@ -296,6 +296,8 @@ QUIC_BACKEND_INTERNAL libp2p_quic_err_t quic_backend_stream_finish(libp2p_quic_s
 QUIC_BACKEND_INTERNAL libp2p_quic_err_t
 quic_backend_stream_reset(libp2p_quic_stream_t *stream, uint64_t app_error_code);
 
+QUIC_BACKEND_INTERNAL void quic_backend_stream_discard_tx(libp2p_quic_stream_t *stream);
+
 QUIC_BACKEND_INTERNAL libp2p_quic_err_t
 quic_backend_stream_stop_sending(libp2p_quic_stream_t *stream, uint64_t app_error_code);
 

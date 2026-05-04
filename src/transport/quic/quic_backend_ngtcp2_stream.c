@@ -409,6 +409,40 @@ QUIC_BACKEND_INTERNAL libp2p_quic_err_t quic_backend_stream_finish(libp2p_quic_s
     return result;
 }
 
+QUIC_BACKEND_INTERNAL void quic_backend_stream_discard_tx(libp2p_quic_stream_t *stream)
+{
+    if (stream != NULL)
+    {
+        const size_t sent_len = stream->tx_sent_len;
+
+        if (sent_len != 0U)
+        {
+            const uint64_t sent_offset = (uint64_t)sent_len;
+
+            if (sent_offset <= (UINT64_MAX - stream->tx_base_offset))
+            {
+                stream->tx_base_offset += sent_offset;
+            }
+            else
+            {
+                stream->tx_base_offset = UINT64_MAX;
+            }
+        }
+
+        quic_backend_debug_stream_state(
+            stream,
+            "stream_tx_discard",
+            (uint64_t)stream->tx_len,
+            (uint64_t)stream->tx_sent_len,
+            0U);
+        stream->tx_len = 0U;
+        stream->tx_sent_len = 0U;
+        stream->local_fin_queued = 0U;
+        stream->local_fin_sent = 0U;
+        stream->write_blocked = 0U;
+    }
+}
+
 QUIC_BACKEND_INTERNAL libp2p_quic_err_t quic_backend_stream_reset(
     libp2p_quic_stream_t *stream,
     uint64_t app_error_code)
@@ -428,6 +462,7 @@ QUIC_BACKEND_INTERNAL libp2p_quic_err_t quic_backend_stream_reset(
         }
         else
         {
+            quic_backend_stream_discard_tx(stream);
             stream->state = LIBP2P_QUIC_STREAM_RESET;
             stream->reset = 1U;
             result = quic_backend_event_push(

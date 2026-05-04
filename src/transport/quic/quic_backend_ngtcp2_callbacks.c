@@ -433,6 +433,7 @@ static int quic_backend_stream_close_cb(
     }
     if ((result == 0) && (stream != NULL))
     {
+        quic_backend_stream_discard_tx(stream);
         if ((flags & NGTCP2_STREAM_CLOSE_FLAG_APP_ERROR_CODE_SET) != 0U)
         {
             stream->state = LIBP2P_QUIC_STREAM_RESET;
@@ -510,6 +511,7 @@ static int quic_backend_stream_reset_cb(
     }
     if ((result == 0) && (stream != NULL))
     {
+        quic_backend_stream_discard_tx(stream);
         stream->state = LIBP2P_QUIC_STREAM_RESET;
         stream->reset = 1U;
     }

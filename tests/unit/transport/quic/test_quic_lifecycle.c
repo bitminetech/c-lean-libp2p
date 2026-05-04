@@ -3,6 +3,7 @@
 #include <stdint.h>
 #include <string.h>
 
+#include "../../../../src/transport/quic/quic_backend_ngtcp2_internal.h"
 #include "quic_test_support.h"
 
 static void quic_lifecycle_test_multiple_streams(void)
@@ -186,6 +187,63 @@ static void quic_lifecycle_test_stream_reset_propagates(void)
     quic_test_pair_deinit(&pair);
 }
 
+static void quic_lifecycle_test_stream_reset_discards_pending_tx(void)
+{
+    static uint8_t message[4096];
+    quic_test_identity_fixture_t identity;
+    quic_test_pair_t pair;
+    libp2p_quic_stream_t *client_stream = NULL;
+    uint8_t packet[LIBP2P_QUIC_DEFAULT_MAX_DATAGRAM_BYTES];
+    size_t accepted = 0U;
+    size_t sent_before_reset = 0U;
+    size_t round = 0U;
+
+    (void)memset(message, 0xA5, sizeof(message));
+    quic_test_make_identity(&identity, 39U);
+    quic_test_pair_init(&pair, &identity.identity, 30012U, 30013U, 0U);
+    quic_test_pair_dial(&pair, &identity);
+
+    assert(libp2p_quic_conn_open_bidi_stream(pair.client_conn, &client_stream) == LIBP2P_QUIC_OK);
+    assert(
+        libp2p_quic_stream_write(client_stream, message, sizeof(message), 0, &accepted) ==
+        LIBP2P_QUIC_OK);
+    assert(accepted == sizeof(message));
+    assert(client_stream->tx_len == sizeof(message));
+
+    for (round = 0U; (round < 32U) && (client_stream->tx_sent_len == 0U); round++)
+    {
+        libp2p_quic_tx_datagram_t tx;
+        libp2p_quic_err_t result = LIBP2P_QUIC_OK;
+
+        (void)memset(&tx, 0, sizeof(tx));
+        tx.data = packet;
+        tx.data_cap = sizeof(packet);
+        result = libp2p_quic_endpoint_next_datagram(pair.client, &tx, pair.now_us);
+        if (result == LIBP2P_QUIC_ERR_WOULD_BLOCK)
+        {
+            assert(libp2p_quic_endpoint_poll(pair.client, pair.now_us) == LIBP2P_QUIC_OK);
+        }
+        else
+        {
+            assert(result == LIBP2P_QUIC_OK);
+            assert(tx.data_len > 0U);
+        }
+        pair.now_us += 1000U;
+    }
+
+    assert(client_stream->tx_sent_len != 0U);
+    sent_before_reset = client_stream->tx_sent_len;
+    assert(libp2p_quic_stream_reset(client_stream, 88U) == LIBP2P_QUIC_OK);
+    assert(client_stream->tx_len == 0U);
+    assert(client_stream->tx_sent_len == 0U);
+    assert(client_stream->tx_base_offset == (uint64_t)sent_before_reset);
+    assert(client_stream->local_fin_queued == 0U);
+    assert(client_stream->local_fin_sent == 0U);
+    assert(client_stream->write_blocked == 0U);
+
+    quic_test_pair_deinit(&pair);
+}
+
 static void quic_lifecycle_test_connection_close_propagates(void)
 {
     quic_test_identity_fixture_t identity;
@@ -260,6 +318,7 @@ int main(void)
     quic_lifecycle_test_multiple_streams();
     quic_lifecycle_test_stream_writable_after_tx_drain();
     quic_lifecycle_test_stream_reset_propagates();
+    quic_lifecycle_test_stream_reset_discards_pending_tx();
     quic_lifecycle_test_connection_close_propagates();
     quic_lifecycle_test_idle_timeout_closes();
 
