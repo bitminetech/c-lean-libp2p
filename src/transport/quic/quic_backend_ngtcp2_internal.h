@@ -39,8 +39,16 @@
 #define QUIC_BACKEND_EXTRA_EVENTS           16U
 #define QUIC_BACKEND_ACTIVE_CID_LIMIT       8U
 #define QUIC_BACKEND_STREAM_SEND_MULTIPLIER 2U
+#define QUIC_BACKEND_STREAM_ACK_RANGE_CAP   32U
 
+typedef struct quic_backend_ack_range quic_backend_ack_range_t;
 typedef struct quic_backend_stream_vec quic_backend_stream_vec_t;
+
+struct quic_backend_ack_range
+{
+    uint64_t start;
+    uint64_t end;
+};
 
 struct libp2p_quic_stream
 {
@@ -65,6 +73,8 @@ struct libp2p_quic_stream
     size_t tx_sent_len;
     size_t tx_cap;
     uint64_t tx_base_offset;
+    quic_backend_ack_range_t tx_ack_ranges[QUIC_BACKEND_STREAM_ACK_RANGE_CAP];
+    size_t tx_ack_range_count;
     uint8_t write_blocked;
 };
 
@@ -300,6 +310,14 @@ QUIC_BACKEND_INTERNAL libp2p_quic_err_t quic_backend_stream_write(
     size_t *accepted);
 
 QUIC_BACKEND_INTERNAL libp2p_quic_err_t quic_backend_stream_finish(libp2p_quic_stream_t *stream);
+
+QUIC_BACKEND_INTERNAL void quic_backend_stream_clear_ack_ranges(libp2p_quic_stream_t *stream);
+
+QUIC_BACKEND_INTERNAL int quic_backend_stream_record_acked_range(
+    libp2p_quic_stream_t *stream,
+    uint64_t offset,
+    uint64_t datalen,
+    uint8_t *out_sent_window_acked);
 
 QUIC_BACKEND_INTERNAL libp2p_quic_err_t
 quic_backend_stream_reset(libp2p_quic_stream_t *stream, uint64_t app_error_code);

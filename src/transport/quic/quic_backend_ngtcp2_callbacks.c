@@ -583,41 +583,23 @@ static int quic_backend_reclaim_acked_stream_data(
     uint64_t datalen)
 {
     int result = 0;
+    uint8_t sent_window_acked = 0U;
 
     if (stream == NULL)
     {
         result = NGTCP2_ERR_CALLBACK_FAILURE;
     }
-    else if (
-        (datalen > (UINT64_MAX - offset)) ||
-        (stream->tx_len < stream->tx_sent_len) ||
-        ((uint64_t)stream->tx_sent_len > (UINT64_MAX - stream->tx_base_offset)))
-    {
-        result = NGTCP2_ERR_CALLBACK_FAILURE;
-    }
     else
     {
-        const uint64_t ack_end = offset + datalen;
-        const uint64_t sent_end = stream->tx_base_offset + (uint64_t)stream->tx_sent_len;
-
         quic_backend_debug_stream_state(stream, "stream_ack", offset, datalen, 0U);
-        if ((stream->tx_sent_len != 0U) && (ack_end >= sent_end))
+        result =
+            quic_backend_stream_record_acked_range(stream, offset, datalen, &sent_window_acked);
+        if ((result == 0) && (sent_window_acked != 0U))
         {
+            const uint64_t sent_end = stream->tx_base_offset + (uint64_t)stream->tx_sent_len;
             const size_t pending = stream->tx_len - stream->tx_sent_len;
 
             stream->conn->autopsy_ack_reclaim_count++;
-            if (offset > stream->tx_base_offset)
-            {
-                const uint64_t gap_bytes = offset - stream->tx_base_offset;
-
-                stream->conn->autopsy_ack_gap_reclaim_count++;
-                stream->conn->autopsy_ack_gap_reclaim_bytes += gap_bytes;
-                stream->conn->autopsy_last_ack_gap_stream_id = stream->stream_id;
-                stream->conn->autopsy_last_ack_gap_offset = offset;
-                stream->conn->autopsy_last_ack_gap_len = datalen;
-                stream->conn->autopsy_last_ack_gap_base = stream->tx_base_offset;
-                stream->conn->autopsy_last_ack_gap_sent_end = sent_end;
-            }
             if (pending != 0U)
             {
                 (void)memmove(stream->tx_data, &stream->tx_data[stream->tx_sent_len], pending);
@@ -625,6 +607,7 @@ static int quic_backend_reclaim_acked_stream_data(
             stream->tx_base_offset = sent_end;
             stream->tx_len = pending;
             stream->tx_sent_len = 0U;
+            quic_backend_stream_clear_ack_ranges(stream);
             quic_backend_debug_stream_state(
                 stream,
                 "stream_reclaim",

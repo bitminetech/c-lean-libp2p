@@ -244,6 +244,52 @@ static void quic_lifecycle_test_stream_reset_discards_pending_tx(void)
     quic_test_pair_deinit(&pair);
 }
 
+static void quic_lifecycle_test_ack_tail_does_not_cover_gap(void)
+{
+    uint8_t tx_data[128];
+    libp2p_quic_stream_t stream;
+    uint8_t sent_window_acked = 1U;
+
+    (void)memset(tx_data, 0xD3, sizeof(tx_data));
+    (void)memset(&stream, 0, sizeof(stream));
+    stream.magic = QUIC_BACKEND_STREAM_MAGIC;
+    stream.stream_id = 7;
+    stream.tx_data = tx_data;
+    stream.tx_len = 80U;
+    stream.tx_sent_len = 64U;
+    stream.tx_base_offset = 0U;
+
+    assert(quic_backend_stream_record_acked_range(&stream, 32U, 32U, &sent_window_acked) == 0);
+    assert(sent_window_acked == 0U);
+    assert(stream.tx_ack_range_count == 1U);
+    assert(stream.tx_ack_ranges[0].start == 32U);
+    assert(stream.tx_ack_ranges[0].end == 64U);
+}
+
+static void quic_lifecycle_test_ack_ranges_merge_to_full_window(void)
+{
+    uint8_t tx_data[128];
+    libp2p_quic_stream_t stream;
+    uint8_t sent_window_acked = 1U;
+
+    (void)memset(tx_data, 0xE4, sizeof(tx_data));
+    (void)memset(&stream, 0, sizeof(stream));
+    stream.magic = QUIC_BACKEND_STREAM_MAGIC;
+    stream.stream_id = 9;
+    stream.tx_data = tx_data;
+    stream.tx_len = 80U;
+    stream.tx_sent_len = 64U;
+    stream.tx_base_offset = 0U;
+
+    assert(quic_backend_stream_record_acked_range(&stream, 0U, 32U, &sent_window_acked) == 0);
+    assert(sent_window_acked == 0U);
+    assert(quic_backend_stream_record_acked_range(&stream, 32U, 32U, &sent_window_acked) == 0);
+    assert(sent_window_acked == 1U);
+    assert(stream.tx_ack_range_count == 1U);
+    assert(stream.tx_ack_ranges[0].start == 0U);
+    assert(stream.tx_ack_ranges[0].end == 64U);
+}
+
 static void quic_lifecycle_test_connection_close_propagates(void)
 {
     quic_test_identity_fixture_t identity;
@@ -319,6 +365,8 @@ int main(void)
     quic_lifecycle_test_stream_writable_after_tx_drain();
     quic_lifecycle_test_stream_reset_propagates();
     quic_lifecycle_test_stream_reset_discards_pending_tx();
+    quic_lifecycle_test_ack_tail_does_not_cover_gap();
+    quic_lifecycle_test_ack_ranges_merge_to_full_window();
     quic_lifecycle_test_connection_close_propagates();
     quic_lifecycle_test_idle_timeout_closes();
 
