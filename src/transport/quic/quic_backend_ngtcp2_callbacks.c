@@ -537,8 +537,8 @@ static int quic_backend_wake_blocked_writer(libp2p_quic_stream_t *stream)
         result = NGTCP2_ERR_CALLBACK_FAILURE;
     }
     else if (
-        (stream->write_blocked != 0U) && (stream->state != LIBP2P_QUIC_STREAM_CLOSED) &&
-        (stream->state != LIBP2P_QUIC_STREAM_RESET))
+        (stream->state != LIBP2P_QUIC_STREAM_CLOSED) &&
+        (stream->state != LIBP2P_QUIC_STREAM_RESET) && (stream->local_fin_queued == 0U))
     {
         quic_backend_debug_stream_state(
             stream,
@@ -569,7 +569,7 @@ static int quic_backend_wake_blocked_writer(libp2p_quic_stream_t *stream)
     }
     else
     {
-        /* This stream is not currently writable-blocked. */
+        /* This stream cannot accept more application bytes. */
     }
 
     return result;
