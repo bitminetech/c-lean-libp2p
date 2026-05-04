@@ -111,8 +111,11 @@ struct libp2p_quic_conn
     libp2p_quic_err_t callback_error;
     uint8_t tx_time_update_unconfirmed;
     uint8_t tx_time_update_pending;
+    uint8_t autopsy_handshake_confirmed;
     uint64_t autopsy_tx_sent_bytes;
     uint64_t autopsy_tx_acked_bytes;
+    uint64_t autopsy_max_tx_datagram_bytes;
+    uint64_t autopsy_max_tx_stream_data_bytes;
     uint64_t autopsy_write_data_packets;
     uint64_t autopsy_write_control_packets;
     uint64_t autopsy_write_zero_count;

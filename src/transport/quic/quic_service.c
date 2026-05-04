@@ -1331,6 +1331,10 @@ libp2p_quic_err_t libp2p_quic_service_autopsy_conn(
             (void)memset(&info, 0, sizeof(info));
             out_conn->used = 1U;
             out_conn->closed = entry->closed;
+            out_conn->is_server = (conn->role == LIBP2P_QUIC_ROLE_SERVER) ? 1U : 0U;
+            out_conn->handshake_confirmed = conn->autopsy_handshake_confirmed;
+            out_conn->tx_time_update_unconfirmed = conn->tx_time_update_unconfirmed;
+            out_conn->tx_time_update_pending = conn->tx_time_update_pending;
             if (conn->has_peer_identity != 0U)
             {
                 out_conn->remote_peer_id_len = conn->peer_identity.peer_id_len;
@@ -1343,12 +1347,29 @@ libp2p_quic_err_t libp2p_quic_service_autopsy_conn(
             {
                 ngtcp2_conn_get_conn_info2(conn->ngconn, &info);
                 expiry = ngtcp2_conn_get_expiry2(conn->ngconn);
+                out_conn->handshake_completed =
+                    (ngtcp2_conn_get_handshake_completed2(conn->ngconn) != 0) ? 1U : 0U;
+                out_conn->pto_us =
+                    quic_backend_time_from_ngtcp2(ngtcp2_conn_get_pto2(conn->ngconn));
+                out_conn->path_max_tx_udp_payload_size =
+                    ngtcp2_conn_get_path_max_tx_udp_payload_size2(conn->ngconn);
             }
             out_conn->cwnd = info.cwnd;
             out_conn->bytes_in_flight = info.bytes_in_flight;
+            out_conn->latest_rtt_us = quic_backend_time_from_ngtcp2(info.latest_rtt);
+            out_conn->smoothed_rtt_us = quic_backend_time_from_ngtcp2(info.smoothed_rtt);
+            out_conn->pkt_sent = info.pkt_sent;
+            out_conn->pkt_recv = info.pkt_recv;
+            out_conn->pkt_lost = info.pkt_lost;
+            out_conn->pkt_discarded = info.pkt_discarded;
+            out_conn->bytes_sent = info.bytes_sent;
+            out_conn->bytes_recv = info.bytes_recv;
+            out_conn->ping_recv = info.ping_recv;
             out_conn->tx_lost = info.bytes_lost;
             out_conn->tx_sent = conn->autopsy_tx_sent_bytes;
             out_conn->tx_acked = conn->autopsy_tx_acked_bytes;
+            out_conn->max_tx_datagram_bytes = conn->autopsy_max_tx_datagram_bytes;
+            out_conn->max_tx_stream_data_bytes = conn->autopsy_max_tx_stream_data_bytes;
             out_conn->write_data_packets = conn->autopsy_write_data_packets;
             out_conn->write_control_packets = conn->autopsy_write_control_packets;
             out_conn->write_zero_count = conn->autopsy_write_zero_count;
@@ -1395,6 +1416,9 @@ libp2p_quic_err_t libp2p_quic_service_autopsy_conn(
                         if ((conn->ngconn != NULL) && (stream->stream_id >= 0))
                         {
                             out_stream->flow_credit = ngtcp2_conn_get_max_stream_data_left2(
+                                conn->ngconn,
+                                stream->stream_id);
+                            out_stream->loss_count = ngtcp2_conn_get_stream_loss_count2(
                                 conn->ngconn,
                                 stream->stream_id);
                         }

@@ -718,6 +718,10 @@ QUIC_BACKEND_INTERNAL libp2p_quic_err_t quic_backend_write_conn_datagram(
             conn->close_sent = 1U;
             conn->state = LIBP2P_QUIC_CONN_CLOSING;
             conn->autopsy_tx_sent_bytes += (uint64_t)nwrite;
+            if ((uint64_t)nwrite > conn->autopsy_max_tx_datagram_bytes)
+            {
+                conn->autopsy_max_tx_datagram_bytes = (uint64_t)nwrite;
+            }
             conn->autopsy_last_tx_us = now_us;
             datagram->local_addr = conn->local_addr;
             datagram->remote_addr = conn->remote_addr;
@@ -780,9 +784,17 @@ QUIC_BACKEND_INTERNAL libp2p_quic_err_t quic_backend_write_conn_datagram(
         {
             quic_backend_conn_record_packet_write(conn, ts);
             conn->autopsy_tx_sent_bytes += (uint64_t)nwrite;
+            if ((uint64_t)nwrite > conn->autopsy_max_tx_datagram_bytes)
+            {
+                conn->autopsy_max_tx_datagram_bytes = (uint64_t)nwrite;
+            }
             if (ndatalen >= 0)
             {
                 conn->autopsy_write_data_packets++;
+                if ((uint64_t)ndatalen > conn->autopsy_max_tx_stream_data_bytes)
+                {
+                    conn->autopsy_max_tx_stream_data_bytes = (uint64_t)ndatalen;
+                }
             }
             else
             {

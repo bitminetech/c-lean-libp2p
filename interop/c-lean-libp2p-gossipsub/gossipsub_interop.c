@@ -1076,8 +1076,14 @@ static void gossipsub_interop_autopsy_dump_quic(
                     snapshot.remote_peer_id_len);
                 (void)fprintf(
                     stderr,
-                    "\" closed=%u cwnd=%llu bytes_in_flight=%llu tx_buffered=%llu tx_sent=%llu "
-                    "tx_acked=%llu tx_lost=%llu last_rx_us=%llu last_tx_us=%llu "
+                    "\" closed=%u role=%s hs_done=%u hs_confirmed=%u "
+                    "tx_time_unconfirmed=%u tx_time_pending=%u cwnd=%llu bytes_in_flight=%llu "
+                    "latest_rtt_us=%llu "
+                    "smoothed_rtt_us=%llu pto_us=%llu pkt_sent=%llu pkt_recv=%llu "
+                    "pkt_lost=%llu pkt_discarded=%llu bytes_sent=%llu bytes_recv=%llu "
+                    "ping_recv=%llu tx_buffered=%llu tx_sent=%llu tx_acked=%llu "
+                    "tx_lost=%llu max_tx_dgram=%llu max_tx_stream=%llu path_mtu=%zu "
+                    "last_rx_us=%llu last_tx_us=%llu "
                     "write_data=%llu write_control=%llu write_zero=%llu write_stream_blocked=%llu "
                     "write_stream_shut_wr=%llu write_stream_not_found=%llu write_other_error=%llu "
                     "ack_ranges=%llu ack_reclaims=%llu ack_gap_reclaims=%llu "
@@ -1085,12 +1091,30 @@ static void gossipsub_interop_autopsy_dump_quic(
                     "last_ack_gap_len=%llu last_ack_gap_base=%llu last_ack_gap_sent_end=%llu "
                     "idle_deadline_us=%llu streams=\"",
                     (unsigned int)snapshot.closed,
+                    (snapshot.is_server != 0U) ? "server" : "client",
+                    (unsigned int)snapshot.handshake_completed,
+                    (unsigned int)snapshot.handshake_confirmed,
+                    (unsigned int)snapshot.tx_time_update_unconfirmed,
+                    (unsigned int)snapshot.tx_time_update_pending,
                     (unsigned long long)snapshot.cwnd,
                     (unsigned long long)snapshot.bytes_in_flight,
+                    (unsigned long long)snapshot.latest_rtt_us,
+                    (unsigned long long)snapshot.smoothed_rtt_us,
+                    (unsigned long long)snapshot.pto_us,
+                    (unsigned long long)snapshot.pkt_sent,
+                    (unsigned long long)snapshot.pkt_recv,
+                    (unsigned long long)snapshot.pkt_lost,
+                    (unsigned long long)snapshot.pkt_discarded,
+                    (unsigned long long)snapshot.bytes_sent,
+                    (unsigned long long)snapshot.bytes_recv,
+                    (unsigned long long)snapshot.ping_recv,
                     (unsigned long long)snapshot.tx_buffered,
                     (unsigned long long)snapshot.tx_sent,
                     (unsigned long long)snapshot.tx_acked,
                     (unsigned long long)snapshot.tx_lost,
+                    (unsigned long long)snapshot.max_tx_datagram_bytes,
+                    (unsigned long long)snapshot.max_tx_stream_data_bytes,
+                    snapshot.path_max_tx_udp_payload_size,
                     (unsigned long long)snapshot.last_rx_us,
                     (unsigned long long)snapshot.last_tx_us,
                     (unsigned long long)snapshot.write_data_packets,
@@ -1124,12 +1148,13 @@ static void gossipsub_interop_autopsy_dump_quic(
                     }
                     (void)fprintf(
                         stderr,
-                        "%lld:buf=%zu,pending=%zu,base=%llu,credit=%llu",
+                        "%lld:buf=%zu,pending=%zu,base=%llu,credit=%llu,loss=%zu",
                         (long long)stream->stream_id,
                         stream->tx_buffered,
                         stream->tx_sent_pending_ack,
                         (unsigned long long)stream->tx_base_offset,
-                        (unsigned long long)stream->flow_credit);
+                        (unsigned long long)stream->flow_credit,
+                        stream->loss_count);
                 }
                 (void)fprintf(stderr, "\"\n");
             }

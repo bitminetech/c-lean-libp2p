@@ -695,6 +695,10 @@ static int quic_backend_handshake_completed_cb(ngtcp2_conn *ngconn, void *user_d
     else
     {
         quic_backend_debug_text(conn, "ngtcp2 handshake completed");
+        if (conn->role == LIBP2P_QUIC_ROLE_SERVER)
+        {
+            conn->autopsy_handshake_confirmed = 1U;
+        }
         conn->state = LIBP2P_QUIC_CONN_ESTABLISHED;
         if (quic_backend_event_push(
                 conn->endpoint,
@@ -706,6 +710,25 @@ static int quic_backend_handshake_completed_cb(ngtcp2_conn *ngconn, void *user_d
         {
             result = NGTCP2_ERR_CALLBACK_FAILURE;
         }
+    }
+
+    return result;
+}
+
+static int quic_backend_handshake_confirmed_cb(ngtcp2_conn *ngconn, void *user_data)
+{
+    libp2p_quic_conn_t *conn = quic_backend_conn_from_memory(user_data);
+    int result = 0;
+
+    (void)ngconn;
+    if (conn == NULL)
+    {
+        result = NGTCP2_ERR_CALLBACK_FAILURE;
+    }
+    else
+    {
+        quic_backend_debug_text(conn, "ngtcp2 handshake confirmed");
+        conn->autopsy_handshake_confirmed = 1U;
     }
 
     return result;
@@ -727,6 +750,7 @@ QUIC_BACKEND_INTERNAL const ngtcp2_callbacks quic_backend_callbacks = {
     .recv_client_initial = ngtcp2_crypto_recv_client_initial_cb,
     .recv_crypto_data = ngtcp2_crypto_recv_crypto_data_cb,
     .handshake_completed = quic_backend_handshake_completed_cb,
+    .handshake_confirmed = quic_backend_handshake_confirmed_cb,
     .encrypt = ngtcp2_crypto_encrypt_cb,
     .decrypt = ngtcp2_crypto_decrypt_cb,
     .hp_mask = ngtcp2_crypto_hp_mask_cb,
