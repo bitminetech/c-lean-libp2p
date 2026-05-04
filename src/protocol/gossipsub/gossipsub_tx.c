@@ -361,9 +361,10 @@ static void gossipsub_tx_append_peer_item(
 {
     gossipsub_peer_state_t *peer = &gossipsub->peers[peer_index];
     gossipsub_tx_item_t *item = &gossipsub->tx_queue[item_index];
+    const uint8_t was_empty = (peer->tx_queue_depth == 0U) ? 1U : 0U;
 
     item->priority = (priority != 0U) ? 1U : 0U;
-    if (peer->tx_queue_depth == 0U)
+    if (was_empty != 0U)
     {
         peer->tx_head = item_index;
         peer->tx_tail = item_index;
@@ -397,7 +398,10 @@ static void gossipsub_tx_append_peer_item(
     {
         peer->tx_priority_depth++;
     }
-    gossipsub_tx_set_peer_ready(gossipsub, peer_index, 1U);
+    if (was_empty != 0U)
+    {
+        gossipsub_tx_set_peer_ready(gossipsub, peer_index, 1U);
+    }
 }
 
 static libp2p_gossipsub_err_t gossipsub_tx_alloc_with_priority(
@@ -1131,7 +1135,7 @@ libp2p_gossipsub_err_t gossipsub_flush_peer(
             }
             else if (bytes_written != 0U)
             {
-                gossipsub_tx_set_peer_ready(gossipsub, peer_index, 1U);
+                gossipsub_tx_set_peer_ready(gossipsub, peer_index, 0U);
             }
             else
             {
