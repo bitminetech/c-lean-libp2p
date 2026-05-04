@@ -208,7 +208,6 @@ libp2p_gossipsub_err_t libp2p_gossipsub_drive(
     {
         size_t rpcs_sent = 0U;
         const size_t stale_dropped = gossipsub_tx_drop_stale(gossipsub, now_us);
-        size_t partial_aborted = 0U;
 
         gossipsub->last_drive_us = now_us;
         if (out_result != NULL)
@@ -228,16 +227,7 @@ libp2p_gossipsub_err_t libp2p_gossipsub_drive(
         {
             made_progress = 1U;
         }
-        result = gossipsub_tx_abort_expired_partial(gossipsub, host, now_us, &partial_aborted);
-        if ((result == LIBP2P_GOSSIPSUB_OK) && (partial_aborted != 0U))
-        {
-            made_progress = 1U;
-        }
-        if (result == LIBP2P_GOSSIPSUB_OK)
-        {
-            result =
-                gossipsub_flush_ready_peers(gossipsub, host, now_us, &made_progress, &rpcs_sent);
-        }
+        result = gossipsub_flush_ready_peers(gossipsub, host, now_us, &made_progress, &rpcs_sent);
         if (out_result != NULL)
         {
             out_result->made_progress = made_progress;

@@ -547,10 +547,7 @@ libp2p_gossipsub_err_t gossipsub_mesh_add(
     libp2p_gossipsub_t *gossipsub,
     size_t peer_index,
     size_t topic_index);
-void gossipsub_mesh_remove(
-    libp2p_gossipsub_t *gossipsub,
-    size_t peer_index,
-    size_t topic_index);
+void gossipsub_mesh_remove(libp2p_gossipsub_t *gossipsub, size_t peer_index, size_t topic_index);
 void gossipsub_mesh_remove_peer(libp2p_gossipsub_t *gossipsub, size_t peer_index);
 void gossipsub_mesh_remove_topic(libp2p_gossipsub_t *gossipsub, size_t topic_index);
 libp2p_gossipsub_err_t gossipsub_mesh_fill_topic(
@@ -618,11 +615,6 @@ libp2p_gossipsub_err_t gossipsub_tx_alloc(
     size_t *out_index);
 void gossipsub_tx_remove(libp2p_gossipsub_t *gossipsub, size_t index);
 uint64_t gossipsub_tx_next_deadline(const libp2p_gossipsub_t *gossipsub, uint64_t current_deadline);
-libp2p_gossipsub_err_t gossipsub_tx_abort_expired_partial(
-    libp2p_gossipsub_t *gossipsub,
-    libp2p_host_t *host,
-    uint64_t now_us,
-    size_t *aborted);
 size_t gossipsub_tx_drop_stale(libp2p_gossipsub_t *gossipsub, uint64_t now_us);
 void gossipsub_tx_mark_peer_ready(
     libp2p_gossipsub_t *gossipsub,

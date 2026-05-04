@@ -1127,7 +1127,7 @@ static void gossipsub_test_stale_follower_message_drops_behind_partial_head(void
     free(storage);
 }
 
-static void gossipsub_test_expired_partial_head_resets_stream(void)
+static void gossipsub_test_expired_partial_head_keeps_flushing(void)
 {
     gossipsub_test_runtime_t runtime = {35U};
     gossipsub_test_write_stream_t write0 = {0U, 0U, 0U, 0U, 0U};
@@ -1162,19 +1162,70 @@ static void gossipsub_test_expired_partial_head_resets_stream(void)
     assert(gossipsub_tx_alloc(gossipsub, 0U, 8U, 0U, &out, &follower) == LIBP2P_GOSSIPSUB_OK);
     assert(out != NULL);
     assert(libp2p_gossipsub_next_deadline(gossipsub, &deadline) == LIBP2P_GOSSIPSUB_OK);
-    assert(deadline == 110U);
+    assert(deadline == 1100U);
 
     assert(libp2p_gossipsub_drive(gossipsub, &host, 111U, &drive_result) == LIBP2P_GOSSIPSUB_OK);
     assert(drive_result.made_progress != 0U);
-    assert(g_gossipsub_test_reset_calls == 1U);
-    assert(write0.calls == 0U);
-    assert(gossipsub->peers[0].stream == NULL);
-    assert(gossipsub->peers[0].tx_queue_depth == 1U);
-    assert(gossipsub->peers[0].tx_head == follower);
+    assert(g_gossipsub_test_reset_calls == 0U);
+    assert(write0.calls == 2U);
+    assert(write0.bytes == 20U);
+    assert(gossipsub->peers[0].stream == &stream0);
+    assert(gossipsub->peers[0].tx_queue_depth == 0U);
     assert(gossipsub->tx_queue[head].used == 0U);
-    assert(gossipsub->tx_queue[follower].used != 0U);
+    assert(gossipsub->tx_queue[follower].used == 0U);
     assert(gossipsub->peers[0].tx_ready == 0U);
     assert(gossipsub->peers[0].tx_transport_busy == 0U);
+
+    libp2p_gossipsub_deinit(gossipsub);
+    free(storage);
+}
+
+static void gossipsub_test_unsent_follower_expires_after_partial_head_flush(void)
+{
+    gossipsub_test_runtime_t runtime = {36U};
+    gossipsub_test_write_stream_t write0 = {0U, 0U, 0U, 0U, 12U};
+    libp2p_gossipsub_config_t config;
+    libp2p_gossipsub_t *gossipsub = NULL;
+    libp2p_host_t host;
+    libp2p_host_transport_vtable_t transport;
+    libp2p_host_stream_t stream0;
+    uint8_t *out = NULL;
+    uint8_t made_progress = 0U;
+    void *storage = NULL;
+    size_t storage_len = 0U;
+    size_t head = GOSSIPSUB_TX_NO_ITEM;
+    size_t follower = GOSSIPSUB_TX_NO_ITEM;
+    size_t rpcs_sent = 0U;
+
+    g_gossipsub_test_reset_calls = 0U;
+    gossipsub_test_config_small(&config, &runtime);
+    assert(libp2p_gossipsub_storage_size(&config, &storage_len) == LIBP2P_GOSSIPSUB_OK);
+    storage = calloc(1U, storage_len);
+    assert(storage != NULL);
+    assert(libp2p_gossipsub_init(storage, storage_len, &config, &gossipsub) == LIBP2P_GOSSIPSUB_OK);
+    gossipsub_test_fake_host_stream(&host, &transport, &stream0, &write0);
+    gossipsub_test_attach_peer(gossipsub, 0U, &stream0);
+
+    assert(gossipsub_tx_alloc(gossipsub, 0U, 16U, 0U, &out, &head) == LIBP2P_GOSSIPSUB_OK);
+    assert(out != NULL);
+    assert(gossipsub_tx_alloc(gossipsub, 0U, 8U, 10U, &out, &follower) == LIBP2P_GOSSIPSUB_OK);
+    assert(out != NULL);
+
+    assert(
+        gossipsub_flush_ready_peers(gossipsub, &host, 1U, &made_progress, &rpcs_sent) ==
+        LIBP2P_GOSSIPSUB_OK);
+    assert(made_progress != 0U);
+    assert(write0.bytes == 12U);
+    assert(gossipsub->tx_queue[head].pos == 12U);
+    assert(gossipsub->peers[0].tx_queue_depth == 2U);
+
+    assert(gossipsub_tx_drop_stale(gossipsub, 11U) == 1U);
+    assert(gossipsub->peers[0].tx_queue_depth == 1U);
+    assert(gossipsub->peers[0].tx_head == head);
+    assert(gossipsub->peers[0].tx_tail == head);
+    assert(gossipsub->tx_queue[head].used != 0U);
+    assert(gossipsub->tx_queue[follower].used == 0U);
+    assert(g_gossipsub_test_reset_calls == 0U);
 
     libp2p_gossipsub_deinit(gossipsub);
     free(storage);
@@ -1565,7 +1616,8 @@ int main(void)
     gossipsub_test_queued_peer_stays_ready_after_slice_yield();
     gossipsub_test_stale_head_message_drops_without_write();
     gossipsub_test_stale_follower_message_drops_behind_partial_head();
-    gossipsub_test_expired_partial_head_resets_stream();
+    gossipsub_test_expired_partial_head_keeps_flushing();
+    gossipsub_test_unsent_follower_expires_after_partial_head_flush();
     gossipsub_test_remote_subscriptions_fill_mesh();
     gossipsub_test_forward_uses_mesh_not_all_subscribers();
     gossipsub_test_heartbeat_gossip_ihave_to_non_mesh_peers();
