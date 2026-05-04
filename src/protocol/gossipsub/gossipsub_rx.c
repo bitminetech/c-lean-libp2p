@@ -3,6 +3,32 @@
 
 #include "gossipsub_internal.h"
 
+static uint64_t gossipsub_rx_prune_backoff_us(
+    const libp2p_gossipsub_t *gossipsub,
+    uint64_t backoff_seconds)
+{
+    static const uint64_t us_per_second = 1000000ULL;
+    uint64_t result = 0U;
+
+    if (gossipsub != NULL)
+    {
+        result = gossipsub->config.mesh.prune_backoff_us;
+        if (backoff_seconds != 0U)
+        {
+            if (backoff_seconds > (UINT64_MAX / us_per_second))
+            {
+                result = UINT64_MAX;
+            }
+            else
+            {
+                result = backoff_seconds * us_per_second;
+            }
+        }
+    }
+
+    return result;
+}
+
 libp2p_gossipsub_err_t gossipsub_process_subscription(
     libp2p_gossipsub_t *gossipsub,
     size_t peer_index,
@@ -44,6 +70,20 @@ libp2p_gossipsub_err_t gossipsub_process_subscription(
             event.topic.len = topic->topic_len;
             result = gossipsub_event_push(gossipsub, &event);
         }
+    }
+    if ((result == LIBP2P_GOSSIPSUB_OK) && (topic != NULL) && (sub->subscribe != 0U) &&
+        (topic->local_subscribed != 0U) &&
+        (gossipsub_mesh_count_topic(gossipsub, topic_index) < gossipsub->config.mesh.d_low))
+    {
+        result = gossipsub_mesh_fill_topic(gossipsub, topic_index, gossipsub->config.mesh.d, 1U);
+    }
+    else if ((result == LIBP2P_GOSSIPSUB_OK) && (sub != NULL) && (sub->subscribe == 0U))
+    {
+        gossipsub_mesh_remove(gossipsub, peer_index, topic_index);
+    }
+    else
+    {
+        /* No mesh change is needed for this subscription update. */
     }
 
     return result;
@@ -98,6 +138,12 @@ libp2p_gossipsub_err_t gossipsub_process_message(
         else
         {
             gossipsub_seen_add(gossipsub, message_id, message_id_len, now_us);
+            gossipsub_autopsy_observe_message(
+                message_id,
+                message_id_len,
+                gossipsub->peers[peer_index].peer_id,
+                gossipsub->peers[peer_index].peer_id_len,
+                now_us);
         }
     }
     if (result == LIBP2P_GOSSIPSUB_OK)
@@ -245,6 +291,89 @@ libp2p_gossipsub_err_t gossipsub_process_rpc(
                 peer_index,
                 &rpc->control.idontwant[index],
                 now_us);
+        }
+        for (size_t index = 0U;
+             (result == LIBP2P_GOSSIPSUB_OK) && (index < rpc->control.graft_count);
+             index++)
+        {
+            size_t topic_index = 0U;
+            const gossipsub_topic_state_t *topic = gossipsub_find_or_add_topic(
+                gossipsub,
+                rpc->control.graft[index].topic,
+                &topic_index);
+
+            if (topic == NULL)
+            {
+                result = LIBP2P_GOSSIPSUB_ERR_LIMIT;
+            }
+            else if (topic->local_subscribed == 0U)
+            {
+                result = gossipsub_enqueue_prune(gossipsub, peer_index, topic);
+                if (result == LIBP2P_GOSSIPSUB_OK)
+                {
+                    result = gossipsub_backoff_add(
+                        gossipsub,
+                        peer_index,
+                        topic_index,
+                        gossipsub->config.mesh.prune_backoff_us,
+                        now_us);
+                }
+            }
+            else if (gossipsub_backoff_active(gossipsub, peer_index, topic_index, now_us) != 0)
+            {
+                result = gossipsub_enqueue_prune(gossipsub, peer_index, topic);
+                if (result == LIBP2P_GOSSIPSUB_OK)
+                {
+                    result = gossipsub_backoff_add(
+                        gossipsub,
+                        peer_index,
+                        topic_index,
+                        gossipsub->config.mesh.prune_backoff_us,
+                        now_us);
+                }
+            }
+            else if (
+                (gossipsub_mesh_contains(gossipsub, peer_index, topic_index) != 0) ||
+                (gossipsub_mesh_count_topic(gossipsub, topic_index) < gossipsub->config.mesh.d_high))
+            {
+                result = gossipsub_mesh_add(gossipsub, peer_index, topic_index);
+            }
+            else
+            {
+                result = gossipsub_enqueue_prune(gossipsub, peer_index, topic);
+                if (result == LIBP2P_GOSSIPSUB_OK)
+                {
+                    result = gossipsub_backoff_add(
+                        gossipsub,
+                        peer_index,
+                        topic_index,
+                        gossipsub->config.mesh.prune_backoff_us,
+                        now_us);
+                }
+            }
+        }
+        for (size_t index = 0U;
+             (result == LIBP2P_GOSSIPSUB_OK) && (index < rpc->control.prune_count);
+             index++)
+        {
+            size_t topic_index = 0U;
+
+            if (gossipsub_find_topic(
+                    gossipsub,
+                    rpc->control.prune[index].topic.data,
+                    rpc->control.prune[index].topic.len,
+                    &topic_index) != NULL)
+            {
+                gossipsub_mesh_remove(gossipsub, peer_index, topic_index);
+                result = gossipsub_backoff_add(
+                    gossipsub,
+                    peer_index,
+                    topic_index,
+                    gossipsub_rx_prune_backoff_us(
+                        gossipsub,
+                        rpc->control.prune[index].backoff_seconds),
+                    now_us);
+            }
         }
         for (size_t index = 0U;
              (result == LIBP2P_GOSSIPSUB_OK) && (index < rpc->control.iwant_count);
@@ -420,6 +549,10 @@ libp2p_gossipsub_err_t gossipsub_stream_read(
     if ((gossipsub == NULL) || (host == NULL) || (stream_state == NULL))
     {
         result = LIBP2P_GOSSIPSUB_ERR_INVALID_ARG;
+    }
+    else
+    {
+        gossipsub->last_drive_us = now_us;
     }
     while ((result == LIBP2P_GOSSIPSUB_OK) && (keep_reading != 0U))
     {

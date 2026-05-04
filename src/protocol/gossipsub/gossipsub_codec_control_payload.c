@@ -300,7 +300,8 @@ libp2p_gossipsub_err_t gossipsub_prune_decode(
                 libp2p_gossipsub_bytes_t peer_info_bytes;
 
                 (void)memset(&peer_info_bytes, 0, sizeof(peer_info_bytes));
-                if (cursor->peer_info_next >= storage->peer_info_capacity)
+                if ((cursor->peer_info_next >= storage->peer_info_capacity) ||
+                    (storage->peer_infos == NULL))
                 {
                     result = LIBP2P_GOSSIPSUB_ERR_LIMIT;
                 }
@@ -333,8 +334,11 @@ libp2p_gossipsub_err_t gossipsub_prune_decode(
     }
     if (result == LIBP2P_GOSSIPSUB_OK)
     {
-        out->peers = &storage->peer_infos[start];
         out->peer_count = cursor->peer_info_next - start;
+        if (out->peer_count != 0U)
+        {
+            out->peers = &storage->peer_infos[start];
+        }
         if ((out->topic.data == NULL) || (out->topic.len == 0U) ||
             (out->topic.len > limits->max_topic_bytes) ||
             (out->peer_count > limits->max_px_peers_per_rpc))

@@ -269,6 +269,7 @@ if(LIBP2P_BUILD_GOSSIPSUB_INTEROP_BINARY)
         c_lean_libp2p_gossipsub_interop
         PRIVATE
             "${PROJECT_SOURCE_DIR}/interop/c-lean-libp2p-gossipsub"
+            "${PROJECT_SOURCE_DIR}/src"
     )
     c_lean_libp2p_set_output_directories(c_lean_libp2p_gossipsub_interop)
 endif()

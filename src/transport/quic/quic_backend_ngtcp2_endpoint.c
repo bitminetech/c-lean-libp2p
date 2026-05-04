@@ -348,6 +348,7 @@ static libp2p_quic_err_t quic_backend_endpoint_recv_datagram(
 
     if ((result == LIBP2P_QUIC_OK) && (conn != NULL))
     {
+        conn->autopsy_last_rx_us = now_us;
         quic_backend_path_from_addrs(&datagram->local_addr, &datagram->remote_addr, &path);
         (void)memset(&pi, 0, sizeof(pi));
         pi.ecn = quic_backend_ecn_to_ngtcp2(datagram->ecn);
@@ -387,7 +388,17 @@ static libp2p_quic_err_t quic_backend_endpoint_next_datagram(
     libp2p_quic_tx_datagram_t *datagram,
     libp2p_quic_time_us_t now_us)
 {
-    libp2p_quic_err_t result = quic_backend_validate_endpoint(endpoint);
+    libp2p_quic_err_t result = LIBP2P_QUIC_OK;
+
+    if (endpoint == NULL)
+    {
+        result = LIBP2P_QUIC_ERR_INVALID_ARG;
+    }
+    else
+    {
+        endpoint->last_tx_conn = NULL;
+        result = quic_backend_validate_endpoint(endpoint);
+    }
 
     if ((result == LIBP2P_QUIC_OK) && ((datagram == NULL) || (datagram->data == NULL)))
     {
@@ -406,17 +417,74 @@ static libp2p_quic_err_t quic_backend_endpoint_next_datagram(
     if (result == LIBP2P_QUIC_OK)
     {
         result = LIBP2P_QUIC_ERR_WOULD_BLOCK;
-        for (size_t index = 0U;
-             (index < endpoint->connection_count) && (result == LIBP2P_QUIC_ERR_WOULD_BLOCK);
-             index++)
+        if (endpoint->connection_count != 0U)
         {
-            libp2p_quic_conn_t *conn = endpoint->connections[index];
+            size_t start = 0U;
 
-            if ((conn != NULL) && (conn->state != LIBP2P_QUIC_CONN_CLOSED) &&
-                (conn->state != LIBP2P_QUIC_CONN_DRAINED))
+            if (endpoint->next_tx_connection < endpoint->connection_count)
             {
-                result = quic_backend_write_conn_datagram(conn, datagram, now_us);
+                start = endpoint->next_tx_connection;
             }
+
+            for (size_t index = 0U;
+                 (index < endpoint->connection_count) && (result == LIBP2P_QUIC_ERR_WOULD_BLOCK);
+                 index++)
+            {
+                const size_t conn_index = (start + index) % endpoint->connection_count;
+                libp2p_quic_conn_t *conn = endpoint->connections[conn_index];
+
+                if ((conn != NULL) && (conn->state != LIBP2P_QUIC_CONN_CLOSED) &&
+                    (conn->state != LIBP2P_QUIC_CONN_DRAINED))
+                {
+                    result = quic_backend_write_conn_datagram(conn, datagram, now_us);
+                    if (result == LIBP2P_QUIC_OK)
+                    {
+                        endpoint->last_tx_conn = conn;
+                        endpoint->next_tx_connection =
+                            (conn_index + 1U) % endpoint->connection_count;
+                    }
+                }
+            }
+        }
+    }
+
+    return result;
+}
+
+QUIC_BACKEND_INTERNAL void quic_backend_endpoint_set_defer_tx_time_updates(
+    libp2p_quic_endpoint_t *endpoint,
+    uint8_t enabled)
+{
+    if (endpoint != NULL)
+    {
+        endpoint->defer_tx_time_updates = (enabled != 0U) ? 1U : 0U;
+    }
+}
+
+QUIC_BACKEND_INTERNAL libp2p_quic_conn_t *
+quic_backend_endpoint_last_tx_conn(const libp2p_quic_endpoint_t *endpoint)
+{
+    libp2p_quic_conn_t *conn = NULL;
+
+    if (endpoint != NULL)
+    {
+        conn = endpoint->last_tx_conn;
+    }
+
+    return conn;
+}
+
+QUIC_BACKEND_INTERNAL libp2p_quic_err_t quic_backend_endpoint_flush_tx_time_updates(
+    libp2p_quic_endpoint_t *endpoint,
+    libp2p_quic_time_us_t now_us)
+{
+    libp2p_quic_err_t result = quic_backend_validate_endpoint(endpoint);
+
+    if (result == LIBP2P_QUIC_OK)
+    {
+        for (size_t index = 0U; index < endpoint->connection_count; index++)
+        {
+            quic_backend_conn_flush_tx_time_update(endpoint->connections[index], now_us);
         }
     }
 

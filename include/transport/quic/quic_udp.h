@@ -76,6 +76,18 @@ libp2p_quic_err_t libp2p_quic_udp_socket_listen_addr(
     libp2p_quic_addr_t *out_addr);
 
 /**
+ * Receive one UDP datagram without feeding it into an endpoint.
+ *
+ * buffer is caller-owned storage. A nonblocking socket returns
+ * LIBP2P_QUIC_ERR_WOULD_BLOCK when no datagram is available.
+ */
+libp2p_quic_err_t libp2p_quic_udp_socket_recv_datagram(
+    const libp2p_quic_udp_socket_t *socket,
+    libp2p_quic_rx_datagram_t *datagram,
+    uint8_t *buffer,
+    size_t buffer_len);
+
+/**
  * Receive one UDP datagram and feed it into an endpoint.
  *
  * buffer is caller-owned scratch storage. A nonblocking socket returns
@@ -89,13 +101,23 @@ libp2p_quic_err_t libp2p_quic_udp_socket_recv(
     libp2p_quic_time_us_t now_us);
 
 /**
+ * Send one already-drained endpoint datagram on the UDP socket.
+ *
+ * This helper does not touch endpoint state. It is used by event-loop services
+ * that must retain a generated QUIC datagram if the OS send buffer would block.
+ */
+libp2p_quic_err_t libp2p_quic_udp_socket_send_datagram(
+    const libp2p_quic_udp_socket_t *socket,
+    const libp2p_quic_tx_datagram_t *datagram);
+
+/**
  * Drain one endpoint datagram and send it on the UDP socket.
  *
  * buffer is caller-owned scratch storage. The endpoint decides the remote
  * address for each datagram.
  */
 libp2p_quic_err_t libp2p_quic_udp_socket_send(
-    libp2p_quic_udp_socket_t *socket,
+    const libp2p_quic_udp_socket_t *socket,
     libp2p_quic_endpoint_t *endpoint,
     uint8_t *buffer,
     size_t buffer_len,

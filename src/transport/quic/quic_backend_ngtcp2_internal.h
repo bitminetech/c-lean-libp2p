@@ -39,8 +39,16 @@
 #define QUIC_BACKEND_EXTRA_EVENTS           16U
 #define QUIC_BACKEND_ACTIVE_CID_LIMIT       8U
 #define QUIC_BACKEND_STREAM_SEND_MULTIPLIER 2U
+#define QUIC_BACKEND_STREAM_ACK_RANGE_CAP   32U
 
+typedef struct quic_backend_ack_range quic_backend_ack_range_t;
 typedef struct quic_backend_stream_vec quic_backend_stream_vec_t;
+
+struct quic_backend_ack_range
+{
+    uint64_t start;
+    uint64_t end;
+};
 
 struct libp2p_quic_stream
 {
@@ -64,6 +72,10 @@ struct libp2p_quic_stream
     size_t tx_len;
     size_t tx_sent_len;
     size_t tx_cap;
+    uint64_t tx_base_offset;
+    quic_backend_ack_range_t tx_ack_ranges[QUIC_BACKEND_STREAM_ACK_RANGE_CAP];
+    size_t tx_ack_range_count;
+    uint8_t write_blocked;
 };
 
 struct quic_backend_stream_vec
@@ -92,10 +104,36 @@ struct libp2p_quic_conn
     ngtcp2_cid cids[QUIC_BACKEND_MAX_CONN_IDS_PER_CONN];
     size_t cid_count;
     quic_backend_stream_vec_t streams;
+    size_t next_tx_stream;
     uint8_t close_requested;
     uint8_t close_sent;
     ngtcp2_ccerr close_error;
     libp2p_quic_err_t callback_error;
+    uint8_t tx_time_update_unconfirmed;
+    uint8_t tx_time_update_pending;
+    uint8_t autopsy_handshake_confirmed;
+    uint64_t autopsy_tx_sent_bytes;
+    uint64_t autopsy_tx_acked_bytes;
+    uint64_t autopsy_max_tx_datagram_bytes;
+    uint64_t autopsy_max_tx_stream_data_bytes;
+    uint64_t autopsy_write_data_packets;
+    uint64_t autopsy_write_control_packets;
+    uint64_t autopsy_write_zero_count;
+    uint64_t autopsy_write_stream_blocked_count;
+    uint64_t autopsy_write_stream_shut_wr_count;
+    uint64_t autopsy_write_stream_not_found_count;
+    uint64_t autopsy_write_other_error_count;
+    uint64_t autopsy_ack_range_count;
+    uint64_t autopsy_ack_reclaim_count;
+    uint64_t autopsy_ack_gap_reclaim_count;
+    uint64_t autopsy_ack_gap_reclaim_bytes;
+    int64_t autopsy_last_ack_gap_stream_id;
+    uint64_t autopsy_last_ack_gap_offset;
+    uint64_t autopsy_last_ack_gap_len;
+    uint64_t autopsy_last_ack_gap_base;
+    uint64_t autopsy_last_ack_gap_sent_end;
+    uint64_t autopsy_last_rx_us;
+    uint64_t autopsy_last_tx_us;
 };
 
 struct libp2p_quic_endpoint
@@ -115,10 +153,13 @@ struct libp2p_quic_endpoint
     size_t connection_count;
     size_t incoming_connection_count;
     size_t outgoing_connection_count;
+    size_t next_tx_connection;
     libp2p_quic_event_t *events;
     size_t event_cap;
     size_t event_head;
     size_t event_len;
+    uint8_t defer_tx_time_updates;
+    libp2p_quic_conn_t *last_tx_conn;
 };
 
 extern QUIC_BACKEND_INTERNAL const ngtcp2_callbacks quic_backend_callbacks;
@@ -220,6 +261,13 @@ QUIC_BACKEND_INTERNAL void quic_backend_debug_text(
     const libp2p_quic_conn_t *conn,
     const char *message);
 
+QUIC_BACKEND_INTERNAL void quic_backend_debug_stream_state(
+    const libp2p_quic_stream_t *stream,
+    const char *tag,
+    uint64_t value0,
+    uint64_t value1,
+    uint32_t reason);
+
 QUIC_BACKEND_INTERNAL libp2p_quic_err_t quic_backend_ngtcp2_err(int rv);
 
 QUIC_BACKEND_INTERNAL SSL_CTX *quic_backend_ssl_ctx_new(
@@ -266,8 +314,18 @@ QUIC_BACKEND_INTERNAL libp2p_quic_err_t quic_backend_stream_write(
 
 QUIC_BACKEND_INTERNAL libp2p_quic_err_t quic_backend_stream_finish(libp2p_quic_stream_t *stream);
 
+QUIC_BACKEND_INTERNAL void quic_backend_stream_clear_ack_ranges(libp2p_quic_stream_t *stream);
+
+QUIC_BACKEND_INTERNAL int quic_backend_stream_record_acked_range(
+    libp2p_quic_stream_t *stream,
+    uint64_t offset,
+    uint64_t datalen,
+    uint8_t *out_sent_window_acked);
+
 QUIC_BACKEND_INTERNAL libp2p_quic_err_t
 quic_backend_stream_reset(libp2p_quic_stream_t *stream, uint64_t app_error_code);
+
+QUIC_BACKEND_INTERNAL void quic_backend_stream_discard_tx(libp2p_quic_stream_t *stream);
 
 QUIC_BACKEND_INTERNAL libp2p_quic_err_t
 quic_backend_stream_stop_sending(libp2p_quic_stream_t *stream, uint64_t app_error_code);
@@ -298,6 +356,25 @@ quic_backend_handle_conn_error(libp2p_quic_conn_t *conn, int rv);
 QUIC_BACKEND_INTERNAL libp2p_quic_err_t quic_backend_write_conn_datagram(
     libp2p_quic_conn_t *conn,
     libp2p_quic_tx_datagram_t *datagram,
+    libp2p_quic_time_us_t now_us);
+
+QUIC_BACKEND_INTERNAL void
+quic_backend_conn_confirm_tx_datagram(libp2p_quic_conn_t *conn, libp2p_quic_time_us_t now_us);
+
+QUIC_BACKEND_INTERNAL void quic_backend_conn_discard_tx_datagram(libp2p_quic_conn_t *conn);
+
+QUIC_BACKEND_INTERNAL void
+quic_backend_conn_flush_tx_time_update(libp2p_quic_conn_t *conn, libp2p_quic_time_us_t now_us);
+
+QUIC_BACKEND_INTERNAL void quic_backend_endpoint_set_defer_tx_time_updates(
+    libp2p_quic_endpoint_t *endpoint,
+    uint8_t enabled);
+
+QUIC_BACKEND_INTERNAL libp2p_quic_conn_t *
+quic_backend_endpoint_last_tx_conn(const libp2p_quic_endpoint_t *endpoint);
+
+QUIC_BACKEND_INTERNAL libp2p_quic_err_t quic_backend_endpoint_flush_tx_time_updates(
+    libp2p_quic_endpoint_t *endpoint,
     libp2p_quic_time_us_t now_us);
 
 QUIC_BACKEND_INTERNAL libp2p_quic_err_t

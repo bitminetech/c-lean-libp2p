@@ -17,6 +17,8 @@
 
 #include "quic_backend_ngtcp2_internal.h"
 
+#define QUIC_BACKEND_TRACE_MESSAGE_BYTES 192U
+
 QUIC_BACKEND_INTERNAL libp2p_quic_err_t
 quic_backend_validate_endpoint(const libp2p_quic_endpoint_t *endpoint)
 {
@@ -351,6 +353,116 @@ QUIC_BACKEND_INTERNAL void quic_backend_debug_text(
     if (message != NULL)
     {
         quic_backend_debug_bytes(conn, LIBP2P_QUIC_DEBUG_EVENT_TEXT, message, strlen(message));
+    }
+}
+
+static size_t quic_backend_util_debug_append_text(
+    char *out,
+    size_t out_len,
+    size_t pos,
+    const char *text)
+{
+    size_t next = pos;
+
+    if ((out != NULL) && (text != NULL))
+    {
+        size_t text_index = 0U;
+
+        while ((text[text_index] != '\0') && (next < out_len))
+        {
+            out[next] = text[text_index];
+            next++;
+            text_index++;
+        }
+    }
+
+    return next;
+}
+
+static size_t quic_backend_debug_append_u64(char *out, size_t out_len, size_t pos, uint64_t value)
+{
+    char digits[20];
+    size_t digit_count = 0U;
+    size_t next = pos;
+    uint64_t remaining = value;
+
+    do
+    {
+        digits[digit_count] = "0123456789"[(size_t)(remaining % 10U)];
+        digit_count++;
+        remaining /= 10U;
+    } while ((remaining != 0U) && (digit_count < sizeof(digits)));
+
+    while ((digit_count != 0U) && (next < out_len))
+    {
+        digit_count--;
+        out[next] = digits[digit_count];
+        next++;
+    }
+
+    return next;
+}
+
+QUIC_BACKEND_INTERNAL void quic_backend_debug_stream_state(
+    const libp2p_quic_stream_t *stream,
+    const char *tag,
+    uint64_t value0,
+    uint64_t value1,
+    uint32_t reason)
+{
+    if ((stream != NULL) && (stream->magic == QUIC_BACKEND_STREAM_MAGIC) &&
+        (stream->conn != NULL) && (stream->conn->endpoint != NULL) && (tag != NULL))
+    {
+        char message[QUIC_BACKEND_TRACE_MESSAGE_BYTES];
+        size_t pos = 0U;
+
+        pos = quic_backend_util_debug_append_text(message, sizeof(message), pos, tag);
+        pos = quic_backend_util_debug_append_text(message, sizeof(message), pos, " id=");
+        pos = quic_backend_debug_append_u64(
+            message,
+            sizeof(message),
+            pos,
+            (uint64_t)stream->stream_id);
+        pos = quic_backend_util_debug_append_text(message, sizeof(message), pos, " v0=");
+        pos = quic_backend_debug_append_u64(message, sizeof(message), pos, value0);
+        pos = quic_backend_util_debug_append_text(message, sizeof(message), pos, " v1=");
+        pos = quic_backend_debug_append_u64(message, sizeof(message), pos, value1);
+        pos = quic_backend_util_debug_append_text(message, sizeof(message), pos, " reason=");
+        pos = quic_backend_debug_append_u64(message, sizeof(message), pos, (uint64_t)reason);
+        pos = quic_backend_util_debug_append_text(message, sizeof(message), pos, " tx_len=");
+        pos =
+            quic_backend_debug_append_u64(message, sizeof(message), pos, (uint64_t)stream->tx_len);
+        pos = quic_backend_util_debug_append_text(message, sizeof(message), pos, " tx_sent=");
+        pos = quic_backend_debug_append_u64(
+            message,
+            sizeof(message),
+            pos,
+            (uint64_t)stream->tx_sent_len);
+        pos = quic_backend_util_debug_append_text(message, sizeof(message), pos, " tx_cap=");
+        pos =
+            quic_backend_debug_append_u64(message, sizeof(message), pos, (uint64_t)stream->tx_cap);
+        pos = quic_backend_util_debug_append_text(message, sizeof(message), pos, " base=");
+        pos = quic_backend_debug_append_u64(message, sizeof(message), pos, stream->tx_base_offset);
+        pos = quic_backend_util_debug_append_text(message, sizeof(message), pos, " blocked=");
+        pos = quic_backend_debug_append_u64(
+            message,
+            sizeof(message),
+            pos,
+            (uint64_t)stream->write_blocked);
+        pos = quic_backend_util_debug_append_text(message, sizeof(message), pos, " events=");
+        pos = quic_backend_debug_append_u64(
+            message,
+            sizeof(message),
+            pos,
+            (uint64_t)stream->conn->endpoint->event_len);
+        pos = quic_backend_util_debug_append_text(message, sizeof(message), pos, "/");
+        pos = quic_backend_debug_append_u64(
+            message,
+            sizeof(message),
+            pos,
+            (uint64_t)stream->conn->endpoint->event_cap);
+
+        quic_backend_debug_bytes(stream->conn, LIBP2P_QUIC_DEBUG_EVENT_TEXT, message, pos);
     }
 }
 

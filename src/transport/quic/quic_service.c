@@ -8,6 +8,7 @@
 #include <stdint.h>
 #include <string.h>
 
+#include "quic_backend_ngtcp2_internal.h"
 #include "transport/quic/quic_udp.h"
 
 #define QUIC_SERVICE_MAGIC ((uint32_t)0x71535631U)
@@ -61,6 +62,9 @@ struct libp2p_quic_service
     uint8_t *rx_buffer;
     uint8_t *tx_buffer;
     size_t datagram_buffer_len;
+    libp2p_quic_tx_datagram_t pending_tx_datagram;
+    libp2p_quic_conn_t *pending_tx_conn;
+    uint8_t has_pending_tx_datagram;
     uint8_t tx_pending;
     uint8_t closed;
 };
@@ -779,6 +783,49 @@ static libp2p_quic_err_t quic_service_drive_rx(
     return result_code;
 }
 
+static void quic_service_clear_pending_tx_datagram(libp2p_quic_service_t *service)
+{
+    if (service != NULL)
+    {
+        service->has_pending_tx_datagram = 0U;
+        service->pending_tx_conn = NULL;
+        (void)memset(&service->pending_tx_datagram, 0, sizeof(service->pending_tx_datagram));
+    }
+}
+
+static libp2p_quic_err_t quic_service_prepare_tx_datagram(
+    libp2p_quic_service_t *service,
+    libp2p_quic_time_us_t now_us)
+{
+    libp2p_quic_err_t result = LIBP2P_QUIC_OK;
+
+    if (service == NULL)
+    {
+        result = LIBP2P_QUIC_ERR_INVALID_ARG;
+    }
+    else if (service->has_pending_tx_datagram != 0U)
+    {
+        result = LIBP2P_QUIC_OK;
+    }
+    else
+    {
+        (void)memset(&service->pending_tx_datagram, 0, sizeof(service->pending_tx_datagram));
+        service->pending_tx_datagram.data = service->tx_buffer;
+        service->pending_tx_datagram.data_cap = service->datagram_buffer_len;
+        result = libp2p_quic_endpoint_next_datagram(
+            service->endpoint,
+            &service->pending_tx_datagram,
+            now_us);
+        if (result == LIBP2P_QUIC_OK)
+        {
+            service->pending_tx_conn = quic_backend_endpoint_last_tx_conn(service->endpoint);
+            service->has_pending_tx_datagram = 1U;
+        }
+    }
+
+    return result;
+}
+
 static libp2p_quic_err_t quic_service_drive_tx(
     libp2p_quic_service_t *service,
     libp2p_quic_time_us_t now_us,
@@ -791,25 +838,31 @@ static libp2p_quic_err_t quic_service_drive_tx(
                      (result_code == LIBP2P_QUIC_OK) && (result->tx_drained == 0U);
          index++)
     {
-        libp2p_quic_err_t err = libp2p_quic_udp_socket_send(
-            &service->socket,
-            service->endpoint,
-            service->tx_buffer,
-            service->datagram_buffer_len,
-            now_us);
+        libp2p_quic_err_t err = quic_service_prepare_tx_datagram(service, now_us);
         if (err == LIBP2P_QUIC_OK)
         {
+            err = libp2p_quic_udp_socket_send_datagram(
+                &service->socket,
+                &service->pending_tx_datagram);
+        }
+
+        if (err == LIBP2P_QUIC_OK)
+        {
+            quic_backend_conn_confirm_tx_datagram(service->pending_tx_conn, now_us);
+            quic_service_clear_pending_tx_datagram(service);
             result->tx_datagrams++;
             result->made_progress = 1U;
             service->tx_pending = 1U;
         }
         else if (err == LIBP2P_QUIC_ERR_WOULD_BLOCK)
         {
-            service->tx_pending = 0U;
+            service->tx_pending = service->has_pending_tx_datagram;
             result->tx_drained = 1U;
         }
         else
         {
+            quic_backend_conn_discard_tx_datagram(service->pending_tx_conn);
+            quic_service_clear_pending_tx_datagram(service);
             result_code = err;
         }
     }
@@ -817,6 +870,11 @@ static libp2p_quic_err_t quic_service_drive_tx(
     if ((result_code == LIBP2P_QUIC_OK) && (result->tx_drained == 0U))
     {
         service->tx_pending = 1U;
+    }
+
+    if (result_code == LIBP2P_QUIC_OK)
+    {
+        result_code = quic_backend_endpoint_flush_tx_time_updates(service->endpoint, now_us);
     }
 
     return result_code;
@@ -958,6 +1016,10 @@ libp2p_quic_err_t libp2p_quic_service_init(
             service->endpoint_storage_len,
             &service->config.endpoint,
             &service->endpoint);
+        if (result == LIBP2P_QUIC_OK)
+        {
+            quic_backend_endpoint_set_defer_tx_time_updates(service->endpoint, 1U);
+        }
     }
     if (result == LIBP2P_QUIC_OK)
     {
@@ -1085,7 +1147,7 @@ libp2p_quic_err_t libp2p_quic_service_io_interest(
         else
         {
             *out_interest = LIBP2P_QUIC_SERVICE_INTEREST_READ;
-            if (service->tx_pending != 0U)
+            if ((service->tx_pending != 0U) || (service->has_pending_tx_datagram != 0U))
             {
                 *out_interest |= LIBP2P_QUIC_SERVICE_INTEREST_WRITE;
             }
@@ -1178,9 +1240,7 @@ libp2p_quic_err_t libp2p_quic_service_drive(
             }
         }
         if ((result == LIBP2P_QUIC_OK) &&
-            ((((ready & (LIBP2P_QUIC_SERVICE_READY_WRITE | LIBP2P_QUIC_SERVICE_READY_TIMER |
-                         LIBP2P_QUIC_SERVICE_READY_APP)) != 0U) ||
-              (service->tx_pending != 0U))))
+            ((service->tx_pending != 0U) || (service->has_pending_tx_datagram != 0U)))
         {
             result = quic_service_drive_tx(service, now_us, &local_result);
             if (result != LIBP2P_QUIC_OK)
@@ -1229,6 +1289,145 @@ libp2p_quic_err_t libp2p_quic_service_next_event(
             *out_event = service->events[service->event_head];
             service->event_head = (service->event_head + 1U) % service->event_capacity;
             service->event_len--;
+        }
+    }
+
+    return result;
+}
+
+libp2p_quic_err_t libp2p_quic_service_autopsy_conn(
+    const libp2p_quic_service_t *service,
+    size_t conn_index,
+    libp2p_quic_time_us_t now_us,
+    libp2p_quic_service_autopsy_conn_t *out_conn)
+{
+    libp2p_quic_err_t result = quic_service_validate(service);
+
+    if (out_conn != NULL)
+    {
+        (void)memset(out_conn, 0, sizeof(*out_conn));
+    }
+    if (result == LIBP2P_QUIC_OK)
+    {
+        if ((out_conn == NULL) || (conn_index >= service->conn_capacity))
+        {
+            result = LIBP2P_QUIC_ERR_INVALID_ARG;
+        }
+    }
+    if (result == LIBP2P_QUIC_OK)
+    {
+        const quic_service_conn_entry_t *entry = &service->conns[conn_index];
+
+        if (entry->conn == NULL)
+        {
+            result = LIBP2P_QUIC_ERR_WOULD_BLOCK;
+        }
+        else
+        {
+            const libp2p_quic_conn_t *conn = entry->conn;
+            ngtcp2_conn_info info;
+            ngtcp2_tstamp expiry = UINT64_MAX;
+
+            (void)memset(&info, 0, sizeof(info));
+            out_conn->used = 1U;
+            out_conn->closed = entry->closed;
+            out_conn->is_server = (conn->role == LIBP2P_QUIC_ROLE_SERVER) ? 1U : 0U;
+            out_conn->handshake_confirmed = conn->autopsy_handshake_confirmed;
+            out_conn->tx_time_update_unconfirmed = conn->tx_time_update_unconfirmed;
+            out_conn->tx_time_update_pending = conn->tx_time_update_pending;
+            if (conn->has_peer_identity != 0U)
+            {
+                out_conn->remote_peer_id_len = conn->peer_identity.peer_id_len;
+                (void)memcpy(
+                    out_conn->remote_peer_id,
+                    conn->peer_identity.peer_id,
+                    conn->peer_identity.peer_id_len);
+            }
+            if (conn->ngconn != NULL)
+            {
+                ngtcp2_conn_get_conn_info2(conn->ngconn, &info);
+                expiry = ngtcp2_conn_get_expiry2(conn->ngconn);
+                out_conn->handshake_completed =
+                    (ngtcp2_conn_get_handshake_completed2(conn->ngconn) != 0) ? 1U : 0U;
+                out_conn->pto_us =
+                    quic_backend_time_from_ngtcp2(ngtcp2_conn_get_pto2(conn->ngconn));
+                out_conn->path_max_tx_udp_payload_size =
+                    ngtcp2_conn_get_path_max_tx_udp_payload_size2(conn->ngconn);
+            }
+            out_conn->cwnd = info.cwnd;
+            out_conn->bytes_in_flight = info.bytes_in_flight;
+            out_conn->latest_rtt_us = quic_backend_time_from_ngtcp2(info.latest_rtt);
+            out_conn->smoothed_rtt_us = quic_backend_time_from_ngtcp2(info.smoothed_rtt);
+            out_conn->pkt_sent = info.pkt_sent;
+            out_conn->pkt_recv = info.pkt_recv;
+            out_conn->pkt_lost = info.pkt_lost;
+            out_conn->pkt_discarded = info.pkt_discarded;
+            out_conn->bytes_sent = info.bytes_sent;
+            out_conn->bytes_recv = info.bytes_recv;
+            out_conn->ping_recv = info.ping_recv;
+            out_conn->tx_lost = info.bytes_lost;
+            out_conn->tx_sent = conn->autopsy_tx_sent_bytes;
+            out_conn->tx_acked = conn->autopsy_tx_acked_bytes;
+            out_conn->max_tx_datagram_bytes = conn->autopsy_max_tx_datagram_bytes;
+            out_conn->max_tx_stream_data_bytes = conn->autopsy_max_tx_stream_data_bytes;
+            out_conn->write_data_packets = conn->autopsy_write_data_packets;
+            out_conn->write_control_packets = conn->autopsy_write_control_packets;
+            out_conn->write_zero_count = conn->autopsy_write_zero_count;
+            out_conn->write_stream_blocked_count = conn->autopsy_write_stream_blocked_count;
+            out_conn->write_stream_shut_wr_count = conn->autopsy_write_stream_shut_wr_count;
+            out_conn->write_stream_not_found_count = conn->autopsy_write_stream_not_found_count;
+            out_conn->write_other_error_count = conn->autopsy_write_other_error_count;
+            out_conn->ack_range_count = conn->autopsy_ack_range_count;
+            out_conn->ack_reclaim_count = conn->autopsy_ack_reclaim_count;
+            out_conn->ack_gap_reclaim_count = conn->autopsy_ack_gap_reclaim_count;
+            out_conn->ack_gap_reclaim_bytes = conn->autopsy_ack_gap_reclaim_bytes;
+            out_conn->last_ack_gap_stream_id = conn->autopsy_last_ack_gap_stream_id;
+            out_conn->last_ack_gap_offset = conn->autopsy_last_ack_gap_offset;
+            out_conn->last_ack_gap_len = conn->autopsy_last_ack_gap_len;
+            out_conn->last_ack_gap_base = conn->autopsy_last_ack_gap_base;
+            out_conn->last_ack_gap_sent_end = conn->autopsy_last_ack_gap_sent_end;
+            out_conn->last_rx_us = conn->autopsy_last_rx_us;
+            out_conn->last_tx_us = conn->autopsy_last_tx_us;
+            if (expiry != UINT64_MAX)
+            {
+                out_conn->idle_deadline_us =
+                    quic_backend_endpoint_time_from_ngtcp2(conn->endpoint, expiry);
+            }
+            for (size_t stream_index = 0U; stream_index < conn->streams.len; stream_index++)
+            {
+                const libp2p_quic_stream_t *stream = conn->streams.items[stream_index];
+
+                if (stream != NULL)
+                {
+                    const uint64_t stream_buffered = (uint64_t)stream->tx_len;
+                    const uint64_t sent_pending_ack = (uint64_t)stream->tx_sent_len;
+
+                    out_conn->tx_buffered += stream_buffered;
+                    if (out_conn->stream_count < LIBP2P_QUIC_SERVICE_AUTOPSY_MAX_STREAMS)
+                    {
+                        libp2p_quic_service_autopsy_stream_t *out_stream =
+                            &out_conn->streams[out_conn->stream_count];
+
+                        out_stream->used = 1U;
+                        out_stream->stream_id = stream->stream_id;
+                        out_stream->tx_buffered = stream->tx_len;
+                        out_stream->tx_sent_pending_ack = stream->tx_sent_len;
+                        out_stream->tx_base_offset = stream->tx_base_offset;
+                        if ((conn->ngconn != NULL) && (stream->stream_id >= 0))
+                        {
+                            out_stream->flow_credit = ngtcp2_conn_get_max_stream_data_left2(
+                                conn->ngconn,
+                                stream->stream_id);
+                            out_stream->loss_count = ngtcp2_conn_get_stream_loss_count2(
+                                conn->ngconn,
+                                stream->stream_id);
+                        }
+                    }
+                    out_conn->stream_count++;
+                    (void)sent_pending_ack;
+                }
+            }
+            (void)now_us;
         }
     }
 

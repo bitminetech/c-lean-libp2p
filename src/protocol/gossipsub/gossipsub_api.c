@@ -45,6 +45,11 @@ libp2p_gossipsub_err_t libp2p_gossipsub_subscribe(
                 result = gossipsub_enqueue_subscription(gossipsub, peer_index, state, 1U);
             }
         }
+        if (result == LIBP2P_GOSSIPSUB_OK)
+        {
+            result =
+                gossipsub_mesh_fill_topic(gossipsub, topic_index, gossipsub->config.mesh.d, 1U);
+        }
     }
 
     return result;
@@ -72,6 +77,14 @@ libp2p_gossipsub_err_t libp2p_gossipsub_unsubscribe(
     }
     if (result == LIBP2P_GOSSIPSUB_OK)
     {
+        result = gossipsub_mesh_trim_topic(gossipsub, topic_index, 0U, 1U);
+        if (result == LIBP2P_GOSSIPSUB_OK)
+        {
+            gossipsub_mesh_remove_topic(gossipsub, topic_index);
+        }
+    }
+    if (result == LIBP2P_GOSSIPSUB_OK)
+    {
         state->local_subscribed = 0U;
         for (size_t peer_index = 0U;
              (result == LIBP2P_GOSSIPSUB_OK) && (peer_index < gossipsub->config.capacity.max_peers);
@@ -84,7 +97,6 @@ libp2p_gossipsub_err_t libp2p_gossipsub_unsubscribe(
             }
         }
     }
-    (void)topic_index;
 
     return result;
 }
@@ -181,20 +193,57 @@ libp2p_gossipsub_err_t libp2p_gossipsub_publish(
     }
     if (result == LIBP2P_GOSSIPSUB_OK)
     {
+        gossipsub_autopsy_observe_message(message_id, message_id_len, NULL, 0U, gossipsub->next_heartbeat_us);
         gossipsub_seen_add(gossipsub, message_id, message_id_len, gossipsub->next_heartbeat_us);
-        for (size_t peer_index = 0U;
-             (result == LIBP2P_GOSSIPSUB_OK) && (peer_index < gossipsub->config.capacity.max_peers);
+        for (size_t peer_index = 0U; peer_index < gossipsub->config.capacity.max_peers;
              peer_index++)
         {
-            if ((gossipsub->peers[peer_index].used == GOSSIPSUB_PEER_USED) &&
+            if ((result == LIBP2P_GOSSIPSUB_OK) &&
+                (gossipsub->peers[peer_index].used == GOSSIPSUB_PEER_USED) &&
                 (gossipsub->peers[peer_index].stream != NULL))
             {
-                result = gossipsub_enqueue_idontwant_for_entry(gossipsub, peer_index, topic, entry);
-                if ((result == LIBP2P_GOSSIPSUB_OK) &&
-                    ((gossipsub_peer_subscribed(gossipsub, peer_index, topic_index) != 0) ||
-                     (gossipsub->config.mesh.enable_flood_publish != 0U)))
+                const uint8_t peer_subscribed =
+                    (gossipsub_peer_subscribed(gossipsub, peer_index, topic_index) != 0) ? 1U : 0U;
+                const uint8_t flood_peer =
+                    ((gossipsub->config.mesh.enable_flood_publish != 0U) &&
+                     (peer_subscribed != 0U))
+                        ? 1U
+                        : 0U;
+                const uint8_t mesh_peer =
+                    (gossipsub_mesh_contains(gossipsub, peer_index, topic_index) != 0) ? 1U : 0U;
+                const uint8_t explicit_peer =
+                    ((gossipsub->peers[peer_index].explicit_peer != 0U) &&
+                     (peer_subscribed != 0U))
+                        ? 1U
+                        : 0U;
+
+                if ((flood_peer != 0U) || (mesh_peer != 0U) || (explicit_peer != 0U))
                 {
-                    result = gossipsub_enqueue_publish_entry(gossipsub, peer_index, entry);
+                    libp2p_gossipsub_err_t enqueue_result =
+                        gossipsub_enqueue_idontwant_for_entry(gossipsub, peer_index, topic, entry);
+                    if ((enqueue_result == LIBP2P_GOSSIPSUB_OK) ||
+                        (enqueue_result == LIBP2P_GOSSIPSUB_ERR_LIMIT))
+                    {
+                        enqueue_result =
+                            gossipsub_enqueue_local_publish_entry(gossipsub, peer_index, entry);
+                    }
+                    if (enqueue_result == LIBP2P_GOSSIPSUB_ERR_LIMIT)
+                    {
+                        gossipsub_autopsy_record_attempt(
+                            gossipsub,
+                            peer_index,
+                            entry->message_id,
+                            entry->message_id_len,
+                            GOSSIPSUB_AUTOPSY_OUTCOME_DROPPED_QUEUE_FULL);
+                    }
+                    else if (enqueue_result != LIBP2P_GOSSIPSUB_OK)
+                    {
+                        result = enqueue_result;
+                    }
+                    else
+                    {
+                        result = LIBP2P_GOSSIPSUB_OK;
+                    }
                 }
             }
         }

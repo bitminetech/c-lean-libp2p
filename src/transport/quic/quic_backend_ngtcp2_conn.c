@@ -23,7 +23,7 @@
 #define QUIC_BACKEND_KEEP_ALIVE_TIMEOUT_US   ((libp2p_quic_time_us_t)2000000U)
 #define QUIC_BACKEND_KEEP_ALIVE_IDLE_DIVISOR ((libp2p_quic_time_us_t)2U)
 
-static size_t quic_backend_debug_append_text(
+static size_t quic_backend_conn_debug_append_text(
     char *out,
     size_t out_len,
     size_t pos,
@@ -79,14 +79,14 @@ static void quic_backend_debug_conn_error(
     size_t pos = 0U;
     uint32_t magnitude = 0U;
 
-    pos = quic_backend_debug_append_text(
+    pos = quic_backend_conn_debug_append_text(
         message,
         sizeof(message),
         pos,
         "ngtcp2 connection error rv=");
     if (rv < 0)
     {
-        pos = quic_backend_debug_append_text(message, sizeof(message), pos, "-");
+        pos = quic_backend_conn_debug_append_text(message, sizeof(message), pos, "-");
         magnitude = (uint32_t)(0U - (uint32_t)rv);
     }
     else
@@ -94,7 +94,7 @@ static void quic_backend_debug_conn_error(
         magnitude = (uint32_t)rv;
     }
     pos = quic_backend_debug_append_uint(message, sizeof(message), pos, magnitude);
-    pos = quic_backend_debug_append_text(message, sizeof(message), pos, " callback=");
+    pos = quic_backend_conn_debug_append_text(message, sizeof(message), pos, " callback=");
     pos = quic_backend_debug_append_uint(message, sizeof(message), pos, (uint32_t)callback_error);
 
     quic_backend_debug_bytes(conn, LIBP2P_QUIC_DEBUG_EVENT_TEXT, message, pos);
@@ -575,23 +575,117 @@ quic_backend_handle_conn_error(libp2p_quic_conn_t *conn, int rv)
 
 static libp2p_quic_stream_t *quic_backend_conn_next_tx_stream(libp2p_quic_conn_t *conn)
 {
-    size_t index = 0U;
     libp2p_quic_stream_t *result = NULL;
 
-    for (index = 0U; (index < conn->streams.len) && (result == NULL); index++)
+    if (conn->streams.len != 0U)
     {
-        libp2p_quic_stream_t *stream = conn->streams.items[index];
+        size_t start = conn->next_tx_stream;
 
-        if ((stream != NULL) && (stream->state != LIBP2P_QUIC_STREAM_CLOSED) &&
-            (stream->state != LIBP2P_QUIC_STREAM_RESET) &&
-            ((stream->tx_sent_len < stream->tx_len) ||
-             ((stream->local_fin_queued != 0U) && (stream->local_fin_sent == 0U))))
+        if (start >= conn->streams.len)
         {
-            result = stream;
+            start = 0U;
+        }
+
+        for (size_t index = 0U; (index < conn->streams.len) && (result == NULL); index++)
+        {
+            const size_t stream_index = (start + index) % conn->streams.len;
+            libp2p_quic_stream_t *stream = conn->streams.items[stream_index];
+
+            if ((stream != NULL) && (stream->state != LIBP2P_QUIC_STREAM_CLOSED) &&
+                (stream->state != LIBP2P_QUIC_STREAM_RESET) &&
+                ((stream->tx_sent_len < stream->tx_len) ||
+                 ((stream->local_fin_queued != 0U) && (stream->local_fin_sent == 0U))))
+            {
+                result = stream;
+                conn->next_tx_stream = (stream_index + 1U) % conn->streams.len;
+            }
         }
     }
 
     return result;
+}
+
+static void quic_backend_maybe_wake_stream_after_tx_drain(libp2p_quic_stream_t *stream)
+{
+    if ((stream != NULL) && (stream->tx_len != 0U) &&
+        (stream->state != LIBP2P_QUIC_STREAM_CLOSED) &&
+        (stream->state != LIBP2P_QUIC_STREAM_RESET) && (stream->local_fin_queued == 0U) &&
+        (stream->tx_sent_len == stream->tx_len))
+    {
+        libp2p_quic_err_t err = quic_backend_event_push(
+            stream->conn->endpoint,
+            LIBP2P_QUIC_EVENT_STREAM_WRITABLE,
+            stream->conn,
+            stream,
+            0U,
+            0U);
+
+        if (err == LIBP2P_QUIC_OK)
+        {
+            stream->write_blocked = 0U;
+            quic_backend_debug_stream_state(
+                stream,
+                "stream_wake_tx_drain",
+                (uint64_t)stream->tx_len,
+                (uint64_t)stream->tx_sent_len,
+                0U);
+        }
+        else
+        {
+            quic_backend_debug_stream_state(
+                stream,
+                "stream_wake_tx_drain_drop",
+                (uint64_t)stream->conn->endpoint->event_len,
+                (uint64_t)stream->conn->endpoint->event_cap,
+                (uint32_t)err);
+        }
+    }
+}
+
+static void quic_backend_conn_record_packet_write(libp2p_quic_conn_t *conn, ngtcp2_tstamp ts)
+{
+    if (conn->endpoint->defer_tx_time_updates != 0U)
+    {
+        conn->tx_time_update_unconfirmed = 1U;
+    }
+    else
+    {
+        ngtcp2_conn_update_pkt_tx_time(conn->ngconn, ts);
+    }
+}
+
+QUIC_BACKEND_INTERNAL void
+quic_backend_conn_confirm_tx_datagram(libp2p_quic_conn_t *conn, libp2p_quic_time_us_t now_us)
+{
+    if ((conn != NULL) && (conn->tx_time_update_unconfirmed != 0U))
+    {
+        const ngtcp2_tstamp ts = quic_backend_endpoint_time_to_ngtcp2(conn->endpoint, now_us);
+
+        ngtcp2_conn_update_pkt_tx_time(conn->ngconn, ts);
+        conn->tx_time_update_unconfirmed = 0U;
+        conn->tx_time_update_pending = 0U;
+    }
+}
+
+QUIC_BACKEND_INTERNAL void quic_backend_conn_discard_tx_datagram(libp2p_quic_conn_t *conn)
+{
+    if (conn != NULL)
+    {
+        conn->tx_time_update_unconfirmed = 0U;
+        conn->tx_time_update_pending = 0U;
+    }
+}
+
+QUIC_BACKEND_INTERNAL void
+quic_backend_conn_flush_tx_time_update(libp2p_quic_conn_t *conn, libp2p_quic_time_us_t now_us)
+{
+    if ((conn != NULL) && (conn->tx_time_update_pending != 0U))
+    {
+        const ngtcp2_tstamp ts = quic_backend_endpoint_time_to_ngtcp2(conn->endpoint, now_us);
+
+        ngtcp2_conn_update_pkt_tx_time(conn->ngconn, ts);
+        conn->tx_time_update_pending = 0U;
+    }
 }
 
 QUIC_BACKEND_INTERNAL libp2p_quic_err_t quic_backend_write_conn_datagram(
@@ -620,8 +714,15 @@ QUIC_BACKEND_INTERNAL libp2p_quic_err_t quic_backend_write_conn_datagram(
             ts);
         if (nwrite > 0)
         {
+            quic_backend_conn_record_packet_write(conn, ts);
             conn->close_sent = 1U;
             conn->state = LIBP2P_QUIC_CONN_CLOSING;
+            conn->autopsy_tx_sent_bytes += (uint64_t)nwrite;
+            if ((uint64_t)nwrite > conn->autopsy_max_tx_datagram_bytes)
+            {
+                conn->autopsy_max_tx_datagram_bytes = (uint64_t)nwrite;
+            }
+            conn->autopsy_last_tx_us = now_us;
             datagram->local_addr = conn->local_addr;
             datagram->remote_addr = conn->remote_addr;
             datagram->data_len = (size_t)nwrite;
@@ -658,7 +759,8 @@ QUIC_BACKEND_INTERNAL libp2p_quic_err_t quic_backend_write_conn_datagram(
                 vec_ptr = &vec;
                 vec_count = 1U;
             }
-            if ((stream->local_fin_queued != 0U) && (stream->local_fin_sent == 0U))
+            if ((stream->local_fin_queued != 0U) && (stream->local_fin_sent == 0U) &&
+                (remaining == 0U))
             {
                 flags |= NGTCP2_WRITE_STREAM_FLAG_FIN;
             }
@@ -680,7 +782,25 @@ QUIC_BACKEND_INTERNAL libp2p_quic_err_t quic_backend_write_conn_datagram(
             ts);
         if (nwrite > 0)
         {
-            ngtcp2_conn_update_pkt_tx_time(conn->ngconn, ts);
+            quic_backend_conn_record_packet_write(conn, ts);
+            conn->autopsy_tx_sent_bytes += (uint64_t)nwrite;
+            if ((uint64_t)nwrite > conn->autopsy_max_tx_datagram_bytes)
+            {
+                conn->autopsy_max_tx_datagram_bytes = (uint64_t)nwrite;
+            }
+            if (ndatalen >= 0)
+            {
+                conn->autopsy_write_data_packets++;
+                if ((uint64_t)ndatalen > conn->autopsy_max_tx_stream_data_bytes)
+                {
+                    conn->autopsy_max_tx_stream_data_bytes = (uint64_t)ndatalen;
+                }
+            }
+            else
+            {
+                conn->autopsy_write_control_packets++;
+            }
+            conn->autopsy_last_tx_us = now_us;
             datagram->local_addr = conn->local_addr;
             datagram->remote_addr = conn->remote_addr;
             datagram->data_len = (size_t)nwrite;
@@ -689,6 +809,13 @@ QUIC_BACKEND_INTERNAL libp2p_quic_err_t quic_backend_write_conn_datagram(
             if ((stream != NULL) && (ndatalen >= 0))
             {
                 stream->tx_sent_len += (size_t)ndatalen;
+                quic_backend_debug_stream_state(
+                    stream,
+                    "stream_tx",
+                    (uint64_t)nwrite,
+                    (uint64_t)ndatalen,
+                    flags);
+                quic_backend_maybe_wake_stream_after_tx_drain(stream);
                 if (((flags & NGTCP2_WRITE_STREAM_FLAG_FIN) != 0U) &&
                     (stream->tx_sent_len == stream->tx_len))
                 {
@@ -707,16 +834,43 @@ QUIC_BACKEND_INTERNAL libp2p_quic_err_t quic_backend_write_conn_datagram(
         }
         else if (nwrite == 0)
         {
+            conn->autopsy_write_zero_count++;
             result = LIBP2P_QUIC_ERR_WOULD_BLOCK;
+            if (stream != NULL)
+            {
+                quic_backend_debug_stream_state(stream, "stream_writev_zero", 0U, 0U, 0U);
+            }
         }
-        else if (
-            (nwrite == NGTCP2_ERR_STREAM_DATA_BLOCKED) || (nwrite == NGTCP2_ERR_STREAM_SHUT_WR) ||
-            (nwrite == NGTCP2_ERR_STREAM_NOT_FOUND))
+        else if (nwrite == NGTCP2_ERR_STREAM_DATA_BLOCKED)
         {
+            conn->autopsy_write_stream_blocked_count++;
             result = LIBP2P_QUIC_ERR_WOULD_BLOCK;
+            if (stream != NULL)
+            {
+                quic_backend_debug_stream_state(stream, "stream_writev_blocked", 0U, 0U, 1U);
+            }
+        }
+        else if (nwrite == NGTCP2_ERR_STREAM_SHUT_WR)
+        {
+            conn->autopsy_write_stream_shut_wr_count++;
+            result = LIBP2P_QUIC_ERR_WOULD_BLOCK;
+            if (stream != NULL)
+            {
+                quic_backend_debug_stream_state(stream, "stream_writev_blocked", 0U, 0U, 2U);
+            }
+        }
+        else if (nwrite == NGTCP2_ERR_STREAM_NOT_FOUND)
+        {
+            conn->autopsy_write_stream_not_found_count++;
+            result = LIBP2P_QUIC_ERR_WOULD_BLOCK;
+            if (stream != NULL)
+            {
+                quic_backend_debug_stream_state(stream, "stream_writev_blocked", 0U, 0U, 3U);
+            }
         }
         else
         {
+            conn->autopsy_write_other_error_count++;
             result = quic_backend_handle_conn_error(conn, (int)nwrite);
             if (result == LIBP2P_QUIC_OK)
             {

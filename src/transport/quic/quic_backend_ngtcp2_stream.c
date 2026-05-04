@@ -189,7 +189,7 @@ QUIC_BACKEND_INTERNAL libp2p_quic_err_t quic_backend_stream_read(
     size_t *read_len,
     int *fin)
 {
-    libp2p_quic_err_t result = quic_backend_validate_stream(stream);
+    libp2p_quic_err_t result = LIBP2P_QUIC_OK;
 
     if (read_len != NULL)
     {
@@ -198,6 +198,26 @@ QUIC_BACKEND_INTERNAL libp2p_quic_err_t quic_backend_stream_read(
     if (fin != NULL)
     {
         *fin = 0;
+    }
+    if ((stream == NULL) || (stream->magic != QUIC_BACKEND_STREAM_MAGIC) ||
+        (stream->conn == NULL) || (stream->conn->magic != QUIC_BACKEND_CONN_MAGIC))
+    {
+        result = LIBP2P_QUIC_ERR_INVALID_ARG;
+    }
+    else if (stream->state == LIBP2P_QUIC_STREAM_RESET)
+    {
+        result = LIBP2P_QUIC_ERR_CLOSED;
+    }
+    else if (
+        (stream->state == LIBP2P_QUIC_STREAM_CLOSED) &&
+        (stream->rx_read_offset == stream->rx_len) &&
+        ((stream->remote_fin == 0U) || (stream->remote_fin_delivered != 0U)))
+    {
+        result = LIBP2P_QUIC_ERR_CLOSED;
+    }
+    else
+    {
+        /* The stream can still be read. */
     }
     if ((result == LIBP2P_QUIC_OK) &&
         ((read_len == NULL) || (fin == NULL) || ((out == NULL) && (out_len != 0U))))
@@ -258,7 +278,9 @@ QUIC_BACKEND_INTERNAL libp2p_quic_err_t quic_backend_stream_write(
     size_t *accepted)
 {
     size_t required = 0U;
+    size_t accept_len = data_len;
     uint8_t *new_data = NULL;
+    uint32_t block_reason = 0U;
     libp2p_quic_err_t result = quic_backend_validate_stream(stream);
 
     if (accepted != NULL)
@@ -273,7 +295,6 @@ QUIC_BACKEND_INTERNAL libp2p_quic_err_t quic_backend_stream_write(
     {
         result = LIBP2P_QUIC_ERR_CLOSED;
     }
-
     if (result == LIBP2P_QUIC_OK)
     {
         size_t limit = 0U;
@@ -288,11 +309,26 @@ QUIC_BACKEND_INTERNAL libp2p_quic_err_t quic_backend_stream_write(
             limit = stream->conn->endpoint->config.initial_stream_window_bytes *
                     QUIC_BACKEND_STREAM_SEND_MULTIPLIER;
         }
+        if ((result == LIBP2P_QUIC_OK) && (stream->tx_len >= limit) && (accept_len != 0U))
+        {
+            result = LIBP2P_QUIC_ERR_WOULD_BLOCK;
+            block_reason = 2U;
+        }
+        if (result == LIBP2P_QUIC_OK)
+        {
+            const size_t available = limit - stream->tx_len;
+
+            if (accept_len > available)
+            {
+                accept_len = available;
+            }
+        }
         if ((result == LIBP2P_QUIC_OK) &&
-            ((quic_backend_size_add_overflow(stream->tx_len, data_len, &required) != 0) ||
+            ((quic_backend_size_add_overflow(stream->tx_len, accept_len, &required) != 0) ||
              (required > limit)))
         {
             result = LIBP2P_QUIC_ERR_WOULD_BLOCK;
+            block_reason = 2U;
         }
 
         if ((result == LIBP2P_QUIC_OK) && (required > stream->tx_cap))
@@ -300,6 +336,7 @@ QUIC_BACKEND_INTERNAL libp2p_quic_err_t quic_backend_stream_write(
             if (stream->tx_cap != 0U)
             {
                 result = LIBP2P_QUIC_ERR_WOULD_BLOCK;
+                block_reason = 3U;
             }
             else
             {
@@ -325,13 +362,13 @@ QUIC_BACKEND_INTERNAL libp2p_quic_err_t quic_backend_stream_write(
 
     if (result == LIBP2P_QUIC_OK)
     {
-        if (data_len != 0U)
+        if (accept_len != 0U)
         {
-            (void)memcpy(&stream->tx_data[stream->tx_len], data, data_len);
-            stream->tx_len += data_len;
-            *accepted = data_len;
+            (void)memcpy(&stream->tx_data[stream->tx_len], data, accept_len);
+            stream->tx_len += accept_len;
+            *accepted = accept_len;
         }
-        if (fin != 0)
+        if ((fin != 0) && (accept_len == data_len))
         {
             stream->local_fin_queued = 1U;
         }
@@ -344,6 +381,27 @@ QUIC_BACKEND_INTERNAL libp2p_quic_err_t quic_backend_stream_write(
             0U,
             0U);
     }
+    if ((stream != NULL) && (stream->magic == QUIC_BACKEND_STREAM_MAGIC))
+    {
+        if (result == LIBP2P_QUIC_ERR_WOULD_BLOCK)
+        {
+            stream->write_blocked = 1U;
+            quic_backend_debug_stream_state(
+                stream,
+                "stream_write_blocked",
+                (uint64_t)data_len,
+                (uint64_t)accept_len,
+                block_reason);
+        }
+        else if (result == LIBP2P_QUIC_OK)
+        {
+            stream->write_blocked = 0U;
+        }
+        else
+        {
+            /* Other write errors leave the blocked marker unchanged. */
+        }
+    }
 
     return result;
 }
@@ -354,6 +412,187 @@ QUIC_BACKEND_INTERNAL libp2p_quic_err_t quic_backend_stream_finish(libp2p_quic_s
     libp2p_quic_err_t result = quic_backend_stream_write(stream, NULL, 0U, 1, &accepted);
 
     return result;
+}
+
+QUIC_BACKEND_INTERNAL void quic_backend_stream_clear_ack_ranges(libp2p_quic_stream_t *stream)
+{
+    if (stream != NULL)
+    {
+        (void)memset(stream->tx_ack_ranges, 0, sizeof(stream->tx_ack_ranges));
+        stream->tx_ack_range_count = 0U;
+    }
+}
+
+static void quic_backend_stream_remove_ack_range(libp2p_quic_stream_t *stream, size_t index)
+{
+    size_t shift = index;
+
+    while ((shift + 1U) < stream->tx_ack_range_count)
+    {
+        stream->tx_ack_ranges[shift] = stream->tx_ack_ranges[shift + 1U];
+        shift++;
+    }
+    if (stream->tx_ack_range_count != 0U)
+    {
+        stream->tx_ack_range_count--;
+        stream->tx_ack_ranges[stream->tx_ack_range_count].start = 0U;
+        stream->tx_ack_ranges[stream->tx_ack_range_count].end = 0U;
+    }
+}
+
+static void quic_backend_stream_insert_ack_range(
+    libp2p_quic_stream_t *stream,
+    uint64_t start,
+    uint64_t end)
+{
+    size_t index = 0U;
+    uint64_t merged_start = start;
+    uint64_t merged_end = end;
+
+    while (index < stream->tx_ack_range_count)
+    {
+        const quic_backend_ack_range_t *const range = &stream->tx_ack_ranges[index];
+
+        if (range->end < merged_start)
+        {
+            index++;
+        }
+        else if (range->start > merged_end)
+        {
+            break;
+        }
+        else
+        {
+            if (range->start < merged_start)
+            {
+                merged_start = range->start;
+            }
+            if (range->end > merged_end)
+            {
+                merged_end = range->end;
+            }
+            quic_backend_stream_remove_ack_range(stream, index);
+        }
+    }
+
+    if (stream->tx_ack_range_count < QUIC_BACKEND_STREAM_ACK_RANGE_CAP)
+    {
+        size_t shift = stream->tx_ack_range_count;
+
+        while (shift > index)
+        {
+            stream->tx_ack_ranges[shift] = stream->tx_ack_ranges[shift - 1U];
+            shift--;
+        }
+        stream->tx_ack_ranges[index].start = merged_start;
+        stream->tx_ack_ranges[index].end = merged_end;
+        stream->tx_ack_range_count++;
+    }
+}
+
+QUIC_BACKEND_INTERNAL int quic_backend_stream_record_acked_range(
+    libp2p_quic_stream_t *stream,
+    uint64_t offset,
+    uint64_t datalen,
+    uint8_t *out_sent_window_acked)
+{
+    int result = 0;
+
+    if (out_sent_window_acked != NULL)
+    {
+        *out_sent_window_acked = 0U;
+    }
+
+    if ((stream == NULL) || (out_sent_window_acked == NULL))
+    {
+        result = NGTCP2_ERR_CALLBACK_FAILURE;
+    }
+    else if (
+        (datalen > (UINT64_MAX - offset)) || (stream->tx_len < stream->tx_sent_len) ||
+        ((uint64_t)stream->tx_sent_len > (UINT64_MAX - stream->tx_base_offset)))
+    {
+        result = NGTCP2_ERR_CALLBACK_FAILURE;
+    }
+    else if ((datalen == 0U) || (stream->tx_sent_len == 0U))
+    {
+        result = 0;
+    }
+    else
+    {
+        const uint64_t ack_end = offset + datalen;
+        const uint64_t sent_end = stream->tx_base_offset + (uint64_t)stream->tx_sent_len;
+        uint64_t start = offset;
+        uint64_t end = ack_end;
+
+        if (start < stream->tx_base_offset)
+        {
+            start = stream->tx_base_offset;
+        }
+        if (end > sent_end)
+        {
+            end = sent_end;
+        }
+
+        if (start < end)
+        {
+            if ((stream->conn != NULL) && (start > stream->tx_base_offset))
+            {
+                const uint64_t gap_bytes = start - stream->tx_base_offset;
+
+                stream->conn->autopsy_ack_gap_reclaim_count++;
+                stream->conn->autopsy_ack_gap_reclaim_bytes += gap_bytes;
+                stream->conn->autopsy_last_ack_gap_stream_id = stream->stream_id;
+                stream->conn->autopsy_last_ack_gap_offset = offset;
+                stream->conn->autopsy_last_ack_gap_len = datalen;
+                stream->conn->autopsy_last_ack_gap_base = stream->tx_base_offset;
+                stream->conn->autopsy_last_ack_gap_sent_end = sent_end;
+            }
+            quic_backend_stream_insert_ack_range(stream, start, end);
+            if ((stream->tx_ack_range_count != 0U) &&
+                (stream->tx_ack_ranges[0].start <= stream->tx_base_offset) &&
+                (stream->tx_ack_ranges[0].end >= sent_end))
+            {
+                *out_sent_window_acked = 1U;
+            }
+        }
+    }
+
+    return result;
+}
+
+QUIC_BACKEND_INTERNAL void quic_backend_stream_discard_tx(libp2p_quic_stream_t *stream)
+{
+    if (stream != NULL)
+    {
+        const size_t sent_len = stream->tx_sent_len;
+
+        if (sent_len != 0U)
+        {
+            const uint64_t sent_offset = (uint64_t)sent_len;
+
+            if (sent_offset <= (UINT64_MAX - stream->tx_base_offset))
+            {
+                stream->tx_base_offset += sent_offset;
+            }
+            else
+            {
+                stream->tx_base_offset = UINT64_MAX;
+            }
+        }
+
+        quic_backend_debug_stream_state(
+            stream,
+            "stream_tx_discard",
+            (uint64_t)stream->tx_len,
+            (uint64_t)stream->tx_sent_len,
+            0U);
+        stream->tx_len = 0U;
+        stream->tx_sent_len = 0U;
+        quic_backend_stream_clear_ack_ranges(stream);
+        stream->local_fin_queued = 0U;
+        stream->local_fin_sent = 0U;
+        stream->write_blocked = 0U;
+    }
 }
 
 QUIC_BACKEND_INTERNAL libp2p_quic_err_t quic_backend_stream_reset(
@@ -375,6 +614,7 @@ QUIC_BACKEND_INTERNAL libp2p_quic_err_t quic_backend_stream_reset(
         }
         else
         {
+            quic_backend_stream_discard_tx(stream);
             stream->state = LIBP2P_QUIC_STREAM_RESET;
             stream->reset = 1U;
             result = quic_backend_event_push(

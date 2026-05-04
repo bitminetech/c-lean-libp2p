@@ -33,6 +33,45 @@ on:
         options:
           - '0'
           - '1'
+      autopsy:
+        description: 'Set LIBP2P_AUTOPSY=1 for c-lean nodes'
+        required: false
+        default: '0'
+        type: choice
+        options:
+          - '0'
+          - '1'
+      side_by_side:
+        description: 'Run base tri layout plus one swapped-node comparison'
+        required: false
+        default: '0'
+        type: choice
+        options:
+          - '0'
+          - '1'
+      swap_index:
+        description: 'Node index to replace in side-by-side mode'
+        required: false
+        default: '7'
+        type: choice
+        options:
+          - '0'
+          - '1'
+          - '2'
+          - '3'
+          - '4'
+          - '5'
+          - '6'
+          - '7'
+          - '8'
+      replacement:
+        description: 'Replacement implementation for side-by-side mode'
+        required: false
+        default: 'go'
+        type: choice
+        options:
+          - go
+          - rust
   schedule:
     - cron: '43 8 * * *'
   pull_request:
@@ -55,6 +94,10 @@ env:
   GOSSIPSUB_INTEROP_PAIR: ${{ github.event.inputs.pair || 'all' }}
   GOSSIPSUB_INTEROP_SCENARIO: ${{ github.event.inputs.scenario || 'all' }}
   GOSSIPSUB_INTEROP_QUIC_DEBUG: ${{ github.event.inputs.quic_debug || '0' }}
+  GOSSIPSUB_INTEROP_AUTOPSY: ${{ github.event.inputs.autopsy || '0' }}
+  GOSSIPSUB_INTEROP_SIDE_BY_SIDE: ${{ github.event.inputs.side_by_side || '0' }}
+  GOSSIPSUB_INTEROP_SWAP_INDEX: ${{ github.event.inputs.swap_index || '7' }}
+  GOSSIPSUB_INTEROP_REPLACEMENT: ${{ github.event.inputs.replacement || 'go' }}
 
 jobs:
   gossipsub-cross-impl:
@@ -135,8 +178,12 @@ jobs:
             -e GOSSIPSUB_INTEROP_PAIR="${GOSSIPSUB_INTEROP_PAIR}" \
             -e GOSSIPSUB_INTEROP_SCENARIO="${GOSSIPSUB_INTEROP_SCENARIO}" \
             -e LIBP2P_QUIC_DEBUG="${GOSSIPSUB_INTEROP_QUIC_DEBUG}" \
+            -e LIBP2P_AUTOPSY="${GOSSIPSUB_INTEROP_AUTOPSY}" \
+            -e GOSSIPSUB_INTEROP_SIDE_BY_SIDE="${GOSSIPSUB_INTEROP_SIDE_BY_SIDE}" \
+            -e GOSSIPSUB_INTEROP_SWAP_INDEX="${GOSSIPSUB_INTEROP_SWAP_INDEX}" \
+            -e GOSSIPSUB_INTEROP_REPLACEMENT="${GOSSIPSUB_INTEROP_REPLACEMENT}" \
             "${SHADOW_IMAGE}" \
-            bash -lc 'make c-lean-libp2p && make binaries && uv run c_lean_matrix.py --output-root /workspace/interop/test-plans/gossipsub-interop/c-lean-results --pair "${GOSSIPSUB_INTEROP_PAIR}" --scenario "${GOSSIPSUB_INTEROP_SCENARIO}"'
+            bash -lc 'make c-lean-libp2p && make binaries && if [ "${GOSSIPSUB_INTEROP_SIDE_BY_SIDE}" = "1" ]; then scenario="${GOSSIPSUB_INTEROP_SCENARIO}"; if [ "${scenario}" = "all" ]; then scenario="subnet-blob-msg"; fi; uv run c_lean_side_by_side.py --output-root /workspace/interop/test-plans/gossipsub-interop/c-lean-results --scenario "${scenario}" --seed 2 --swap-index "${GOSSIPSUB_INTEROP_SWAP_INDEX}" --replacement "${GOSSIPSUB_INTEROP_REPLACEMENT}"; else uv run c_lean_matrix.py --output-root /workspace/interop/test-plans/gossipsub-interop/c-lean-results --pair "${GOSSIPSUB_INTEROP_PAIR}" --scenario "${GOSSIPSUB_INTEROP_SCENARIO}"; fi'
           echo "result_dir=interop/test-plans/gossipsub-interop/c-lean-results" >> "$GITHUB_OUTPUT"
 
       - name: Fix interop cache ownership
