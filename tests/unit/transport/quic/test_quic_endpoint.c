@@ -761,6 +761,71 @@ static void quic_endpoint_test_handshake_and_stream(void)
     quic_endpoint_deinit_pair(client, client_storage, server, server_storage);
 }
 
+static void quic_endpoint_test_small_write_writable_after_packetization(void)
+{
+    quic_endpoint_identity_fixture_t identity;
+    libp2p_quic_endpoint_t *client = NULL;
+    libp2p_quic_endpoint_t *server = NULL;
+    libp2p_quic_conn_t *client_conn = NULL;
+    libp2p_quic_conn_t *server_conn = NULL;
+    libp2p_quic_stream_t *client_stream = NULL;
+    void *client_storage = NULL;
+    void *server_storage = NULL;
+    uint8_t ip4[4] = {127U, 0U, 0U, 1U};
+    uint8_t packet[LIBP2P_QUIC_DEFAULT_MAX_DATAGRAM_BYTES];
+    libp2p_quic_addr_t remote_addr;
+    libp2p_quic_dial_config_t dial_config;
+    libp2p_quic_tx_datagram_t tx;
+    libp2p_quic_time_us_t now_us = 0U;
+    size_t accepted = 0U;
+    size_t writable_count = 0U;
+    size_t established_count = 0U;
+    size_t index = 0U;
+    static const uint8_t message[] = {'s', 'm', 'a', 'l', 'l', '-', 'c', 'o',
+                                      'n', 't', 'r', 'o', 'l', '-', '1'};
+
+    quic_endpoint_make_identity(&identity, 23U);
+    quic_endpoint_init_pair(&client, &client_storage, &server, &server_storage, &identity.identity);
+
+    assert(libp2p_quic_addr_from_ip4(ip4, 30001U, &remote_addr) == LIBP2P_QUIC_OK);
+    assert(
+        libp2p_quic_addr_set_peer_id(&remote_addr, identity.peer_id, identity.peer_id_len) ==
+        LIBP2P_QUIC_OK);
+    dial_config.remote_addr = remote_addr;
+    dial_config.user_data = NULL;
+
+    assert(libp2p_quic_endpoint_dial(client, &dial_config, &client_conn) == LIBP2P_QUIC_OK);
+    quic_endpoint_wait_established(client, server, client_conn, &server_conn, &now_us);
+    quic_endpoint_drain_events(client, NULL, &established_count, NULL, NULL);
+
+    assert(libp2p_quic_conn_open_bidi_stream(client_conn, &client_stream) == LIBP2P_QUIC_OK);
+    assert(
+        libp2p_quic_stream_write(client_stream, message, sizeof(message), 0, &accepted) ==
+        LIBP2P_QUIC_OK);
+    assert(accepted == sizeof(message));
+
+    for (index = 0U; (index < 32U) && (writable_count == 0U); index++)
+    {
+        libp2p_quic_err_t result = LIBP2P_QUIC_OK;
+
+        (void)memset(&tx, 0, sizeof(tx));
+        tx.data = packet;
+        tx.data_cap = sizeof(packet);
+        result = libp2p_quic_endpoint_next_datagram(client, &tx, now_us);
+        if (result == LIBP2P_QUIC_ERR_WOULD_BLOCK)
+        {
+            break;
+        }
+        assert(result == LIBP2P_QUIC_OK);
+        assert(tx.data_len > 0U);
+        quic_endpoint_drain_writable_events(client, client_stream, &writable_count);
+    }
+
+    assert(writable_count != 0U);
+
+    quic_endpoint_deinit_pair(client, client_storage, server, server_storage);
+}
+
 static void quic_endpoint_test_stream_write_backpressure(void)
 {
     enum
@@ -1148,6 +1213,7 @@ static void quic_endpoint_test_tx_rotates_between_connections(void)
 int main(void)
 {
     quic_endpoint_test_handshake_and_stream();
+    quic_endpoint_test_small_write_writable_after_packetization();
     quic_endpoint_test_stream_write_backpressure();
     quic_endpoint_test_stream_write_reclaims_acked_bytes();
     quic_endpoint_test_tx_rotates_between_connections();

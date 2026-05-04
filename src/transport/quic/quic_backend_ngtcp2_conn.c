@@ -607,7 +607,7 @@ static libp2p_quic_stream_t *quic_backend_conn_next_tx_stream(libp2p_quic_conn_t
 
 static void quic_backend_maybe_wake_stream_after_tx_drain(libp2p_quic_stream_t *stream)
 {
-    if ((stream != NULL) && (stream->write_blocked != 0U) &&
+    if ((stream != NULL) && (stream->tx_len != 0U) &&
         (stream->state != LIBP2P_QUIC_STREAM_CLOSED) &&
         (stream->state != LIBP2P_QUIC_STREAM_RESET) && (stream->local_fin_queued == 0U) &&
         (stream->tx_sent_len == stream->tx_len))
