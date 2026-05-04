@@ -605,6 +605,19 @@ static int quic_backend_reclaim_acked_stream_data(
         {
             const size_t pending = stream->tx_len - stream->tx_sent_len;
 
+            stream->conn->autopsy_ack_reclaim_count++;
+            if (offset > stream->tx_base_offset)
+            {
+                const uint64_t gap_bytes = offset - stream->tx_base_offset;
+
+                stream->conn->autopsy_ack_gap_reclaim_count++;
+                stream->conn->autopsy_ack_gap_reclaim_bytes += gap_bytes;
+                stream->conn->autopsy_last_ack_gap_stream_id = stream->stream_id;
+                stream->conn->autopsy_last_ack_gap_offset = offset;
+                stream->conn->autopsy_last_ack_gap_len = datalen;
+                stream->conn->autopsy_last_ack_gap_base = stream->tx_base_offset;
+                stream->conn->autopsy_last_ack_gap_sent_end = sent_end;
+            }
             if (pending != 0U)
             {
                 (void)memmove(stream->tx_data, &stream->tx_data[stream->tx_sent_len], pending);
@@ -648,6 +661,7 @@ static int quic_backend_acked_stream_data_offset_cb(
         {
             stream = quic_backend_conn_find_stream(conn, stream_id);
         }
+        conn->autopsy_ack_range_count++;
         conn->autopsy_tx_acked_bytes += datalen;
         result = quic_backend_reclaim_acked_stream_data(stream, offset, datalen);
     }

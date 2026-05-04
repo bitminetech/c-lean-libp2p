@@ -110,6 +110,15 @@ struct libp2p_quic_conn
     uint64_t autopsy_write_stream_shut_wr_count;
     uint64_t autopsy_write_stream_not_found_count;
     uint64_t autopsy_write_other_error_count;
+    uint64_t autopsy_ack_range_count;
+    uint64_t autopsy_ack_reclaim_count;
+    uint64_t autopsy_ack_gap_reclaim_count;
+    uint64_t autopsy_ack_gap_reclaim_bytes;
+    int64_t autopsy_last_ack_gap_stream_id;
+    uint64_t autopsy_last_ack_gap_offset;
+    uint64_t autopsy_last_ack_gap_len;
+    uint64_t autopsy_last_ack_gap_base;
+    uint64_t autopsy_last_ack_gap_sent_end;
     uint64_t autopsy_last_rx_us;
     uint64_t autopsy_last_tx_us;
 };

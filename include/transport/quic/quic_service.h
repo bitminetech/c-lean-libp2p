@@ -115,6 +115,15 @@ typedef struct
     uint64_t write_stream_shut_wr_count;
     uint64_t write_stream_not_found_count;
     uint64_t write_other_error_count;
+    uint64_t ack_range_count;
+    uint64_t ack_reclaim_count;
+    uint64_t ack_gap_reclaim_count;
+    uint64_t ack_gap_reclaim_bytes;
+    int64_t last_ack_gap_stream_id;
+    uint64_t last_ack_gap_offset;
+    uint64_t last_ack_gap_len;
+    uint64_t last_ack_gap_base;
+    uint64_t last_ack_gap_sent_end;
     uint64_t last_rx_us;
     uint64_t last_tx_us;
     uint64_t idle_deadline_us;

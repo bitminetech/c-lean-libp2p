@@ -1356,6 +1356,15 @@ libp2p_quic_err_t libp2p_quic_service_autopsy_conn(
             out_conn->write_stream_shut_wr_count = conn->autopsy_write_stream_shut_wr_count;
             out_conn->write_stream_not_found_count = conn->autopsy_write_stream_not_found_count;
             out_conn->write_other_error_count = conn->autopsy_write_other_error_count;
+            out_conn->ack_range_count = conn->autopsy_ack_range_count;
+            out_conn->ack_reclaim_count = conn->autopsy_ack_reclaim_count;
+            out_conn->ack_gap_reclaim_count = conn->autopsy_ack_gap_reclaim_count;
+            out_conn->ack_gap_reclaim_bytes = conn->autopsy_ack_gap_reclaim_bytes;
+            out_conn->last_ack_gap_stream_id = conn->autopsy_last_ack_gap_stream_id;
+            out_conn->last_ack_gap_offset = conn->autopsy_last_ack_gap_offset;
+            out_conn->last_ack_gap_len = conn->autopsy_last_ack_gap_len;
+            out_conn->last_ack_gap_base = conn->autopsy_last_ack_gap_base;
+            out_conn->last_ack_gap_sent_end = conn->autopsy_last_ack_gap_sent_end;
             out_conn->last_rx_us = conn->autopsy_last_rx_us;
             out_conn->last_tx_us = conn->autopsy_last_tx_us;
             if (expiry != UINT64_MAX)
