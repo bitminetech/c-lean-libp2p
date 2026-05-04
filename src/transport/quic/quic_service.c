@@ -63,6 +63,7 @@ struct libp2p_quic_service
     uint8_t *tx_buffer;
     size_t datagram_buffer_len;
     libp2p_quic_tx_datagram_t pending_tx_datagram;
+    libp2p_quic_conn_t *pending_tx_conn;
     uint8_t has_pending_tx_datagram;
     uint8_t tx_pending;
     uint8_t closed;
@@ -787,6 +788,7 @@ static void quic_service_clear_pending_tx_datagram(libp2p_quic_service_t *servic
     if (service != NULL)
     {
         service->has_pending_tx_datagram = 0U;
+        service->pending_tx_conn = NULL;
         (void)memset(&service->pending_tx_datagram, 0, sizeof(service->pending_tx_datagram));
     }
 }
@@ -816,6 +818,7 @@ static libp2p_quic_err_t quic_service_prepare_tx_datagram(
             now_us);
         if (result == LIBP2P_QUIC_OK)
         {
+            service->pending_tx_conn = quic_backend_endpoint_last_tx_conn(service->endpoint);
             service->has_pending_tx_datagram = 1U;
         }
     }
@@ -845,6 +848,7 @@ static libp2p_quic_err_t quic_service_drive_tx(
 
         if (err == LIBP2P_QUIC_OK)
         {
+            quic_backend_conn_confirm_tx_datagram(service->pending_tx_conn);
             quic_service_clear_pending_tx_datagram(service);
             result->tx_datagrams++;
             result->made_progress = 1U;
@@ -857,6 +861,7 @@ static libp2p_quic_err_t quic_service_drive_tx(
         }
         else
         {
+            quic_backend_conn_confirm_tx_datagram(service->pending_tx_conn);
             quic_service_clear_pending_tx_datagram(service);
             result_code = err;
         }
@@ -865,6 +870,11 @@ static libp2p_quic_err_t quic_service_drive_tx(
     if ((result_code == LIBP2P_QUIC_OK) && (result->tx_drained == 0U))
     {
         service->tx_pending = 1U;
+    }
+
+    if (result_code == LIBP2P_QUIC_OK)
+    {
+        result_code = quic_backend_endpoint_flush_tx_time_updates(service->endpoint, now_us);
     }
 
     return result_code;
@@ -1006,6 +1016,10 @@ libp2p_quic_err_t libp2p_quic_service_init(
             service->endpoint_storage_len,
             &service->config.endpoint,
             &service->endpoint);
+        if (result == LIBP2P_QUIC_OK)
+        {
+            quic_backend_endpoint_set_defer_tx_time_updates(service->endpoint, 1U);
+        }
     }
     if (result == LIBP2P_QUIC_OK)
     {

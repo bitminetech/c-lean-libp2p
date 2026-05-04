@@ -100,6 +100,8 @@ struct libp2p_quic_conn
     uint8_t close_sent;
     ngtcp2_ccerr close_error;
     libp2p_quic_err_t callback_error;
+    uint8_t tx_time_update_unconfirmed;
+    uint8_t tx_time_update_pending;
     uint64_t autopsy_tx_sent_bytes;
     uint64_t autopsy_tx_acked_bytes;
     uint64_t autopsy_write_data_packets;
@@ -135,6 +137,8 @@ struct libp2p_quic_endpoint
     size_t event_cap;
     size_t event_head;
     size_t event_len;
+    uint8_t defer_tx_time_updates;
+    libp2p_quic_conn_t *last_tx_conn;
 };
 
 extern QUIC_BACKEND_INTERNAL const ngtcp2_callbacks quic_backend_callbacks;
@@ -321,6 +325,22 @@ quic_backend_handle_conn_error(libp2p_quic_conn_t *conn, int rv);
 QUIC_BACKEND_INTERNAL libp2p_quic_err_t quic_backend_write_conn_datagram(
     libp2p_quic_conn_t *conn,
     libp2p_quic_tx_datagram_t *datagram,
+    libp2p_quic_time_us_t now_us);
+
+QUIC_BACKEND_INTERNAL void quic_backend_conn_confirm_tx_datagram(libp2p_quic_conn_t *conn);
+
+QUIC_BACKEND_INTERNAL void
+quic_backend_conn_flush_tx_time_update(libp2p_quic_conn_t *conn, libp2p_quic_time_us_t now_us);
+
+QUIC_BACKEND_INTERNAL void quic_backend_endpoint_set_defer_tx_time_updates(
+    libp2p_quic_endpoint_t *endpoint,
+    uint8_t enabled);
+
+QUIC_BACKEND_INTERNAL libp2p_quic_conn_t *
+quic_backend_endpoint_last_tx_conn(const libp2p_quic_endpoint_t *endpoint);
+
+QUIC_BACKEND_INTERNAL libp2p_quic_err_t quic_backend_endpoint_flush_tx_time_updates(
+    libp2p_quic_endpoint_t *endpoint,
     libp2p_quic_time_us_t now_us);
 
 QUIC_BACKEND_INTERNAL libp2p_quic_err_t

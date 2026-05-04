@@ -642,6 +642,39 @@ static void quic_backend_maybe_wake_stream_after_tx_drain(libp2p_quic_stream_t *
     }
 }
 
+static void quic_backend_conn_record_packet_write(libp2p_quic_conn_t *conn, ngtcp2_tstamp ts)
+{
+    if (conn->endpoint->defer_tx_time_updates != 0U)
+    {
+        conn->tx_time_update_unconfirmed = 1U;
+    }
+    else
+    {
+        ngtcp2_conn_update_pkt_tx_time(conn->ngconn, ts);
+    }
+}
+
+QUIC_BACKEND_INTERNAL void quic_backend_conn_confirm_tx_datagram(libp2p_quic_conn_t *conn)
+{
+    if ((conn != NULL) && (conn->tx_time_update_unconfirmed != 0U))
+    {
+        conn->tx_time_update_unconfirmed = 0U;
+        conn->tx_time_update_pending = 1U;
+    }
+}
+
+QUIC_BACKEND_INTERNAL void
+quic_backend_conn_flush_tx_time_update(libp2p_quic_conn_t *conn, libp2p_quic_time_us_t now_us)
+{
+    if ((conn != NULL) && (conn->tx_time_update_pending != 0U))
+    {
+        const ngtcp2_tstamp ts = quic_backend_endpoint_time_to_ngtcp2(conn->endpoint, now_us);
+
+        ngtcp2_conn_update_pkt_tx_time(conn->ngconn, ts);
+        conn->tx_time_update_pending = 0U;
+    }
+}
+
 QUIC_BACKEND_INTERNAL libp2p_quic_err_t quic_backend_write_conn_datagram(
     libp2p_quic_conn_t *conn,
     libp2p_quic_tx_datagram_t *datagram,
@@ -668,6 +701,7 @@ QUIC_BACKEND_INTERNAL libp2p_quic_err_t quic_backend_write_conn_datagram(
             ts);
         if (nwrite > 0)
         {
+            quic_backend_conn_record_packet_write(conn, ts);
             conn->close_sent = 1U;
             conn->state = LIBP2P_QUIC_CONN_CLOSING;
             conn->autopsy_tx_sent_bytes += (uint64_t)nwrite;
@@ -731,7 +765,7 @@ QUIC_BACKEND_INTERNAL libp2p_quic_err_t quic_backend_write_conn_datagram(
             ts);
         if (nwrite > 0)
         {
-            ngtcp2_conn_update_pkt_tx_time(conn->ngconn, ts);
+            quic_backend_conn_record_packet_write(conn, ts);
             conn->autopsy_tx_sent_bytes += (uint64_t)nwrite;
             if (ndatalen >= 0)
             {
