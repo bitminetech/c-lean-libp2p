@@ -155,30 +155,42 @@ static void quic_service_drain_events(libp2p_quic_service_t *service, quic_servi
     }
 }
 
+static uint8_t quic_service_drive_pair_once(quic_service_fixture_t *fixture)
+{
+    libp2p_quic_service_drive_result_t client_result;
+    libp2p_quic_service_drive_result_t server_result;
+    uint8_t made_progress = 0U;
+
+    assert(fixture != NULL);
+    assert(
+        libp2p_quic_service_drive(
+            fixture->client,
+            fixture->now_us,
+            LIBP2P_QUIC_SERVICE_READY_ALL,
+            &client_result) == LIBP2P_QUIC_OK);
+    assert(
+        libp2p_quic_service_drive(
+            fixture->server,
+            fixture->now_us,
+            LIBP2P_QUIC_SERVICE_READY_ALL,
+            &server_result) == LIBP2P_QUIC_OK);
+    fixture->now_us += 1000U;
+
+    if ((client_result.made_progress != 0U) || (server_result.made_progress != 0U))
+    {
+        made_progress = 1U;
+    }
+
+    return made_progress;
+}
+
 static void quic_service_drive_pair(quic_service_fixture_t *fixture)
 {
     size_t round = 0U;
 
     for (round = 0U; round < 64U; round++)
     {
-        libp2p_quic_service_drive_result_t client_result;
-        libp2p_quic_service_drive_result_t server_result;
-
-        assert(
-            libp2p_quic_service_drive(
-                fixture->client,
-                fixture->now_us,
-                LIBP2P_QUIC_SERVICE_READY_ALL,
-                &client_result) == LIBP2P_QUIC_OK);
-        assert(
-            libp2p_quic_service_drive(
-                fixture->server,
-                fixture->now_us,
-                LIBP2P_QUIC_SERVICE_READY_ALL,
-                &server_result) == LIBP2P_QUIC_OK);
-        fixture->now_us += 1000U;
-
-        if ((client_result.made_progress == 0U) && (server_result.made_progress == 0U))
+        if (quic_service_drive_pair_once(fixture) == 0U)
         {
             break;
         }
@@ -235,6 +247,153 @@ static void quic_service_wait_established(quic_service_fixture_t *fixture)
     }
 
     assert(0 && "service handshake did not complete");
+}
+
+static uint64_t quic_service_total_write_zero(const libp2p_quic_service_t *service)
+{
+    uint64_t total = 0U;
+    size_t index = 0U;
+
+    for (index = 0U; index < LIBP2P_QUIC_DEFAULT_MAX_CONNECTIONS; index++)
+    {
+        libp2p_quic_service_autopsy_conn_t snapshot;
+
+        (void)memset(&snapshot, 0, sizeof(snapshot));
+        if (libp2p_quic_service_autopsy_conn(service, index, 0U, &snapshot) == LIBP2P_QUIC_OK)
+        {
+            total += snapshot.write_zero_count;
+        }
+    }
+
+    return total;
+}
+
+static int quic_service_write_interest_is_settled(const quic_service_fixture_t *fixture)
+{
+    libp2p_quic_service_interest_t client_interest = LIBP2P_QUIC_SERVICE_INTEREST_NONE;
+    libp2p_quic_service_interest_t server_interest = LIBP2P_QUIC_SERVICE_INTEREST_NONE;
+    libp2p_quic_time_us_t client_deadline = 0U;
+    libp2p_quic_time_us_t server_deadline = 0U;
+    int client_timer_pending = 0;
+    int server_timer_pending = 0;
+    int settled = 0;
+
+    assert(fixture != NULL);
+    assert(libp2p_quic_service_io_interest(fixture->client, &client_interest) == LIBP2P_QUIC_OK);
+    assert(libp2p_quic_service_io_interest(fixture->server, &server_interest) == LIBP2P_QUIC_OK);
+
+    if (libp2p_quic_service_next_deadline(fixture->client, &client_deadline) == LIBP2P_QUIC_OK)
+    {
+        client_timer_pending = (client_deadline <= fixture->now_us) ? 1 : 0;
+    }
+    if (libp2p_quic_service_next_deadline(fixture->server, &server_deadline) == LIBP2P_QUIC_OK)
+    {
+        server_timer_pending = (server_deadline <= fixture->now_us) ? 1 : 0;
+    }
+
+    if (((client_interest & LIBP2P_QUIC_SERVICE_INTEREST_WRITE) == 0U) &&
+        ((server_interest & LIBP2P_QUIC_SERVICE_INTEREST_WRITE) == 0U) &&
+        (client_timer_pending == 0) && (server_timer_pending == 0))
+    {
+        settled = 1;
+    }
+
+    return settled;
+}
+
+static void quic_service_wait_write_idle(quic_service_fixture_t *fixture)
+{
+    size_t round = 0U;
+    size_t quiet_rounds = 0U;
+
+    assert(fixture != NULL);
+    for (round = 0U; round < 5000U; round++)
+    {
+        quic_service_events_t events;
+        const uint8_t made_progress = quic_service_drive_pair_once(fixture);
+
+        (void)memset(&events, 0, sizeof(events));
+        quic_service_drain_events(fixture->client, &events);
+        (void)memset(&events, 0, sizeof(events));
+        quic_service_drain_events(fixture->server, &events);
+
+        if ((made_progress == 0U) && (quic_service_write_interest_is_settled(fixture) != 0))
+        {
+            quiet_rounds++;
+            if (quiet_rounds >= 32U)
+            {
+                return;
+            }
+        }
+        else
+        {
+            quiet_rounds = 0U;
+        }
+    }
+
+    assert(0 && "service write interest did not settle");
+}
+
+static void quic_service_test_idle_app_timer_does_not_probe_tx(void)
+{
+    quic_service_fixture_t fixture;
+    libp2p_quic_addr_t server_addr;
+    size_t round = 0U;
+
+    quic_service_fixture_init(&fixture);
+    assert(libp2p_quic_service_local_addr(fixture.server, &server_addr) == LIBP2P_QUIC_OK);
+    assert(
+        libp2p_quic_addr_set_peer_id(
+            &server_addr,
+            fixture.identity.peer_id,
+            fixture.identity.peer_id_len) == LIBP2P_QUIC_OK);
+    assert(
+        libp2p_quic_service_dial(fixture.client, &server_addr, NULL, &fixture.client_conn) ==
+        LIBP2P_QUIC_OK);
+    quic_service_wait_established(&fixture);
+    quic_service_wait_write_idle(&fixture);
+
+    for (round = 0U; round < 1000U; round++)
+    {
+        libp2p_quic_service_drive_result_t client_result;
+        libp2p_quic_service_drive_result_t server_result;
+        quic_service_events_t events;
+        const uint64_t client_zero_before = quic_service_total_write_zero(fixture.client);
+        const uint64_t server_zero_before = quic_service_total_write_zero(fixture.server);
+
+        (void)memset(&client_result, 0, sizeof(client_result));
+        assert(
+            libp2p_quic_service_drive(
+                fixture.client,
+                fixture.now_us,
+                LIBP2P_QUIC_SERVICE_READY_APP | LIBP2P_QUIC_SERVICE_READY_TIMER,
+                &client_result) == LIBP2P_QUIC_OK);
+        (void)memset(&server_result, 0, sizeof(server_result));
+        assert(
+            libp2p_quic_service_drive(
+                fixture.server,
+                fixture.now_us,
+                LIBP2P_QUIC_SERVICE_READY_APP | LIBP2P_QUIC_SERVICE_READY_TIMER,
+                &server_result) == LIBP2P_QUIC_OK);
+
+        if ((client_result.made_progress == 0U) && (server_result.made_progress == 0U))
+        {
+            assert(quic_service_total_write_zero(fixture.client) == client_zero_before);
+            assert(quic_service_total_write_zero(fixture.server) == server_zero_before);
+            quic_service_fixture_deinit(&fixture);
+            return;
+        }
+
+        (void)memset(&events, 0, sizeof(events));
+        quic_service_drain_events(fixture.client, &events);
+        (void)memset(&events, 0, sizeof(events));
+        quic_service_drain_events(fixture.server, &events);
+        quic_service_wait_write_idle(&fixture);
+    }
+
+    assert(0 && "service idle app/timer probe did not settle");
+
+    quic_service_fixture_deinit(&fixture);
 }
 
 static void quic_service_test_runtime_driver_and_stream_api(void)
@@ -393,6 +552,7 @@ static void quic_service_test_close_event(void)
 
 int main(void)
 {
+    quic_service_test_idle_app_timer_does_not_probe_tx();
     quic_service_test_runtime_driver_and_stream_api();
     quic_service_test_close_event();
     return 0;

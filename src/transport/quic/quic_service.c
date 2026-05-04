@@ -1226,9 +1226,7 @@ libp2p_quic_err_t libp2p_quic_service_drive(
             }
         }
         if ((result == LIBP2P_QUIC_OK) &&
-            ((((ready & (LIBP2P_QUIC_SERVICE_READY_WRITE | LIBP2P_QUIC_SERVICE_READY_TIMER |
-                         LIBP2P_QUIC_SERVICE_READY_APP)) != 0U) ||
-              (service->tx_pending != 0U))))
+            ((service->tx_pending != 0U) || (service->has_pending_tx_datagram != 0U)))
         {
             result = quic_service_drive_tx(service, now_us, &local_result);
             if (result != LIBP2P_QUIC_OK)
