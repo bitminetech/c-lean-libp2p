@@ -314,7 +314,7 @@ static void quic_udp_test_send_prepared_datagram(void)
     libp2p_quic_addr_t server_addr;
     libp2p_quic_dial_config_t dial_config;
     libp2p_quic_tx_datagram_t datagram;
-    libp2p_quic_rx_datagram_t received;
+    libp2p_quic_rx_datagram_t received = {0};
     uint8_t tx[LIBP2P_QUIC_DEFAULT_MAX_DATAGRAM_BYTES];
     uint8_t rx[LIBP2P_QUIC_DEFAULT_MAX_DATAGRAM_BYTES];
     libp2p_quic_err_t recv_result = LIBP2P_QUIC_ERR_WOULD_BLOCK;

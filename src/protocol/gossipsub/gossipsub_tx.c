@@ -191,10 +191,10 @@ static uint64_t gossipsub_tx_deadline(uint64_t now_us, uint64_t lifetime_us)
 
 static uint64_t gossipsub_tx_backoff_seconds(uint64_t backoff_us)
 {
-    uint64_t result = backoff_us / UINT64_C(1000000);
+    const uint64_t us_per_second = (uint64_t)1000000U;
+    uint64_t result = backoff_us / us_per_second;
 
-    if ((backoff_us != 0U) && ((backoff_us % UINT64_C(1000000)) != 0U) &&
-        (result != UINT64_MAX))
+    if ((backoff_us != 0U) && ((backoff_us % us_per_second) != 0U) && (result != UINT64_MAX))
     {
         result++;
     }

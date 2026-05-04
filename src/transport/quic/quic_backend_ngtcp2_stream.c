@@ -215,6 +215,10 @@ QUIC_BACKEND_INTERNAL libp2p_quic_err_t quic_backend_stream_read(
     {
         result = LIBP2P_QUIC_ERR_CLOSED;
     }
+    else
+    {
+        /* The stream can still be read. */
+    }
     if ((result == LIBP2P_QUIC_OK) &&
         ((read_len == NULL) || (fin == NULL) || ((out == NULL) && (out_len != 0U))))
     {
@@ -382,6 +386,10 @@ QUIC_BACKEND_INTERNAL libp2p_quic_err_t quic_backend_stream_write(
         else if (result == LIBP2P_QUIC_OK)
         {
             stream->write_blocked = 0U;
+        }
+        else
+        {
+            /* Other write errors leave the blocked marker unchanged. */
         }
     }
 

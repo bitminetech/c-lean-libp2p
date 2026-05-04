@@ -635,6 +635,10 @@ libp2p_quic_err_t libp2p_quic_udp_socket_send_datagram(
     {
         result = LIBP2P_QUIC_ERR_LIMIT;
     }
+    else
+    {
+        /* Datagram shape is valid for UDP send. */
+    }
 
     if ((result == LIBP2P_QUIC_OK) &&
         (libp2p_quic_addr_equal(&datagram->local_addr, &udp_socket->local_addr, 0) == 0))

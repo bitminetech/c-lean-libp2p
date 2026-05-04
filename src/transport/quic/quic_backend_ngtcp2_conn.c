@@ -23,7 +23,7 @@
 #define QUIC_BACKEND_KEEP_ALIVE_TIMEOUT_US   ((libp2p_quic_time_us_t)2000000U)
 #define QUIC_BACKEND_KEEP_ALIVE_IDLE_DIVISOR ((libp2p_quic_time_us_t)2U)
 
-static size_t quic_backend_debug_append_text(
+static size_t quic_backend_conn_debug_append_text(
     char *out,
     size_t out_len,
     size_t pos,
@@ -79,14 +79,14 @@ static void quic_backend_debug_conn_error(
     size_t pos = 0U;
     uint32_t magnitude = 0U;
 
-    pos = quic_backend_debug_append_text(
+    pos = quic_backend_conn_debug_append_text(
         message,
         sizeof(message),
         pos,
         "ngtcp2 connection error rv=");
     if (rv < 0)
     {
-        pos = quic_backend_debug_append_text(message, sizeof(message), pos, "-");
+        pos = quic_backend_conn_debug_append_text(message, sizeof(message), pos, "-");
         magnitude = (uint32_t)(0U - (uint32_t)rv);
     }
     else
@@ -94,7 +94,7 @@ static void quic_backend_debug_conn_error(
         magnitude = (uint32_t)rv;
     }
     pos = quic_backend_debug_append_uint(message, sizeof(message), pos, magnitude);
-    pos = quic_backend_debug_append_text(message, sizeof(message), pos, " callback=");
+    pos = quic_backend_conn_debug_append_text(message, sizeof(message), pos, " callback=");
     pos = quic_backend_debug_append_uint(message, sizeof(message), pos, (uint32_t)callback_error);
 
     quic_backend_debug_bytes(conn, LIBP2P_QUIC_DEBUG_EVENT_TEXT, message, pos);

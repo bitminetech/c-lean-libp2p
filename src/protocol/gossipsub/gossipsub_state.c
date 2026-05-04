@@ -733,6 +733,7 @@ static size_t gossipsub_gossip_target(const libp2p_gossipsub_t *gossipsub, size_
     {
         size_t factor = 0U;
         const size_t ppm = (size_t)gossipsub->config.mesh.gossip_factor_ppm;
+        const size_t denominator = (size_t)GOSSIPSUB_GOSSIP_FACTOR_DENOMINATOR;
 
         if (ppm == 0U)
         {
@@ -746,8 +747,8 @@ static size_t gossipsub_gossip_target(const libp2p_gossipsub_t *gossipsub, size_
         {
             const size_t product = eligible_count * ppm;
 
-            factor = product / (size_t)GOSSIPSUB_GOSSIP_FACTOR_DENOMINATOR;
-            if ((product % (size_t)GOSSIPSUB_GOSSIP_FACTOR_DENOMINATOR) != 0U)
+            factor = product / denominator;
+            if ((product % denominator) != 0U)
             {
                 factor++;
             }

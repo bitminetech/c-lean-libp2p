@@ -567,6 +567,10 @@ static int quic_backend_wake_blocked_writer(libp2p_quic_stream_t *stream)
             (uint64_t)stream->conn->endpoint->event_cap,
             (uint32_t)result);
     }
+    else
+    {
+        /* This stream is not currently writable-blocked. */
+    }
 
     return result;
 }

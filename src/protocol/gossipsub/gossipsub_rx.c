@@ -55,6 +55,10 @@ libp2p_gossipsub_err_t gossipsub_process_subscription(
     {
         gossipsub_mesh_remove(gossipsub, peer_index, topic_index);
     }
+    else
+    {
+        /* No mesh change is needed for this subscription update. */
+    }
 
     return result;
 }
