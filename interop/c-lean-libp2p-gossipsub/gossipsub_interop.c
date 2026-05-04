@@ -54,6 +54,11 @@
 #define GOSSIPSUB_INTEROP_CONNECT_ATTEMPTS         3U
 #define GOSSIPSUB_INTEROP_MAX_CONNECTED_PEERS      64U
 #define GOSSIPSUB_INTEROP_AUTOPSY_TICK_US          UINT64_C(5000000)
+#define GOSSIPSUB_INTEROP_REF_D                    6U
+#define GOSSIPSUB_INTEROP_REF_D_LOW                5U
+#define GOSSIPSUB_INTEROP_REF_D_HIGH               12U
+#define GOSSIPSUB_INTEROP_REF_D_LAZY               6U
+#define GOSSIPSUB_INTEROP_REF_HEARTBEAT_US         UINT64_C(1000000)
 
 typedef union
 {
@@ -1567,6 +1572,11 @@ static gossipsub_interop_err_t gossipsub_interop_configure_gossipsub(gossipsub_i
     }
     if (result == GOSSIPSUB_INTEROP_OK)
     {
+        app->gossipsub_config.mesh.d = GOSSIPSUB_INTEROP_REF_D;
+        app->gossipsub_config.mesh.d_low = GOSSIPSUB_INTEROP_REF_D_LOW;
+        app->gossipsub_config.mesh.d_high = GOSSIPSUB_INTEROP_REF_D_HIGH;
+        app->gossipsub_config.mesh.d_lazy = GOSSIPSUB_INTEROP_REF_D_LAZY;
+        app->gossipsub_config.mesh.heartbeat_interval_us = GOSSIPSUB_INTEROP_REF_HEARTBEAT_US;
         app->gossipsub_config.random_fn = gossipsub_interop_random;
         app->gossipsub_config.random_user_data = NULL;
         app->gossipsub_config.message_id_fn = gossipsub_interop_message_id_fn;
