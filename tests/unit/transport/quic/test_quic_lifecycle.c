@@ -18,6 +18,8 @@ static void quic_lifecycle_test_multiple_streams(void)
     libp2p_quic_stream_t *client_streams[4];
     libp2p_quic_stream_t *server_streams[4];
     uint8_t read_done[4];
+    uint8_t read_bufs[4][16];
+    size_t read_totals[4];
     size_t index = 0U;
     size_t accepted_count = 0U;
     size_t read_count = 0U;
@@ -26,6 +28,8 @@ static void quic_lifecycle_test_multiple_streams(void)
     (void)memset(client_streams, 0, sizeof(client_streams));
     (void)memset(server_streams, 0, sizeof(server_streams));
     (void)memset(read_done, 0, sizeof(read_done));
+    (void)memset(read_bufs, 0, sizeof(read_bufs));
+    (void)memset(read_totals, 0, sizeof(read_totals));
 
     quic_test_make_identity(&identity, 31U);
     quic_test_pair_init(&pair, &identity.identity, 30000U, 30001U, 0U);
@@ -72,7 +76,6 @@ static void quic_lifecycle_test_multiple_streams(void)
 
         for (index = 0U; index < accepted_count; index++)
         {
-            uint8_t buf[16];
             size_t read_len = 0U;
             int fin = 0;
 
@@ -80,14 +83,22 @@ static void quic_lifecycle_test_multiple_streams(void)
             {
                 continue;
             }
-            if (libp2p_quic_stream_read(server_streams[index], buf, sizeof(buf), &read_len, &fin) ==
-                LIBP2P_QUIC_OK)
+            if (libp2p_quic_stream_read(
+                    server_streams[index],
+                    &read_bufs[index][read_totals[index]],
+                    sizeof(read_bufs[index]) - read_totals[index],
+                    &read_len,
+                    &fin) == LIBP2P_QUIC_OK)
             {
-                assert(read_len == sizeof(messages[index]));
-                assert(memcmp(buf, messages[index], sizeof(messages[index])) == 0);
-                assert(fin == 1);
-                read_done[index] = 1U;
-                read_count++;
+                assert((read_totals[index] + read_len) <= sizeof(read_bufs[index]));
+                read_totals[index] += read_len;
+                if (fin != 0)
+                {
+                    assert(read_totals[index] == sizeof(messages[index]));
+                    assert(memcmp(read_bufs[index], messages[index], sizeof(messages[index])) == 0);
+                    read_done[index] = 1U;
+                    read_count++;
+                }
             }
         }
 

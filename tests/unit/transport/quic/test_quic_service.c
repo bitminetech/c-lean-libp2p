@@ -250,6 +250,7 @@ static void quic_service_test_runtime_driver_and_stream_api(void)
     size_t peer_id_len = 0U;
     size_t accepted = 0U;
     size_t read_len = 0U;
+    size_t total_read = 0U;
     libp2p_quic_service_interest_t interest = LIBP2P_QUIC_SERVICE_INTEREST_NONE;
     libp2p_quic_udp_fd_t fd = LIBP2P_QUIC_UDP_INVALID_FD;
     int fin = 0;
@@ -321,20 +322,28 @@ static void quic_service_test_runtime_driver_and_stream_api(void)
             libp2p_quic_err_t result = libp2p_quic_service_stream_read(
                 fixture.server,
                 server_stream,
-                read_buf,
-                sizeof(read_buf),
+                &read_buf[total_read],
+                sizeof(read_buf) - total_read,
                 &read_len,
                 &fin);
 
             if (result == LIBP2P_QUIC_OK)
             {
-                break;
+                assert((total_read + read_len) <= sizeof(read_buf));
+                total_read += read_len;
+                if (fin != 0)
+                {
+                    break;
+                }
             }
-            assert(result == LIBP2P_QUIC_ERR_WOULD_BLOCK);
+            else
+            {
+                assert(result == LIBP2P_QUIC_ERR_WOULD_BLOCK);
+            }
         }
     }
 
-    assert(read_len == sizeof(message));
+    assert(total_read == sizeof(message));
     assert(memcmp(read_buf, message, sizeof(message)) == 0);
     assert(fin == 1);
 

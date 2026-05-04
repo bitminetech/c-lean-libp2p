@@ -681,6 +681,8 @@ static void quic_endpoint_test_handshake_and_stream(void)
     size_t peer_id_len = 0U;
     uint8_t read_buf[32];
     size_t read_len = 0U;
+    size_t total_read = 0U;
+    size_t round = 0U;
     int fin = 0;
     static const uint8_t message[] = {'h', 'e', 'l', 'l', 'o', '-', 'q', 'u', 'i', 'c'};
 
@@ -731,10 +733,28 @@ static void quic_endpoint_test_handshake_and_stream(void)
         assert(accepted_stream == server_stream);
     }
 
-    assert(
-        libp2p_quic_stream_read(server_stream, read_buf, sizeof(read_buf), &read_len, &fin) ==
-        LIBP2P_QUIC_OK);
-    assert(read_len == sizeof(message));
+    for (round = 0U; (round < 1000U) && (fin == 0); round++)
+    {
+        libp2p_quic_err_t read_result = libp2p_quic_stream_read(
+            server_stream,
+            &read_buf[total_read],
+            sizeof(read_buf) - total_read,
+            &read_len,
+            &fin);
+
+        if (read_result == LIBP2P_QUIC_OK)
+        {
+            assert((total_read + read_len) <= sizeof(read_buf));
+            total_read += read_len;
+        }
+        else
+        {
+            assert(read_result == LIBP2P_QUIC_ERR_WOULD_BLOCK);
+            quic_endpoint_pump(client, server, &now_us);
+        }
+    }
+
+    assert(total_read == sizeof(message));
     assert(memcmp(read_buf, message, sizeof(message)) == 0);
     assert(fin == 1);
 
