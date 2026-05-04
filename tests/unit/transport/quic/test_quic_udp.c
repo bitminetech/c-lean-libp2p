@@ -251,6 +251,7 @@ static void quic_udp_test_real_socket_handshake_and_stream(void)
     uint8_t read_buf[16];
     size_t accepted = 0U;
     size_t read_len = 0U;
+    size_t total_read = 0U;
     int fin = 0;
     size_t round = 0U;
 
@@ -291,17 +292,30 @@ static void quic_udp_test_real_socket_handshake_and_stream(void)
         if (server_stream != NULL)
         {
             libp2p_quic_err_t result =
-                libp2p_quic_stream_read(server_stream, read_buf, sizeof(read_buf), &read_len, &fin);
+                libp2p_quic_stream_read(
+                    server_stream,
+                    &read_buf[total_read],
+                    sizeof(read_buf) - total_read,
+                    &read_len,
+                    &fin);
 
             if (result == LIBP2P_QUIC_OK)
             {
-                break;
+                assert((total_read + read_len) <= sizeof(read_buf));
+                total_read += read_len;
+                if (fin != 0)
+                {
+                    break;
+                }
             }
-            assert(result == LIBP2P_QUIC_ERR_WOULD_BLOCK);
+            else
+            {
+                assert(result == LIBP2P_QUIC_ERR_WOULD_BLOCK);
+            }
         }
     }
 
-    assert(read_len == sizeof(message));
+    assert(total_read == sizeof(message));
     assert(memcmp(read_buf, message, sizeof(message)) == 0);
     assert(fin == 1);
 
