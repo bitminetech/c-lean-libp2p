@@ -3,6 +3,32 @@
 
 #include "gossipsub_internal.h"
 
+static uint64_t gossipsub_rx_prune_backoff_us(
+    const libp2p_gossipsub_t *gossipsub,
+    uint64_t backoff_seconds)
+{
+    static const uint64_t us_per_second = 1000000ULL;
+    uint64_t result = 0U;
+
+    if (gossipsub != NULL)
+    {
+        result = gossipsub->config.mesh.prune_backoff_us;
+        if (backoff_seconds != 0U)
+        {
+            if (backoff_seconds > (UINT64_MAX / us_per_second))
+            {
+                result = UINT64_MAX;
+            }
+            else
+            {
+                result = backoff_seconds * us_per_second;
+            }
+        }
+    }
+
+    return result;
+}
+
 libp2p_gossipsub_err_t gossipsub_process_subscription(
     libp2p_gossipsub_t *gossipsub,
     size_t peer_index,
@@ -283,6 +309,28 @@ libp2p_gossipsub_err_t gossipsub_process_rpc(
             else if (topic->local_subscribed == 0U)
             {
                 result = gossipsub_enqueue_prune(gossipsub, peer_index, topic);
+                if (result == LIBP2P_GOSSIPSUB_OK)
+                {
+                    result = gossipsub_backoff_add(
+                        gossipsub,
+                        peer_index,
+                        topic_index,
+                        gossipsub->config.mesh.prune_backoff_us,
+                        now_us);
+                }
+            }
+            else if (gossipsub_backoff_active(gossipsub, peer_index, topic_index, now_us) != 0)
+            {
+                result = gossipsub_enqueue_prune(gossipsub, peer_index, topic);
+                if (result == LIBP2P_GOSSIPSUB_OK)
+                {
+                    result = gossipsub_backoff_add(
+                        gossipsub,
+                        peer_index,
+                        topic_index,
+                        gossipsub->config.mesh.prune_backoff_us,
+                        now_us);
+                }
             }
             else if (
                 (gossipsub_mesh_contains(gossipsub, peer_index, topic_index) != 0) ||
@@ -293,6 +341,15 @@ libp2p_gossipsub_err_t gossipsub_process_rpc(
             else
             {
                 result = gossipsub_enqueue_prune(gossipsub, peer_index, topic);
+                if (result == LIBP2P_GOSSIPSUB_OK)
+                {
+                    result = gossipsub_backoff_add(
+                        gossipsub,
+                        peer_index,
+                        topic_index,
+                        gossipsub->config.mesh.prune_backoff_us,
+                        now_us);
+                }
             }
         }
         for (size_t index = 0U;
@@ -308,6 +365,14 @@ libp2p_gossipsub_err_t gossipsub_process_rpc(
                     &topic_index) != NULL)
             {
                 gossipsub_mesh_remove(gossipsub, peer_index, topic_index);
+                result = gossipsub_backoff_add(
+                    gossipsub,
+                    peer_index,
+                    topic_index,
+                    gossipsub_rx_prune_backoff_us(
+                        gossipsub,
+                        rpc->control.prune[index].backoff_seconds),
+                    now_us);
             }
         }
         for (size_t index = 0U;

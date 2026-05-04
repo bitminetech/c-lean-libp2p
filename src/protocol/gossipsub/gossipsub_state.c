@@ -388,6 +388,149 @@ size_t gossipsub_mesh_count_topic(const libp2p_gossipsub_t *gossipsub, size_t to
     return result;
 }
 
+static uint64_t gossipsub_u64_add_saturating(uint64_t left, uint64_t right)
+{
+    uint64_t result = UINT64_MAX;
+
+    if ((UINT64_MAX - left) >= right)
+    {
+        result = left + right;
+    }
+
+    return result;
+}
+
+static uint64_t gossipsub_backoff_expires_us(
+    const libp2p_gossipsub_t *gossipsub,
+    uint64_t interval_us,
+    uint64_t now_us)
+{
+    uint64_t interval_with_slack = interval_us;
+
+    if (gossipsub != NULL)
+    {
+        interval_with_slack =
+            gossipsub_u64_add_saturating(interval_us, gossipsub->config.mesh.backoff_slack_us);
+    }
+
+    return gossipsub_u64_add_saturating(now_us, interval_with_slack);
+}
+
+int gossipsub_backoff_active(
+    const libp2p_gossipsub_t *gossipsub,
+    size_t peer_index,
+    size_t topic_index,
+    uint64_t now_us)
+{
+    int result = 0;
+
+    if ((gossipsub != NULL) && (peer_index < gossipsub->config.capacity.max_peers) &&
+        (topic_index < gossipsub->config.capacity.max_topics))
+    {
+        for (size_t index = 0U; index < gossipsub->config.capacity.max_backoff_entries; index++)
+        {
+            if ((gossipsub->backoff[index].used != 0U) &&
+                (gossipsub->backoff[index].peer_index == peer_index) &&
+                (gossipsub->backoff[index].topic_index == topic_index) &&
+                (gossipsub->backoff[index].expires_us > now_us))
+            {
+                result = 1;
+                break;
+            }
+        }
+    }
+
+    return result;
+}
+
+libp2p_gossipsub_err_t gossipsub_backoff_add(
+    libp2p_gossipsub_t *gossipsub,
+    size_t peer_index,
+    size_t topic_index,
+    uint64_t interval_us,
+    uint64_t now_us)
+{
+    libp2p_gossipsub_err_t result = LIBP2P_GOSSIPSUB_OK;
+
+    if ((gossipsub == NULL) || (peer_index >= gossipsub->config.capacity.max_peers) ||
+        (topic_index >= gossipsub->config.capacity.max_topics))
+    {
+        result = LIBP2P_GOSSIPSUB_ERR_INVALID_ARG;
+    }
+    else
+    {
+        size_t slot_index = 0U;
+        size_t replace_index = 0U;
+        const uint64_t expires_us = gossipsub_backoff_expires_us(gossipsub, interval_us, now_us);
+        uint64_t replace_expires_us = UINT64_MAX;
+        uint8_t have_slot = 0U;
+        uint8_t have_replace = 0U;
+        uint8_t found_match = 0U;
+
+        for (size_t index = 0U; index < gossipsub->config.capacity.max_backoff_entries; index++)
+        {
+            if ((gossipsub->backoff[index].used != 0U) &&
+                (gossipsub->backoff[index].peer_index == peer_index) &&
+                (gossipsub->backoff[index].topic_index == topic_index))
+            {
+                slot_index = index;
+                have_slot = 1U;
+                found_match = 1U;
+                break;
+            }
+            if ((gossipsub->backoff[index].used == 0U) && (have_slot == 0U))
+            {
+                slot_index = index;
+                have_slot = 1U;
+            }
+            if ((gossipsub->backoff[index].used != 0U) &&
+                ((have_replace == 0U) || (gossipsub->backoff[index].expires_us < replace_expires_us)))
+            {
+                replace_index = index;
+                replace_expires_us = gossipsub->backoff[index].expires_us;
+                have_replace = 1U;
+            }
+        }
+        if ((have_slot == 0U) && (have_replace != 0U))
+        {
+            slot_index = replace_index;
+            have_slot = 1U;
+        }
+        if (have_slot == 0U)
+        {
+            result = LIBP2P_GOSSIPSUB_ERR_LIMIT;
+        }
+        else if ((found_match == 0U) || (gossipsub->backoff[slot_index].expires_us < expires_us))
+        {
+            gossipsub->backoff[slot_index].used = 1U;
+            gossipsub->backoff[slot_index].peer_index = peer_index;
+            gossipsub->backoff[slot_index].topic_index = topic_index;
+            gossipsub->backoff[slot_index].expires_us = expires_us;
+        }
+        else
+        {
+            result = LIBP2P_GOSSIPSUB_OK;
+        }
+    }
+
+    return result;
+}
+
+void gossipsub_backoff_clear_expired(libp2p_gossipsub_t *gossipsub, uint64_t now_us)
+{
+    if (gossipsub != NULL)
+    {
+        for (size_t index = 0U; index < gossipsub->config.capacity.max_backoff_entries; index++)
+        {
+            if ((gossipsub->backoff[index].used != 0U) &&
+                (gossipsub->backoff[index].expires_us <= now_us))
+            {
+                (void)memset(&gossipsub->backoff[index], 0, sizeof(gossipsub->backoff[index]));
+            }
+        }
+    }
+}
+
 libp2p_gossipsub_err_t gossipsub_mesh_add(
     libp2p_gossipsub_t *gossipsub,
     size_t peer_index,
@@ -515,7 +658,12 @@ libp2p_gossipsub_err_t gossipsub_mesh_fill_topic(
             if ((gossipsub->peers[peer_index].used == GOSSIPSUB_PEER_USED) &&
                 (gossipsub->peers[peer_index].stream != NULL) &&
                 (gossipsub_peer_subscribed(gossipsub, peer_index, topic_index) != 0) &&
-                (gossipsub_mesh_contains(gossipsub, peer_index, topic_index) == 0))
+                (gossipsub_mesh_contains(gossipsub, peer_index, topic_index) == 0) &&
+                (gossipsub_backoff_active(
+                     gossipsub,
+                     peer_index,
+                     topic_index,
+                     gossipsub->last_drive_us) == 0))
             {
                 result = gossipsub_mesh_add(gossipsub, peer_index, topic_index);
                 if ((result == LIBP2P_GOSSIPSUB_OK) && (queue_graft != 0U))
@@ -572,6 +720,18 @@ libp2p_gossipsub_err_t gossipsub_mesh_trim_topic(
                         gossipsub,
                         peer_index,
                         &gossipsub->topics[topic_index]);
+                }
+                if (result == LIBP2P_GOSSIPSUB_OK)
+                {
+                    if (queue_prune != 0U)
+                    {
+                        result = gossipsub_backoff_add(
+                            gossipsub,
+                            peer_index,
+                            topic_index,
+                            gossipsub->config.mesh.prune_backoff_us,
+                            gossipsub->last_drive_us);
+                    }
                 }
                 if (result == LIBP2P_GOSSIPSUB_OK)
                 {

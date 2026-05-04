@@ -124,6 +124,14 @@ typedef struct
 
 typedef struct
 {
+    uint8_t used;
+    size_t peer_index;
+    size_t topic_index;
+    uint64_t expires_us;
+} gossipsub_backoff_state_t;
+
+typedef struct
+{
     uint8_t state;
     libp2p_host_stream_t *stream;
     libp2p_host_conn_t *conn;
@@ -210,6 +218,7 @@ struct libp2p_gossipsub
     gossipsub_peer_state_t *peers;
     gossipsub_peer_topic_state_t *peer_topics;
     gossipsub_mesh_edge_state_t *mesh_edges;
+    gossipsub_backoff_state_t *backoff;
     gossipsub_stream_state_t *streams;
     gossipsub_tx_item_t *tx_queue;
     uint8_t *tx_buffer;
@@ -245,6 +254,7 @@ typedef struct
     size_t peers_offset;
     size_t peer_topics_offset;
     size_t mesh_edges_offset;
+    size_t backoff_offset;
     size_t streams_offset;
     size_t stream_rx_offset;
     size_t tx_queue_offset;
@@ -549,6 +559,18 @@ libp2p_gossipsub_err_t gossipsub_mesh_add(
 void gossipsub_mesh_remove(libp2p_gossipsub_t *gossipsub, size_t peer_index, size_t topic_index);
 void gossipsub_mesh_remove_peer(libp2p_gossipsub_t *gossipsub, size_t peer_index);
 void gossipsub_mesh_remove_topic(libp2p_gossipsub_t *gossipsub, size_t topic_index);
+int gossipsub_backoff_active(
+    const libp2p_gossipsub_t *gossipsub,
+    size_t peer_index,
+    size_t topic_index,
+    uint64_t now_us);
+libp2p_gossipsub_err_t gossipsub_backoff_add(
+    libp2p_gossipsub_t *gossipsub,
+    size_t peer_index,
+    size_t topic_index,
+    uint64_t interval_us,
+    uint64_t now_us);
+void gossipsub_backoff_clear_expired(libp2p_gossipsub_t *gossipsub, uint64_t now_us);
 libp2p_gossipsub_err_t gossipsub_mesh_fill_topic(
     libp2p_gossipsub_t *gossipsub,
     size_t topic_index,
@@ -651,6 +673,11 @@ libp2p_gossipsub_err_t gossipsub_enqueue_prune(
     libp2p_gossipsub_t *gossipsub,
     size_t peer_index,
     const gossipsub_topic_state_t *topic);
+libp2p_gossipsub_err_t gossipsub_enqueue_prune_with_backoff(
+    libp2p_gossipsub_t *gossipsub,
+    size_t peer_index,
+    const gossipsub_topic_state_t *topic,
+    uint64_t backoff_us);
 libp2p_gossipsub_err_t gossipsub_enqueue_publish_entry(
     libp2p_gossipsub_t *gossipsub,
     size_t peer_index,

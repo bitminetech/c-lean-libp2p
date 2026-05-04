@@ -148,6 +148,7 @@ void gossipsub_heartbeat(libp2p_gossipsub_t *gossipsub, uint64_t now_us)
                 gossipsub->peers[index].idontwant_sent_this_heartbeat = 0U;
             }
         }
+        gossipsub_backoff_clear_expired(gossipsub, now_us);
         (void)gossipsub_mesh_heartbeat(gossipsub);
         (void)gossipsub_emit_gossip(gossipsub);
         for (size_t index = 0U; index < gossipsub->config.capacity.mcache_slots; index++)

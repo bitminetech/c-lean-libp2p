@@ -873,6 +873,30 @@ libp2p_gossipsub_err_t gossipsub_enqueue_prune(
     size_t peer_index,
     const gossipsub_topic_state_t *topic)
 {
+    libp2p_gossipsub_err_t result = LIBP2P_GOSSIPSUB_OK;
+
+    if (gossipsub == NULL)
+    {
+        result = LIBP2P_GOSSIPSUB_ERR_INVALID_ARG;
+    }
+    else
+    {
+        result = gossipsub_enqueue_prune_with_backoff(
+            gossipsub,
+            peer_index,
+            topic,
+            gossipsub->config.mesh.prune_backoff_us);
+    }
+
+    return result;
+}
+
+libp2p_gossipsub_err_t gossipsub_enqueue_prune_with_backoff(
+    libp2p_gossipsub_t *gossipsub,
+    size_t peer_index,
+    const gossipsub_topic_state_t *topic,
+    uint64_t backoff_us)
+{
     libp2p_gossipsub_control_prune_t prune;
     libp2p_gossipsub_rpc_t rpc;
     libp2p_gossipsub_err_t result = LIBP2P_GOSSIPSUB_OK;
@@ -887,8 +911,7 @@ libp2p_gossipsub_err_t gossipsub_enqueue_prune(
     {
         prune.topic.data = topic->topic;
         prune.topic.len = topic->topic_len;
-        prune.backoff_seconds =
-            gossipsub_tx_backoff_seconds(gossipsub->config.mesh.prune_backoff_us);
+        prune.backoff_seconds = gossipsub_tx_backoff_seconds(backoff_us);
         rpc.control.prune = &prune;
         rpc.control.prune_count = 1U;
         result = gossipsub_enqueue_priority_rpc(gossipsub, peer_index, &rpc);
