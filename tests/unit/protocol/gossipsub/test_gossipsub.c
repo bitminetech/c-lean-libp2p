@@ -1906,6 +1906,8 @@ static void gossipsub_test_inbound_graft_during_backoff_is_pruned(void)
     assert(decoded_rpc.control.prune[0].backoff_seconds == 1U);
     assert(decoded_rpc.control.prune[0].topic.len == sizeof(topic) - 1U);
     assert(memcmp(decoded_rpc.control.prune[0].topic.data, topic, sizeof(topic) - 1U) == 0);
+    assert(decoded_rpc.control.prune[0].peers == NULL);
+    assert(decoded_rpc.control.prune[0].peer_count == 0U);
 
     libp2p_gossipsub_deinit(gossipsub);
     free(storage);
