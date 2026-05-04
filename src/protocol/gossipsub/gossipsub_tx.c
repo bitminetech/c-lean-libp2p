@@ -1101,6 +1101,8 @@ libp2p_gossipsub_err_t gossipsub_flush_peer(
                     }
                     if (item->pos == item->len)
                     {
+                        uint8_t wait_for_transport_flush = 0U;
+
                         if (item->publish != 0U)
                         {
                             gossipsub_autopsy_record_attempt(
@@ -1110,10 +1112,17 @@ libp2p_gossipsub_err_t gossipsub_flush_peer(
                                 item->message_id_len,
                                 GOSSIPSUB_AUTOPSY_OUTCOME_SENT);
                         }
+                        if (bytes_written != 0U)
+                        {
+                            wait_for_transport_flush = 1U;
+                        }
                         gossipsub_tx_remove(gossipsub, item_index);
                         (*rpcs_sent)++;
-                        if (bytes_written >= GOSSIPSUB_TX_BYTES_PER_PEER_PER_DRIVE)
+                        if (wait_for_transport_flush != 0U)
                         {
+                            peer_blocked = 1U;
+                            peer->tx_transport_busy = 1U;
+                            gossipsub_tx_set_peer_ready(gossipsub, peer_index, 0U);
                             keep_writing = 0U;
                         }
                     }

@@ -295,11 +295,6 @@ QUIC_BACKEND_INTERNAL libp2p_quic_err_t quic_backend_stream_write(
     {
         result = LIBP2P_QUIC_ERR_CLOSED;
     }
-    if ((result == LIBP2P_QUIC_OK) && (data_len != 0U) && (stream->tx_sent_len < stream->tx_len))
-    {
-        result = LIBP2P_QUIC_ERR_WOULD_BLOCK;
-        block_reason = 4U;
-    }
     if (result == LIBP2P_QUIC_OK)
     {
         size_t limit = 0U;
@@ -314,9 +309,19 @@ QUIC_BACKEND_INTERNAL libp2p_quic_err_t quic_backend_stream_write(
             limit = stream->conn->endpoint->config.initial_stream_window_bytes *
                     QUIC_BACKEND_STREAM_SEND_MULTIPLIER;
         }
-        if (accept_len > QUIC_BACKEND_STREAM_WRITE_CHUNK)
+        if ((result == LIBP2P_QUIC_OK) && (stream->tx_len >= limit) && (accept_len != 0U))
         {
-            accept_len = QUIC_BACKEND_STREAM_WRITE_CHUNK;
+            result = LIBP2P_QUIC_ERR_WOULD_BLOCK;
+            block_reason = 2U;
+        }
+        if (result == LIBP2P_QUIC_OK)
+        {
+            const size_t available = limit - stream->tx_len;
+
+            if (accept_len > available)
+            {
+                accept_len = available;
+            }
         }
         if ((result == LIBP2P_QUIC_OK) &&
             ((quic_backend_size_add_overflow(stream->tx_len, accept_len, &required) != 0) ||

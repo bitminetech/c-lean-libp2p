@@ -39,7 +39,6 @@
 #define QUIC_BACKEND_EXTRA_EVENTS           16U
 #define QUIC_BACKEND_ACTIVE_CID_LIMIT       8U
 #define QUIC_BACKEND_STREAM_SEND_MULTIPLIER 2U
-#define QUIC_BACKEND_STREAM_WRITE_CHUNK     4096U
 
 typedef struct quic_backend_stream_vec quic_backend_stream_vec_t;
 

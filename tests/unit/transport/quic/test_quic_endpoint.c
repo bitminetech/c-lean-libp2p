@@ -765,6 +765,7 @@ static void quic_endpoint_test_stream_write_backpressure(void)
 {
     enum
     {
+        STREAM_WINDOW = 2048,
         PAYLOAD_LEN = 5000
     };
     quic_endpoint_identity_fixture_t identity;
@@ -793,7 +794,13 @@ static void quic_endpoint_test_stream_write_backpressure(void)
     int fin = 0;
 
     quic_endpoint_make_identity(&identity, 19U);
-    quic_endpoint_init_pair(&client, &client_storage, &server, &server_storage, &identity.identity);
+    quic_endpoint_init_pair_with_stream_window(
+        &client,
+        &client_storage,
+        &server,
+        &server_storage,
+        &identity.identity,
+        (size_t)STREAM_WINDOW);
     (void)memset(payload, 0x5A, sizeof(payload));
     (void)memset(read_buf, 0, sizeof(read_buf));
 
@@ -812,7 +819,7 @@ static void quic_endpoint_test_stream_write_backpressure(void)
     assert(
         libp2p_quic_stream_write(client_stream, payload, sizeof(payload), 0, &first_accepted) ==
         LIBP2P_QUIC_OK);
-    assert(first_accepted == 4096U);
+    assert(first_accepted == ((size_t)STREAM_WINDOW * 2U));
     assert(
         libp2p_quic_stream_write(
             client_stream,
