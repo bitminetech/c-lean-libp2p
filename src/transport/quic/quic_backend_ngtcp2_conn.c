@@ -605,6 +605,43 @@ static libp2p_quic_stream_t *quic_backend_conn_next_tx_stream(libp2p_quic_conn_t
     return result;
 }
 
+static void quic_backend_maybe_wake_stream_after_tx_drain(libp2p_quic_stream_t *stream)
+{
+    if ((stream != NULL) && (stream->write_blocked != 0U) &&
+        (stream->state != LIBP2P_QUIC_STREAM_CLOSED) &&
+        (stream->state != LIBP2P_QUIC_STREAM_RESET) && (stream->local_fin_queued == 0U) &&
+        (stream->tx_sent_len == stream->tx_len))
+    {
+        libp2p_quic_err_t err = quic_backend_event_push(
+            stream->conn->endpoint,
+            LIBP2P_QUIC_EVENT_STREAM_WRITABLE,
+            stream->conn,
+            stream,
+            0U,
+            0U);
+
+        if (err == LIBP2P_QUIC_OK)
+        {
+            stream->write_blocked = 0U;
+            quic_backend_debug_stream_state(
+                stream,
+                "stream_wake_tx_drain",
+                (uint64_t)stream->tx_len,
+                (uint64_t)stream->tx_sent_len,
+                0U);
+        }
+        else
+        {
+            quic_backend_debug_stream_state(
+                stream,
+                "stream_wake_tx_drain_drop",
+                (uint64_t)stream->conn->endpoint->event_len,
+                (uint64_t)stream->conn->endpoint->event_cap,
+                (uint32_t)err);
+        }
+    }
+}
+
 QUIC_BACKEND_INTERNAL libp2p_quic_err_t quic_backend_write_conn_datagram(
     libp2p_quic_conn_t *conn,
     libp2p_quic_tx_datagram_t *datagram,
@@ -719,6 +756,7 @@ QUIC_BACKEND_INTERNAL libp2p_quic_err_t quic_backend_write_conn_datagram(
                     (uint64_t)nwrite,
                     (uint64_t)ndatalen,
                     flags);
+                quic_backend_maybe_wake_stream_after_tx_drain(stream);
                 if (((flags & NGTCP2_WRITE_STREAM_FLAG_FIN) != 0U) &&
                     (stream->tx_sent_len == stream->tx_len))
                 {

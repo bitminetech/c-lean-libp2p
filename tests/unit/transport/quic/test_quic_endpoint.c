@@ -819,8 +819,8 @@ static void quic_endpoint_test_stream_write_backpressure(void)
             &payload[first_accepted],
             sizeof(payload) - first_accepted,
             0,
-            &accepted) == LIBP2P_QUIC_OK);
-    assert(accepted == (sizeof(payload) - first_accepted));
+            &accepted) == LIBP2P_QUIC_ERR_WOULD_BLOCK);
+    assert(accepted == 0U);
 
     for (index = 0U; (index < 1000U) && (writable_count == 0U); index++)
     {
@@ -828,6 +828,14 @@ static void quic_endpoint_test_stream_write_backpressure(void)
         quic_endpoint_drain_writable_events(client, client_stream, &writable_count);
     }
     assert(writable_count != 0U);
+    assert(
+        libp2p_quic_stream_write(
+            client_stream,
+            &payload[first_accepted],
+            sizeof(payload) - first_accepted,
+            0,
+            &accepted) == LIBP2P_QUIC_OK);
+    assert(accepted == (sizeof(payload) - first_accepted));
 
     assert(libp2p_quic_stream_finish(client_stream) == LIBP2P_QUIC_OK);
 

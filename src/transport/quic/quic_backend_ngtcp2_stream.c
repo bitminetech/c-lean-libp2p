@@ -295,6 +295,11 @@ QUIC_BACKEND_INTERNAL libp2p_quic_err_t quic_backend_stream_write(
     {
         result = LIBP2P_QUIC_ERR_CLOSED;
     }
+    if ((result == LIBP2P_QUIC_OK) && (data_len != 0U) && (stream->tx_sent_len < stream->tx_len))
+    {
+        result = LIBP2P_QUIC_ERR_WOULD_BLOCK;
+        block_reason = 4U;
+    }
     if (result == LIBP2P_QUIC_OK)
     {
         size_t limit = 0U;
