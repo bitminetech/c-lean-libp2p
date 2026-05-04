@@ -266,6 +266,7 @@ libp2p_gossipsub_err_t libp2p_gossipsub_handle_host_event(
                 gossipsub->peers[index].closed = 1U;
                 gossipsub->peers[index].stream = NULL;
                 gossipsub->peers[index].conn = NULL;
+                gossipsub->peers[index].tx_transport_busy = 0U;
             }
         }
     }
@@ -387,6 +388,7 @@ libp2p_host_err_t gossipsub_protocol_on_open(
             peer->stream = stream;
             peer->direction = direction;
             peer->version = version;
+            peer->tx_transport_busy = 0U;
             selected_writer = 1U;
         }
         result = gossipsub_host_to_err(libp2p_host_stream_set_user_data(stream, stream_state));
@@ -484,6 +486,7 @@ libp2p_host_err_t gossipsub_protocol_on_event(
             gossipsub_drop_queued_peer(gossipsub, stream_state->peer_index);
             gossipsub_mesh_remove_peer(gossipsub, stream_state->peer_index);
             gossipsub->peers[stream_state->peer_index].stream = NULL;
+            gossipsub->peers[stream_state->peer_index].tx_transport_busy = 0U;
         }
         stream_state->state = GOSSIPSUB_STREAM_FREE;
         stream_state->stream = NULL;

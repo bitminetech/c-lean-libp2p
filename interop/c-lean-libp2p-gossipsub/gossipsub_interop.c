@@ -1011,10 +1011,11 @@ static void gossipsub_interop_autopsy_dump_peers(
                 }
                 (void)fprintf(
                     stderr,
-                    "\" head_offset=%zu head_len=%zu ready=%u stream_id=%lld conn_id=",
+                    "\" head_offset=%zu head_len=%zu ready=%u transport_busy=%u stream_id=%lld conn_id=",
                     (head != NULL) ? head->pos : 0U,
                     (head != NULL) ? head->len : 0U,
                     (unsigned int)peer->tx_ready,
+                    (unsigned int)peer->tx_transport_busy,
                     (long long)stream_id);
                 if (conn_index == SIZE_MAX)
                 {
