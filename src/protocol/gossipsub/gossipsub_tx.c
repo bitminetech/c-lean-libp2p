@@ -1034,7 +1034,7 @@ libp2p_gossipsub_err_t gossipsub_flush_peer(
         uint8_t peer_blocked = 0U;
 
         while ((result == LIBP2P_GOSSIPSUB_OK) && (peer->tx_queue_depth != 0U) &&
-               (keep_writing != 0U) && (bytes_written < GOSSIPSUB_TX_BYTES_PER_PEER_PER_DRIVE))
+               (keep_writing != 0U))
         {
             const size_t item_index = peer->tx_head;
 
@@ -1065,14 +1065,10 @@ libp2p_gossipsub_err_t gossipsub_flush_peer(
             {
                 gossipsub_tx_item_t *item = &gossipsub->tx_queue[item_index];
                 const size_t remaining = item->len - item->pos;
-                size_t write_len = GOSSIPSUB_TX_BYTES_PER_PEER_PER_DRIVE - bytes_written;
+                const size_t write_len = remaining;
                 size_t accepted = 0U;
                 uint8_t blocked = 0U;
 
-                if (write_len > remaining)
-                {
-                    write_len = remaining;
-                }
                 result = gossipsub_host_to_err(libp2p_host_stream_write(
                     host,
                     peer->stream,
@@ -1112,6 +1108,10 @@ libp2p_gossipsub_err_t gossipsub_flush_peer(
                         }
                         gossipsub_tx_remove(gossipsub, item_index);
                         (*rpcs_sent)++;
+                        if (bytes_written >= GOSSIPSUB_TX_BYTES_PER_PEER_PER_DRIVE)
+                        {
+                            keep_writing = 0U;
+                        }
                     }
                     else if (accepted == 0U)
                     {
@@ -1122,7 +1122,7 @@ libp2p_gossipsub_err_t gossipsub_flush_peer(
                     }
                     else
                     {
-                        keep_writing = 0U;
+                        /* Finish the current RPC before yielding to the next queued RPC. */
                     }
                 }
             }
