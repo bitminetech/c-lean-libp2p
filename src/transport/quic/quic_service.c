@@ -848,7 +848,7 @@ static libp2p_quic_err_t quic_service_drive_tx(
 
         if (err == LIBP2P_QUIC_OK)
         {
-            quic_backend_conn_confirm_tx_datagram(service->pending_tx_conn);
+            quic_backend_conn_confirm_tx_datagram(service->pending_tx_conn, now_us);
             quic_service_clear_pending_tx_datagram(service);
             result->tx_datagrams++;
             result->made_progress = 1U;
@@ -861,7 +861,7 @@ static libp2p_quic_err_t quic_service_drive_tx(
         }
         else
         {
-            quic_backend_conn_confirm_tx_datagram(service->pending_tx_conn);
+            quic_backend_conn_discard_tx_datagram(service->pending_tx_conn);
             quic_service_clear_pending_tx_datagram(service);
             result_code = err;
         }

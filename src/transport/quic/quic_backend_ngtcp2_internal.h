@@ -327,7 +327,10 @@ QUIC_BACKEND_INTERNAL libp2p_quic_err_t quic_backend_write_conn_datagram(
     libp2p_quic_tx_datagram_t *datagram,
     libp2p_quic_time_us_t now_us);
 
-QUIC_BACKEND_INTERNAL void quic_backend_conn_confirm_tx_datagram(libp2p_quic_conn_t *conn);
+QUIC_BACKEND_INTERNAL void
+quic_backend_conn_confirm_tx_datagram(libp2p_quic_conn_t *conn, libp2p_quic_time_us_t now_us);
+
+QUIC_BACKEND_INTERNAL void quic_backend_conn_discard_tx_datagram(libp2p_quic_conn_t *conn);
 
 QUIC_BACKEND_INTERNAL void
 quic_backend_conn_flush_tx_time_update(libp2p_quic_conn_t *conn, libp2p_quic_time_us_t now_us);
