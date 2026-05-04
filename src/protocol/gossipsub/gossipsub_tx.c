@@ -1085,6 +1085,7 @@ libp2p_gossipsub_err_t gossipsub_flush_peer(
                     blocked = 1U;
                     peer_blocked = 1U;
                     peer->tx_would_block_count++;
+                    peer->tx_transport_busy = 1U;
                     gossipsub_tx_set_peer_ready(gossipsub, peer_index, 0U);
                     keep_writing = 0U;
                 }
@@ -1097,7 +1098,6 @@ libp2p_gossipsub_err_t gossipsub_flush_peer(
                         bytes_written += accepted;
                         peer->tx_last_offset = item->pos;
                         peer->tx_bytes_accepted += (uint64_t)accepted;
-                        peer->tx_transport_busy = 1U;
                     }
                     if (item->pos == item->len)
                     {
@@ -1121,6 +1121,7 @@ libp2p_gossipsub_err_t gossipsub_flush_peer(
                     {
                         peer_blocked = 1U;
                         peer->tx_would_block_count++;
+                        peer->tx_transport_busy = 1U;
                         gossipsub_tx_set_peer_ready(gossipsub, peer_index, 0U);
                         keep_writing = 0U;
                     }
@@ -1139,7 +1140,7 @@ libp2p_gossipsub_err_t gossipsub_flush_peer(
             }
             else if (bytes_written != 0U)
             {
-                gossipsub_tx_set_peer_ready(gossipsub, peer_index, 0U);
+                gossipsub_tx_set_peer_ready(gossipsub, peer_index, 1U);
             }
             else
             {
