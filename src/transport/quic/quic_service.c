@@ -8,6 +8,7 @@
 #include <stdint.h>
 #include <string.h>
 
+#include "quic_backend_ngtcp2_internal.h"
 #include "transport/quic/quic_udp.h"
 
 #define QUIC_SERVICE_MAGIC ((uint32_t)0x71535631U)
@@ -1276,6 +1277,105 @@ libp2p_quic_err_t libp2p_quic_service_next_event(
             *out_event = service->events[service->event_head];
             service->event_head = (service->event_head + 1U) % service->event_capacity;
             service->event_len--;
+        }
+    }
+
+    return result;
+}
+
+libp2p_quic_err_t libp2p_quic_service_autopsy_conn(
+    const libp2p_quic_service_t *service,
+    size_t conn_index,
+    libp2p_quic_time_us_t now_us,
+    libp2p_quic_service_autopsy_conn_t *out_conn)
+{
+    libp2p_quic_err_t result = quic_service_validate(service);
+
+    if (out_conn != NULL)
+    {
+        (void)memset(out_conn, 0, sizeof(*out_conn));
+    }
+    if (result == LIBP2P_QUIC_OK)
+    {
+        if ((out_conn == NULL) || (conn_index >= service->conn_capacity))
+        {
+            result = LIBP2P_QUIC_ERR_INVALID_ARG;
+        }
+    }
+    if (result == LIBP2P_QUIC_OK)
+    {
+        const quic_service_conn_entry_t *entry = &service->conns[conn_index];
+
+        if (entry->conn == NULL)
+        {
+            result = LIBP2P_QUIC_ERR_WOULD_BLOCK;
+        }
+        else
+        {
+            const libp2p_quic_conn_t *conn = entry->conn;
+            ngtcp2_conn_info info;
+            ngtcp2_tstamp expiry = UINT64_MAX;
+
+            (void)memset(&info, 0, sizeof(info));
+            out_conn->used = 1U;
+            out_conn->closed = entry->closed;
+            if (conn->has_peer_identity != 0U)
+            {
+                out_conn->remote_peer_id_len = conn->peer_identity.peer_id_len;
+                (void)memcpy(
+                    out_conn->remote_peer_id,
+                    conn->peer_identity.peer_id,
+                    conn->peer_identity.peer_id_len);
+            }
+            if (conn->ngconn != NULL)
+            {
+                ngtcp2_conn_get_conn_info2(conn->ngconn, &info);
+                expiry = ngtcp2_conn_get_expiry2(conn->ngconn);
+            }
+            out_conn->cwnd = info.cwnd;
+            out_conn->bytes_in_flight = info.bytes_in_flight;
+            out_conn->tx_lost = info.bytes_lost;
+            out_conn->tx_sent = conn->autopsy_tx_sent_bytes;
+            out_conn->tx_acked = conn->autopsy_tx_acked_bytes;
+            out_conn->last_rx_us = conn->autopsy_last_rx_us;
+            out_conn->last_tx_us = conn->autopsy_last_tx_us;
+            if (expiry != UINT64_MAX)
+            {
+                out_conn->idle_deadline_us =
+                    quic_backend_endpoint_time_from_ngtcp2(conn->endpoint, expiry);
+            }
+            for (size_t stream_index = 0U; stream_index < conn->streams.len; stream_index++)
+            {
+                const libp2p_quic_stream_t *stream = conn->streams.items[stream_index];
+
+                if (stream != NULL)
+                {
+                    const uint64_t stream_buffered = (uint64_t)stream->tx_len;
+                    const uint64_t sent_pending_ack = (uint64_t)stream->tx_sent_len;
+
+                    out_conn->tx_buffered += stream_buffered;
+                    if (out_conn->stream_count < LIBP2P_QUIC_SERVICE_AUTOPSY_MAX_STREAMS)
+                    {
+                        libp2p_quic_service_autopsy_stream_t *out_stream =
+                            &out_conn->streams[out_conn->stream_count];
+
+                        out_stream->used = 1U;
+                        out_stream->stream_id = stream->stream_id;
+                        out_stream->tx_buffered = stream->tx_len;
+                        out_stream->tx_sent_pending_ack = stream->tx_sent_len;
+                        out_stream->tx_base_offset = stream->tx_base_offset;
+                        if ((conn->ngconn != NULL) && (stream->stream_id >= 0))
+                        {
+                            out_stream->flow_credit = ngtcp2_conn_get_max_stream_data_left2(
+                                conn->ngconn,
+                                stream->stream_id);
+                        }
+                    }
+                    out_conn->stream_count++;
+                    (void)sent_pending_ack;
+                }
+            }
+            (void)now_us;
         }
     }
 

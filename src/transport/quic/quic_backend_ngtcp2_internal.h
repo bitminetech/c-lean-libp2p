@@ -100,6 +100,10 @@ struct libp2p_quic_conn
     uint8_t close_sent;
     ngtcp2_ccerr close_error;
     libp2p_quic_err_t callback_error;
+    uint64_t autopsy_tx_sent_bytes;
+    uint64_t autopsy_tx_acked_bytes;
+    uint64_t autopsy_last_rx_us;
+    uint64_t autopsy_last_tx_us;
 };
 
 struct libp2p_quic_endpoint

@@ -3,6 +3,160 @@
 
 #include "gossipsub_internal.h"
 
+#define GOSSIPSUB_AUTOPSY_MAX_MESSAGES 256U
+#define GOSSIPSUB_AUTOPSY_MAX_ATTEMPTS 4096U
+
+static gossipsub_autopsy_message_t g_gossipsub_autopsy_messages[GOSSIPSUB_AUTOPSY_MAX_MESSAGES];
+static gossipsub_autopsy_attempt_t g_gossipsub_autopsy_attempts[GOSSIPSUB_AUTOPSY_MAX_ATTEMPTS];
+static size_t g_gossipsub_autopsy_message_count;
+static size_t g_gossipsub_autopsy_attempt_count;
+static uint8_t g_gossipsub_autopsy_enabled;
+
+void gossipsub_autopsy_set_enabled(uint8_t enabled)
+{
+    g_gossipsub_autopsy_enabled = (enabled != 0U) ? 1U : 0U;
+    if (g_gossipsub_autopsy_enabled == 0U)
+    {
+        (void)memset(g_gossipsub_autopsy_messages, 0, sizeof(g_gossipsub_autopsy_messages));
+        (void)memset(g_gossipsub_autopsy_attempts, 0, sizeof(g_gossipsub_autopsy_attempts));
+        g_gossipsub_autopsy_message_count = 0U;
+        g_gossipsub_autopsy_attempt_count = 0U;
+    }
+}
+
+static size_t gossipsub_autopsy_message_slot(const uint8_t *message_id, size_t message_id_len)
+{
+    size_t result = GOSSIPSUB_AUTOPSY_MAX_MESSAGES;
+
+    if ((message_id != NULL) && (message_id_len <= LIBP2P_GOSSIPSUB_DEFAULT_MAX_MESSAGE_ID_BYTES))
+    {
+        for (size_t index = 0U;
+             (index < g_gossipsub_autopsy_message_count) &&
+             (result == GOSSIPSUB_AUTOPSY_MAX_MESSAGES);
+             index++)
+        {
+            const gossipsub_autopsy_message_t *message = &g_gossipsub_autopsy_messages[index];
+
+            if ((message->used != 0U) && (message->message_id_len == message_id_len) &&
+                (memcmp(message->message_id, message_id, message_id_len) == 0))
+            {
+                result = index;
+            }
+        }
+        if ((result == GOSSIPSUB_AUTOPSY_MAX_MESSAGES) &&
+            (g_gossipsub_autopsy_message_count < GOSSIPSUB_AUTOPSY_MAX_MESSAGES))
+        {
+            result = g_gossipsub_autopsy_message_count;
+            g_gossipsub_autopsy_message_count++;
+            (void)memset(
+                &g_gossipsub_autopsy_messages[result],
+                0,
+                sizeof(g_gossipsub_autopsy_messages[result]));
+            g_gossipsub_autopsy_messages[result].used = 1U;
+            g_gossipsub_autopsy_messages[result].message_id_len = message_id_len;
+            (void)memcpy(g_gossipsub_autopsy_messages[result].message_id, message_id, message_id_len);
+        }
+    }
+
+    return result;
+}
+
+void gossipsub_autopsy_observe_message(
+    const uint8_t *message_id,
+    size_t message_id_len,
+    const uint8_t *publisher_peer_id,
+    size_t publisher_peer_id_len,
+    uint64_t now_us)
+{
+    if (g_gossipsub_autopsy_enabled != 0U)
+    {
+        const size_t slot = gossipsub_autopsy_message_slot(message_id, message_id_len);
+
+        if (slot < GOSSIPSUB_AUTOPSY_MAX_MESSAGES)
+        {
+            gossipsub_autopsy_message_t *message = &g_gossipsub_autopsy_messages[slot];
+
+            if (message->first_receive_us == 0U)
+            {
+                message->first_receive_us = now_us;
+            }
+            if ((message->publisher_peer_id_len == 0U) && (publisher_peer_id != NULL) &&
+                (publisher_peer_id_len <= sizeof(message->publisher_peer_id)))
+            {
+                message->publisher_peer_id_len = publisher_peer_id_len;
+                (void)memcpy(message->publisher_peer_id, publisher_peer_id, publisher_peer_id_len);
+            }
+        }
+    }
+}
+
+void gossipsub_autopsy_record_attempt(
+    const libp2p_gossipsub_t *gossipsub,
+    size_t peer_index,
+    const uint8_t *message_id,
+    size_t message_id_len,
+    gossipsub_autopsy_outcome_t outcome)
+{
+    if ((g_gossipsub_autopsy_enabled != 0U) && (gossipsub != NULL) &&
+        (peer_index < gossipsub->config.capacity.max_peers) &&
+        (g_gossipsub_autopsy_attempt_count < GOSSIPSUB_AUTOPSY_MAX_ATTEMPTS))
+    {
+        const size_t message_slot = gossipsub_autopsy_message_slot(message_id, message_id_len);
+
+        if (message_slot < GOSSIPSUB_AUTOPSY_MAX_MESSAGES)
+        {
+            const gossipsub_peer_state_t *peer = &gossipsub->peers[peer_index];
+            gossipsub_autopsy_attempt_t *attempt =
+                &g_gossipsub_autopsy_attempts[g_gossipsub_autopsy_attempt_count];
+
+            (void)memset(attempt, 0, sizeof(*attempt));
+            attempt->used = 1U;
+            attempt->message_index = message_slot;
+            if (peer->peer_id_len <= sizeof(attempt->peer_id))
+            {
+                attempt->peer_id_len = peer->peer_id_len;
+                (void)memcpy(attempt->peer_id, peer->peer_id, peer->peer_id_len);
+            }
+            attempt->outcome = outcome;
+            g_gossipsub_autopsy_attempt_count++;
+        }
+    }
+}
+
+size_t gossipsub_autopsy_message_count(void)
+{
+    return g_gossipsub_autopsy_message_count;
+}
+
+size_t gossipsub_autopsy_attempt_count(void)
+{
+    return g_gossipsub_autopsy_attempt_count;
+}
+
+const gossipsub_autopsy_message_t *gossipsub_autopsy_message_at(size_t index)
+{
+    const gossipsub_autopsy_message_t *result = NULL;
+
+    if (index < g_gossipsub_autopsy_message_count)
+    {
+        result = &g_gossipsub_autopsy_messages[index];
+    }
+
+    return result;
+}
+
+const gossipsub_autopsy_attempt_t *gossipsub_autopsy_attempt_at(size_t index)
+{
+    const gossipsub_autopsy_attempt_t *result = NULL;
+
+    if (index < g_gossipsub_autopsy_attempt_count)
+    {
+        result = &g_gossipsub_autopsy_attempts[index];
+    }
+
+    return result;
+}
+
 static uint64_t gossipsub_tx_effective_now_us(const libp2p_gossipsub_t *gossipsub)
 {
     uint64_t result = 0U;
@@ -560,6 +714,17 @@ size_t gossipsub_tx_drop_stale(libp2p_gossipsub_t *gossipsub, uint64_t now_us)
 
                     if (gossipsub_tx_item_stale(&gossipsub->tx_queue[item_index], now_us) != 0)
                     {
+                        const gossipsub_tx_item_t *item = &gossipsub->tx_queue[item_index];
+
+                        if (item->publish != 0U)
+                        {
+                            gossipsub_autopsy_record_attempt(
+                                gossipsub,
+                                peer_index,
+                                item->message_id,
+                                item->message_id_len,
+                                GOSSIPSUB_AUTOPSY_OUTCOME_DROPPED_STALE);
+                        }
                         gossipsub_tx_remove(gossipsub, item_index);
                         result++;
                     }
@@ -763,6 +928,12 @@ static libp2p_gossipsub_err_t gossipsub_enqueue_publish_entry_with_lifetime(
         item->publish = 1U;
         item->message_id_len = entry->message_id_len;
         (void)memcpy(item->message_id, entry->message_id, entry->message_id_len);
+        gossipsub_autopsy_record_attempt(
+            gossipsub,
+            peer_index,
+            entry->message_id,
+            entry->message_id_len,
+            GOSSIPSUB_AUTOPSY_OUTCOME_QUEUED);
     }
 
     return result;
@@ -872,6 +1043,17 @@ libp2p_gossipsub_err_t gossipsub_flush_peer(
             }
             else if (gossipsub_tx_item_stale(&gossipsub->tx_queue[item_index], now_us) != 0)
             {
+                const gossipsub_tx_item_t *item = &gossipsub->tx_queue[item_index];
+
+                if (item->publish != 0U)
+                {
+                    gossipsub_autopsy_record_attempt(
+                        gossipsub,
+                        peer_index,
+                        item->message_id,
+                        item->message_id_len,
+                        GOSSIPSUB_AUTOPSY_OUTCOME_DROPPED_STALE);
+                }
                 gossipsub_tx_remove(gossipsub, item_index);
                 *made_progress = 1U;
             }
@@ -915,6 +1097,15 @@ libp2p_gossipsub_err_t gossipsub_flush_peer(
                     }
                     if (item->pos == item->len)
                     {
+                        if (item->publish != 0U)
+                        {
+                            gossipsub_autopsy_record_attempt(
+                                gossipsub,
+                                peer_index,
+                                item->message_id,
+                                item->message_id_len,
+                                GOSSIPSUB_AUTOPSY_OUTCOME_SENT);
+                        }
                         gossipsub_tx_remove(gossipsub, item_index);
                         (*rpcs_sent)++;
                     }
@@ -1051,6 +1242,12 @@ void gossipsub_drop_queued_publish(
                 (item->message_id_len == message_id_len) &&
                 (memcmp(item->message_id, message_id, message_id_len) == 0))
             {
+                gossipsub_autopsy_record_attempt(
+                    gossipsub,
+                    peer_index,
+                    item->message_id,
+                    item->message_id_len,
+                    GOSSIPSUB_AUTOPSY_OUTCOME_DROPPED_IDONTWANT);
                 gossipsub_tx_remove(gossipsub, item_index);
             }
             item_index = next;
@@ -1066,6 +1263,22 @@ void gossipsub_drop_queued_peer(libp2p_gossipsub_t *gossipsub, size_t peer_index
 
         while (peer->tx_head != GOSSIPSUB_TX_NO_ITEM)
         {
+            const size_t item_index = peer->tx_head;
+
+            if (item_index < gossipsub->config.capacity.max_tx_rpc_queue)
+            {
+                const gossipsub_tx_item_t *item = &gossipsub->tx_queue[item_index];
+
+                if ((item->used != 0U) && (item->publish != 0U))
+                {
+                    gossipsub_autopsy_record_attempt(
+                        gossipsub,
+                        peer_index,
+                        item->message_id,
+                        item->message_id_len,
+                        GOSSIPSUB_AUTOPSY_OUTCOME_DROPPED_PEER);
+                }
+            }
             gossipsub_tx_remove(gossipsub, peer->tx_head);
         }
         gossipsub_tx_set_peer_ready(gossipsub, peer_index, 0U);

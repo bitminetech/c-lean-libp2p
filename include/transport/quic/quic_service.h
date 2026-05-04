@@ -84,6 +84,37 @@ typedef struct
     uint8_t tx_drained;
 } libp2p_quic_service_drive_result_t;
 
+#define LIBP2P_QUIC_SERVICE_AUTOPSY_MAX_STREAMS 16U
+
+typedef struct
+{
+    uint8_t used;
+    int64_t stream_id;
+    size_t tx_buffered;
+    size_t tx_sent_pending_ack;
+    uint64_t tx_base_offset;
+    uint64_t flow_credit;
+} libp2p_quic_service_autopsy_stream_t;
+
+typedef struct
+{
+    uint8_t used;
+    uint8_t closed;
+    uint8_t remote_peer_id[LIBP2P_PEER_ID_MAX_BYTES];
+    size_t remote_peer_id_len;
+    uint64_t cwnd;
+    uint64_t bytes_in_flight;
+    uint64_t tx_buffered;
+    uint64_t tx_sent;
+    uint64_t tx_acked;
+    uint64_t tx_lost;
+    uint64_t last_rx_us;
+    uint64_t last_tx_us;
+    uint64_t idle_deadline_us;
+    size_t stream_count;
+    libp2p_quic_service_autopsy_stream_t streams[LIBP2P_QUIC_SERVICE_AUTOPSY_MAX_STREAMS];
+} libp2p_quic_service_autopsy_conn_t;
+
 /**
  * Fill service config with production defaults.
  *
@@ -199,6 +230,12 @@ libp2p_quic_err_t libp2p_quic_service_drive(
 libp2p_quic_err_t libp2p_quic_service_next_event(
     libp2p_quic_service_t *service,
     libp2p_quic_service_event_t *out_event);
+
+libp2p_quic_err_t libp2p_quic_service_autopsy_conn(
+    const libp2p_quic_service_t *service,
+    size_t conn_index,
+    libp2p_quic_time_us_t now_us,
+    libp2p_quic_service_autopsy_conn_t *out_conn);
 
 /**
  * Start an outbound connection. remote_addr must include the expected peer ID.

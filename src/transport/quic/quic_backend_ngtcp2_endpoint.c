@@ -348,6 +348,7 @@ static libp2p_quic_err_t quic_backend_endpoint_recv_datagram(
 
     if ((result == LIBP2P_QUIC_OK) && (conn != NULL))
     {
+        conn->autopsy_last_rx_us = now_us;
         quic_backend_path_from_addrs(&datagram->local_addr, &datagram->remote_addr, &path);
         (void)memset(&pi, 0, sizeof(pi));
         pi.ecn = quic_backend_ecn_to_ngtcp2(datagram->ecn);

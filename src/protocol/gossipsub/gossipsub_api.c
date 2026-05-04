@@ -193,6 +193,7 @@ libp2p_gossipsub_err_t libp2p_gossipsub_publish(
     }
     if (result == LIBP2P_GOSSIPSUB_OK)
     {
+        gossipsub_autopsy_observe_message(message_id, message_id_len, NULL, 0U, gossipsub->next_heartbeat_us);
         gossipsub_seen_add(gossipsub, message_id, message_id_len, gossipsub->next_heartbeat_us);
         for (size_t peer_index = 0U;
              (result == LIBP2P_GOSSIPSUB_OK) && (peer_index < gossipsub->config.capacity.max_peers);

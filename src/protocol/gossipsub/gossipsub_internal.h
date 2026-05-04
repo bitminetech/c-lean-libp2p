@@ -259,6 +259,34 @@ typedef struct
     size_t total;
 } gossipsub_storage_layout_t;
 
+typedef enum
+{
+    GOSSIPSUB_AUTOPSY_OUTCOME_QUEUED,
+    GOSSIPSUB_AUTOPSY_OUTCOME_SENT,
+    GOSSIPSUB_AUTOPSY_OUTCOME_DROPPED_STALE,
+    GOSSIPSUB_AUTOPSY_OUTCOME_DROPPED_IDONTWANT,
+    GOSSIPSUB_AUTOPSY_OUTCOME_DROPPED_PEER
+} gossipsub_autopsy_outcome_t;
+
+typedef struct
+{
+    uint8_t used;
+    uint8_t message_id[LIBP2P_GOSSIPSUB_DEFAULT_MAX_MESSAGE_ID_BYTES];
+    size_t message_id_len;
+    uint8_t publisher_peer_id[LIBP2P_PEER_ID_MAX_BYTES];
+    size_t publisher_peer_id_len;
+    uint64_t first_receive_us;
+} gossipsub_autopsy_message_t;
+
+typedef struct
+{
+    uint8_t used;
+    size_t message_index;
+    uint8_t peer_id[LIBP2P_PEER_ID_MAX_BYTES];
+    size_t peer_id_len;
+    gossipsub_autopsy_outcome_t outcome;
+} gossipsub_autopsy_attempt_t;
+
 int gossipsub_size_add(size_t a, size_t b, size_t *out);
 int gossipsub_size_mul(size_t a, size_t b, size_t *out);
 libp2p_gossipsub_err_t gossipsub_align_up(size_t value, size_t alignment, size_t *out);
@@ -666,6 +694,23 @@ libp2p_gossipsub_err_t gossipsub_forward_entry(
     libp2p_gossipsub_t *gossipsub,
     size_t source_peer_index,
     const gossipsub_mcache_entry_t *entry);
+void gossipsub_autopsy_observe_message(
+    const uint8_t *message_id,
+    size_t message_id_len,
+    const uint8_t *publisher_peer_id,
+    size_t publisher_peer_id_len,
+    uint64_t now_us);
+void gossipsub_autopsy_record_attempt(
+    const libp2p_gossipsub_t *gossipsub,
+    size_t peer_index,
+    const uint8_t *message_id,
+    size_t message_id_len,
+    gossipsub_autopsy_outcome_t outcome);
+void gossipsub_autopsy_set_enabled(uint8_t enabled);
+size_t gossipsub_autopsy_message_count(void);
+size_t gossipsub_autopsy_attempt_count(void);
+const gossipsub_autopsy_message_t *gossipsub_autopsy_message_at(size_t index);
+const gossipsub_autopsy_attempt_t *gossipsub_autopsy_attempt_at(size_t index);
 struct libp2p_gossipsub_validation *gossipsub_alloc_validation(
     libp2p_gossipsub_t *gossipsub,
     size_t peer_index,

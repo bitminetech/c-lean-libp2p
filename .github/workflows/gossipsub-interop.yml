@@ -33,6 +33,14 @@ on:
         options:
           - '0'
           - '1'
+      autopsy:
+        description: 'Set LIBP2P_AUTOPSY=1 for c-lean nodes'
+        required: false
+        default: '0'
+        type: choice
+        options:
+          - '0'
+          - '1'
   schedule:
     - cron: '43 8 * * *'
   pull_request:
@@ -55,6 +63,7 @@ env:
   GOSSIPSUB_INTEROP_PAIR: ${{ github.event.inputs.pair || 'all' }}
   GOSSIPSUB_INTEROP_SCENARIO: ${{ github.event.inputs.scenario || 'all' }}
   GOSSIPSUB_INTEROP_QUIC_DEBUG: ${{ github.event.inputs.quic_debug || '0' }}
+  GOSSIPSUB_INTEROP_AUTOPSY: ${{ github.event.inputs.autopsy || '0' }}
 
 jobs:
   gossipsub-cross-impl:
@@ -135,6 +144,7 @@ jobs:
             -e GOSSIPSUB_INTEROP_PAIR="${GOSSIPSUB_INTEROP_PAIR}" \
             -e GOSSIPSUB_INTEROP_SCENARIO="${GOSSIPSUB_INTEROP_SCENARIO}" \
             -e LIBP2P_QUIC_DEBUG="${GOSSIPSUB_INTEROP_QUIC_DEBUG}" \
+            -e LIBP2P_AUTOPSY="${GOSSIPSUB_INTEROP_AUTOPSY}" \
             "${SHADOW_IMAGE}" \
             bash -lc 'make c-lean-libp2p && make binaries && uv run c_lean_matrix.py --output-root /workspace/interop/test-plans/gossipsub-interop/c-lean-results --pair "${GOSSIPSUB_INTEROP_PAIR}" --scenario "${GOSSIPSUB_INTEROP_SCENARIO}"'
           echo "result_dir=interop/test-plans/gossipsub-interop/c-lean-results" >> "$GITHUB_OUTPUT"

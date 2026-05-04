@@ -20,11 +20,14 @@
 #include <unistd.h>
 
 #include "libp2p/libp2p_host.h"
+#include "libp2p/libp2p_host_internal.h"
 #include "libp2p/libp2p_host_secp256k1_identity.h"
 #include "multiformats/multiaddr/multiaddr.h"
 #include "peer_id/peer_id.h"
 #include "protocol/gossipsub/gossipsub.h"
+#include "protocol/gossipsub/gossipsub_internal.h"
 #include "protocol/identify/identify.h"
+#include "transport/quic/quic_backend_ngtcp2_internal.h"
 #include "transport/quic/quic_identity.h"
 #include "transport/quic/quic_service.h"
 
@@ -50,6 +53,7 @@
 #define GOSSIPSUB_INTEROP_CONNECT_TIMEOUT_SECONDS  UINT64_C(15)
 #define GOSSIPSUB_INTEROP_CONNECT_ATTEMPTS         3U
 #define GOSSIPSUB_INTEROP_MAX_CONNECTED_PEERS      64U
+#define GOSSIPSUB_INTEROP_AUTOPSY_TICK_US          UINT64_C(5000000)
 
 typedef union
 {
@@ -97,7 +101,9 @@ typedef struct
 {
     int node_id;
     uint8_t debug;
+    uint8_t autopsy;
     uint64_t start_us;
+    uint64_t next_autopsy_tick_us;
     gossipsub_interop_identity_t identity;
     libp2p_quic_service_config_t quic_config;
     libp2p_host_config_t host_config;
@@ -787,6 +793,433 @@ static void gossipsub_interop_trace_tx_peers(const gossipsub_interop_app_t *app,
             }
         }
         (void)fflush(stderr);
+    }
+}
+
+static void gossipsub_interop_json_escape(FILE *out, const char *text, size_t text_len);
+
+static uint8_t gossipsub_interop_autopsy_enabled(const gossipsub_interop_app_t *app)
+{
+    uint8_t result = 0U;
+
+    if ((app != NULL) && (app->autopsy != 0U))
+    {
+        result = 1U;
+    }
+
+    return result;
+}
+
+static void gossipsub_interop_autopsy_hex(FILE *out, const uint8_t *data, size_t data_len)
+{
+    static const char hex[] = "0123456789abcdef";
+
+    if ((out != NULL) && (data != NULL))
+    {
+        for (size_t index = 0U; index < data_len; index++)
+        {
+            const uint8_t byte = data[index];
+
+            (void)fputc((int)hex[(byte >> 4U) & 0x0FU], out);
+            (void)fputc((int)hex[byte & 0x0FU], out);
+        }
+    }
+}
+
+static void gossipsub_interop_autopsy_peer_text(FILE *out, const uint8_t *peer_id, size_t peer_id_len)
+{
+    char peer_text[GOSSIPSUB_INTEROP_PEER_ID_TEXT_BYTES];
+    size_t peer_text_len = 0U;
+
+    if ((out != NULL) && (peer_id != NULL) && (peer_id_len != 0U) &&
+        (libp2p_peer_id_to_string(peer_id, peer_id_len, peer_text, sizeof(peer_text), &peer_text_len) ==
+         LIBP2P_PEER_ID_OK))
+    {
+        gossipsub_interop_json_escape(out, peer_text, peer_text_len);
+    }
+}
+
+static size_t gossipsub_interop_autopsy_conn_index(
+    const gossipsub_interop_app_t *app,
+    const libp2p_host_conn_t *conn)
+{
+    size_t result = SIZE_MAX;
+
+    if ((app != NULL) && (app->host != NULL) && (conn != NULL))
+    {
+        for (size_t index = 0U; (index < app->host->conn_capacity) && (result == SIZE_MAX); index++)
+        {
+            if (&app->host->conns[index] == conn)
+            {
+                result = index;
+            }
+        }
+    }
+
+    return result;
+}
+
+static uint8_t gossipsub_interop_autopsy_tx_topic_match(
+    const libp2p_gossipsub_t *gossipsub,
+    const gossipsub_tx_item_t *item,
+    const gossipsub_topic_state_t *topic)
+{
+    uint8_t result = 0U;
+
+    if ((gossipsub != NULL) && (item != NULL) && (topic != NULL) && (item->publish != 0U))
+    {
+        for (size_t index = 0U;
+             (index < gossipsub->config.capacity.mcache_slots) && (result == 0U);
+             index++)
+        {
+            const gossipsub_mcache_entry_t *entry = &gossipsub->mcache[index];
+
+            if ((entry->used != 0U) && (entry->message_id_len == item->message_id_len) &&
+                (entry->topic_len == topic->topic_len) &&
+                (memcmp(entry->message_id, item->message_id, item->message_id_len) == 0) &&
+                (memcmp(entry->topic, topic->topic, topic->topic_len) == 0))
+            {
+                result = 1U;
+            }
+        }
+    }
+
+    return result;
+}
+
+static size_t gossipsub_interop_autopsy_topic_queue_depth(
+    const libp2p_gossipsub_t *gossipsub,
+    const gossipsub_peer_state_t *peer,
+    const gossipsub_topic_state_t *topic)
+{
+    size_t result = 0U;
+    size_t item_index = GOSSIPSUB_TX_NO_ITEM;
+
+    if ((gossipsub != NULL) && (peer != NULL) && (topic != NULL))
+    {
+        item_index = peer->tx_head;
+        while (item_index != GOSSIPSUB_TX_NO_ITEM)
+        {
+            if ((item_index >= gossipsub->config.capacity.max_tx_rpc_queue) ||
+                (gossipsub->tx_queue[item_index].used == 0U))
+            {
+                item_index = GOSSIPSUB_TX_NO_ITEM;
+            }
+            else
+            {
+                const gossipsub_tx_item_t *item = &gossipsub->tx_queue[item_index];
+
+                if (gossipsub_interop_autopsy_tx_topic_match(gossipsub, item, topic) != 0U)
+                {
+                    result++;
+                }
+                item_index = item->next;
+            }
+        }
+    }
+
+    return result;
+}
+
+static void gossipsub_interop_autopsy_dump_peer_topics(
+    FILE *out,
+    const libp2p_gossipsub_t *gossipsub,
+    const gossipsub_peer_state_t *peer,
+    size_t peer_index)
+{
+    if ((out != NULL) && (gossipsub != NULL) && (peer != NULL))
+    {
+        for (size_t topic_index = 0U; topic_index < gossipsub->config.capacity.max_topics;
+             topic_index++)
+        {
+            const gossipsub_topic_state_t *topic = &gossipsub->topics[topic_index];
+
+            if (topic->used == GOSSIPSUB_TOPIC_USED)
+            {
+                if (topic_index != 0U)
+                {
+                    (void)fputc(';', out);
+                }
+                gossipsub_interop_json_escape(out, (const char *)topic->topic, topic->topic_len);
+                (void)fprintf(
+                    out,
+                    ":mesh=%u,q=%zu",
+                    (unsigned int)((gossipsub_mesh_contains(gossipsub, peer_index, topic_index) != 0)
+                                       ? 1U
+                                       : 0U),
+                    gossipsub_interop_autopsy_topic_queue_depth(gossipsub, peer, topic));
+            }
+        }
+    }
+}
+
+static void gossipsub_interop_autopsy_dump_peers(
+    const gossipsub_interop_app_t *app,
+    const char *reason,
+    uint64_t now_us)
+{
+    const libp2p_gossipsub_t *gossipsub = NULL;
+
+    if ((gossipsub_interop_autopsy_enabled(app) != 0U) && (app->gossipsub != NULL))
+    {
+        gossipsub = app->gossipsub;
+        for (size_t peer_index = 0U; peer_index < gossipsub->config.capacity.max_peers; peer_index++)
+        {
+            const gossipsub_peer_state_t *peer = &gossipsub->peers[peer_index];
+
+            if (peer->used == GOSSIPSUB_PEER_USED)
+            {
+                const size_t head_index = peer->tx_head;
+                const gossipsub_tx_item_t *head = NULL;
+                const libp2p_quic_stream_t *quic_stream = NULL;
+                int64_t stream_id = -1;
+                size_t conn_index = gossipsub_interop_autopsy_conn_index(app, peer->conn);
+
+                if ((head_index != GOSSIPSUB_TX_NO_ITEM) &&
+                    (head_index < gossipsub->config.capacity.max_tx_rpc_queue) &&
+                    (gossipsub->tx_queue[head_index].used != 0U))
+                {
+                    head = &gossipsub->tx_queue[head_index];
+                }
+                if ((peer->stream != NULL) && (peer->stream->transport_stream != NULL))
+                {
+                    quic_stream = (const libp2p_quic_stream_t *)peer->stream->transport_stream;
+                    stream_id = quic_stream->stream_id;
+                }
+                (void)fprintf(
+                    stderr,
+                    "c-lean-autopsy-peer: reason=%s node=%d now_us=%llu peer_index=%zu peer_id=\"",
+                    (reason != NULL) ? reason : "unknown",
+                    app->node_id,
+                    (unsigned long long)now_us,
+                    peer_index);
+                gossipsub_interop_autopsy_peer_text(stderr, peer->peer_id, peer->peer_id_len);
+                (void)fprintf(stderr, "\" topics=\"");
+                gossipsub_interop_autopsy_dump_peer_topics(stderr, gossipsub, peer, peer_index);
+                (void)fprintf(
+                    stderr,
+                    "\" depth=%zu head_message_id_hex=\"",
+                    peer->tx_queue_depth);
+                if (head != NULL)
+                {
+                    gossipsub_interop_autopsy_hex(stderr, head->message_id, head->message_id_len);
+                }
+                (void)fprintf(
+                    stderr,
+                    "\" head_offset=%zu head_len=%zu ready=%u stream_id=%lld conn_id=",
+                    (head != NULL) ? head->pos : 0U,
+                    (head != NULL) ? head->len : 0U,
+                    (unsigned int)peer->tx_ready,
+                    (long long)stream_id);
+                if (conn_index == SIZE_MAX)
+                {
+                    (void)fprintf(stderr, "none");
+                }
+                else
+                {
+                    (void)fprintf(stderr, "%zu", conn_index);
+                }
+                (void)fprintf(
+                    stderr,
+                    " last_writable_us=%llu last_tx_offset=%llu would_block=%llu oldest_age_us=",
+                    (unsigned long long)peer->tx_last_writable_us,
+                    (unsigned long long)peer->tx_last_offset,
+                    (unsigned long long)peer->tx_would_block_count);
+                if ((head != NULL) && (now_us >= head->enqueued_us))
+                {
+                    (void)fprintf(stderr, "%llu", (unsigned long long)(now_us - head->enqueued_us));
+                }
+                else
+                {
+                    (void)fprintf(stderr, "0");
+                }
+                (void)fprintf(stderr, "\n");
+            }
+        }
+        (void)fflush(stderr);
+    }
+}
+
+static void gossipsub_interop_autopsy_dump_quic(
+    const gossipsub_interop_app_t *app,
+    const char *reason,
+    uint64_t now_us)
+{
+    const libp2p_quic_service_t *service = NULL;
+
+    if ((gossipsub_interop_autopsy_enabled(app) != 0U) && (app->host != NULL))
+    {
+        service = (const libp2p_quic_service_t *)app->host->transport;
+        for (size_t index = 0U; index < app->quic_config.endpoint.max_connections; index++)
+        {
+            libp2p_quic_service_autopsy_conn_t snapshot;
+
+            (void)memset(&snapshot, 0, sizeof(snapshot));
+            if (libp2p_quic_service_autopsy_conn(service, index, now_us, &snapshot) == LIBP2P_QUIC_OK)
+            {
+                (void)fprintf(
+                    stderr,
+                    "c-lean-autopsy-quic: reason=%s node=%d now_us=%llu conn_id=%zu peer_id=\"",
+                    (reason != NULL) ? reason : "unknown",
+                    app->node_id,
+                    (unsigned long long)now_us,
+                    index);
+                gossipsub_interop_autopsy_peer_text(
+                    stderr,
+                    snapshot.remote_peer_id,
+                    snapshot.remote_peer_id_len);
+                (void)fprintf(
+                    stderr,
+                    "\" closed=%u cwnd=%llu bytes_in_flight=%llu tx_buffered=%llu tx_sent=%llu "
+                    "tx_acked=%llu tx_lost=%llu last_rx_us=%llu last_tx_us=%llu "
+                    "idle_deadline_us=%llu streams=\"",
+                    (unsigned int)snapshot.closed,
+                    (unsigned long long)snapshot.cwnd,
+                    (unsigned long long)snapshot.bytes_in_flight,
+                    (unsigned long long)snapshot.tx_buffered,
+                    (unsigned long long)snapshot.tx_sent,
+                    (unsigned long long)snapshot.tx_acked,
+                    (unsigned long long)snapshot.tx_lost,
+                    (unsigned long long)snapshot.last_rx_us,
+                    (unsigned long long)snapshot.last_tx_us,
+                    (unsigned long long)snapshot.idle_deadline_us);
+                for (size_t stream_index = 0U;
+                     (stream_index < snapshot.stream_count) &&
+                     (stream_index < LIBP2P_QUIC_SERVICE_AUTOPSY_MAX_STREAMS);
+                     stream_index++)
+                {
+                    const libp2p_quic_service_autopsy_stream_t *stream =
+                        &snapshot.streams[stream_index];
+
+                    if (stream_index != 0U)
+                    {
+                        (void)fputc(';', stderr);
+                    }
+                    (void)fprintf(
+                        stderr,
+                        "%lld:buf=%zu,pending=%zu,base=%llu,credit=%llu",
+                        (long long)stream->stream_id,
+                        stream->tx_buffered,
+                        stream->tx_sent_pending_ack,
+                        (unsigned long long)stream->tx_base_offset,
+                        (unsigned long long)stream->flow_credit);
+                }
+                (void)fprintf(stderr, "\"\n");
+            }
+        }
+        (void)fflush(stderr);
+    }
+}
+
+static void gossipsub_interop_autopsy_tick(gossipsub_interop_app_t *app, uint64_t now_us)
+{
+    if ((gossipsub_interop_autopsy_enabled(app) != 0U) && (now_us >= app->next_autopsy_tick_us))
+    {
+        gossipsub_interop_autopsy_dump_quic(app, "tick", now_us);
+        app->next_autopsy_tick_us = now_us + GOSSIPSUB_INTEROP_AUTOPSY_TICK_US;
+    }
+}
+
+static const char *gossipsub_interop_autopsy_outcome_name(gossipsub_autopsy_outcome_t outcome)
+{
+    const char *result = "unknown";
+
+    switch (outcome)
+    {
+    case GOSSIPSUB_AUTOPSY_OUTCOME_QUEUED:
+        result = "queued";
+        break;
+    case GOSSIPSUB_AUTOPSY_OUTCOME_SENT:
+        result = "sent";
+        break;
+    case GOSSIPSUB_AUTOPSY_OUTCOME_DROPPED_STALE:
+        result = "dropped-stale";
+        break;
+    case GOSSIPSUB_AUTOPSY_OUTCOME_DROPPED_IDONTWANT:
+        result = "dropped-idontwant";
+        break;
+    case GOSSIPSUB_AUTOPSY_OUTCOME_DROPPED_PEER:
+        result = "dropped-peer";
+        break;
+    default:
+        result = "unknown";
+        break;
+    }
+
+    return result;
+}
+
+static void gossipsub_interop_autopsy_dump_delivery_graph(void)
+{
+    if (gossipsub_autopsy_message_count() != 0U)
+    {
+        for (size_t message_index = 0U; message_index < gossipsub_autopsy_message_count();
+             message_index++)
+        {
+            const gossipsub_autopsy_message_t *message =
+                gossipsub_autopsy_message_at(message_index);
+            size_t emitted = 0U;
+
+            if ((message != NULL) && (message->used != 0U))
+            {
+                (void)fprintf(stderr, "c-lean-autopsy-delivery: message_id_hex=\"");
+                gossipsub_interop_autopsy_hex(stderr, message->message_id, message->message_id_len);
+                (void)fprintf(stderr, "\" publisher_peer_id=\"");
+                gossipsub_interop_autopsy_peer_text(
+                    stderr,
+                    message->publisher_peer_id,
+                    message->publisher_peer_id_len);
+                (void)fprintf(
+                    stderr,
+                    "\" publisher_peer_id_hex=\"");
+                gossipsub_interop_autopsy_hex(
+                    stderr,
+                    message->publisher_peer_id,
+                    message->publisher_peer_id_len);
+                (void)fprintf(
+                    stderr,
+                    "\" first_receive_us=%llu attempts=\"",
+                    (unsigned long long)message->first_receive_us);
+                for (size_t attempt_index = 0U; attempt_index < gossipsub_autopsy_attempt_count();
+                     attempt_index++)
+                {
+                    const gossipsub_autopsy_attempt_t *attempt =
+                        gossipsub_autopsy_attempt_at(attempt_index);
+
+                    if ((attempt != NULL) && (attempt->used != 0U) &&
+                        (attempt->message_index == message_index))
+                    {
+                        if (emitted != 0U)
+                        {
+                            (void)fputc(',', stderr);
+                        }
+                        gossipsub_interop_autopsy_peer_text(
+                            stderr,
+                            attempt->peer_id,
+                            attempt->peer_id_len);
+                        (void)fprintf(
+                            stderr,
+                            ":%s",
+                            gossipsub_interop_autopsy_outcome_name(attempt->outcome));
+                        emitted++;
+                    }
+                }
+                (void)fprintf(stderr, "\" acked=\"\"\n");
+            }
+        }
+        (void)fflush(stderr);
+    }
+}
+
+static void gossipsub_interop_autopsy_exit(gossipsub_interop_app_t *app, const char *reason)
+{
+    const uint64_t now_us = gossipsub_interop_now_us();
+
+    if (gossipsub_interop_autopsy_enabled(app) != 0U)
+    {
+        gossipsub_interop_autopsy_dump_peers(app, reason, now_us);
+        gossipsub_interop_autopsy_dump_quic(app, reason, now_us);
+        gossipsub_interop_autopsy_dump_delivery_graph();
     }
 }
 
@@ -2111,6 +2544,14 @@ static gossipsub_interop_err_t gossipsub_interop_drain_gossipsub_events(
                 result = gossipsub_interop_queue_validation(app, event.validation, delay_us);
             }
         }
+        else if (event.type == LIBP2P_GOSSIPSUB_EVENT_PEER_CLOSED)
+        {
+            gossipsub_interop_autopsy_dump_peers(
+                app,
+                "peer_closed",
+                gossipsub_interop_now_us());
+            gossipsub_interop_autopsy_dump_quic(app, "peer_closed", gossipsub_interop_now_us());
+        }
         else if (
             (event.type == LIBP2P_GOSSIPSUB_EVENT_ERROR) ||
             (event.type == LIBP2P_GOSSIPSUB_EVENT_PEER_FAILED))
@@ -2278,6 +2719,10 @@ static gossipsub_interop_err_t gossipsub_interop_drive_once(gossipsub_interop_ap
     if (result == GOSSIPSUB_INTEROP_OK)
     {
         result = gossipsub_interop_drain_gossipsub_events(app);
+    }
+    if (result == GOSSIPSUB_INTEROP_OK)
+    {
+        gossipsub_interop_autopsy_tick(app, gossipsub_interop_now_us());
     }
 
     return result;
@@ -2476,6 +2921,8 @@ static gossipsub_interop_err_t gossipsub_interop_app_init(gossipsub_interop_app_
     {
         (void)memset(app, 0, sizeof(*app));
         app->debug = (getenv("DEBUG") != NULL) ? 1U : 0U;
+        app->autopsy = gossipsub_interop_env_enabled("LIBP2P_AUTOPSY");
+        gossipsub_autopsy_set_enabled(app->autopsy);
         result = gossipsub_interop_parse_node_id(&app->node_id);
     }
     if (result == GOSSIPSUB_INTEROP_OK)
@@ -2496,6 +2943,7 @@ static gossipsub_interop_err_t gossipsub_interop_app_init(gossipsub_interop_app_
     if (result == GOSSIPSUB_INTEROP_OK)
     {
         app->start_us = gossipsub_interop_now_us();
+        app->next_autopsy_tick_us = app->start_us + GOSSIPSUB_INTEROP_AUTOPSY_TICK_US;
         gossipsub_interop_trace("started");
         gossipsub_interop_log_peer_id(app);
     }
@@ -2559,6 +3007,7 @@ int main(int argc, char **argv)
     gossipsub_interop_args_t args;
     gossipsub_interop_app_t app;
     gossipsub_interop_err_t result = GOSSIPSUB_INTEROP_OK;
+    uint8_t app_initialized = 0U;
 
     (void)signal(SIGINT, gossipsub_interop_signal_handler);
     (void)signal(SIGTERM, gossipsub_interop_signal_handler);
@@ -2577,6 +3026,10 @@ int main(int argc, char **argv)
         {
             gossipsub_interop_trace("app init");
             result = gossipsub_interop_app_init(&app);
+            if (result == GOSSIPSUB_INTEROP_OK)
+            {
+                app_initialized = 1U;
+            }
         }
     }
     if ((result == GOSSIPSUB_INTEROP_OK) && (args.params_path != NULL))
@@ -2591,6 +3044,12 @@ int main(int argc, char **argv)
     if (result != GOSSIPSUB_INTEROP_OK)
     {
         (void)fprintf(stderr, "c-lean-libp2p gossipsub interop failed: %u\n", (unsigned int)result);
+    }
+    if (app_initialized != 0U)
+    {
+        gossipsub_interop_autopsy_exit(
+            &app,
+            (result == GOSSIPSUB_INTEROP_OK) ? "exit" : "error_exit");
     }
 
     return (result == GOSSIPSUB_INTEROP_OK) ? EXIT_SUCCESS : EXIT_FAILURE;

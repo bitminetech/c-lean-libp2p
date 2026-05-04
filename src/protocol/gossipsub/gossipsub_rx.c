@@ -108,6 +108,12 @@ libp2p_gossipsub_err_t gossipsub_process_message(
         else
         {
             gossipsub_seen_add(gossipsub, message_id, message_id_len, now_us);
+            gossipsub_autopsy_observe_message(
+                message_id,
+                message_id_len,
+                gossipsub->peers[peer_index].peer_id,
+                gossipsub->peers[peer_index].peer_id_len,
+                now_us);
         }
     }
     if (result == LIBP2P_GOSSIPSUB_OK)

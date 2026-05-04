@@ -627,7 +627,7 @@ static int quic_backend_acked_stream_data_offset_cb(
     void *user_data,
     void *stream_user_data)
 {
-    const libp2p_quic_conn_t *const conn = quic_backend_conn_from_memory(user_data);
+    libp2p_quic_conn_t *const conn = quic_backend_conn_from_memory(user_data);
     libp2p_quic_stream_t *stream = quic_backend_stream_from_memory(stream_user_data);
     int result = 0;
 
@@ -642,6 +642,7 @@ static int quic_backend_acked_stream_data_offset_cb(
         {
             stream = quic_backend_conn_find_stream(conn, stream_id);
         }
+        conn->autopsy_tx_acked_bytes += datalen;
         result = quic_backend_reclaim_acked_stream_data(stream, offset, datalen);
     }
 

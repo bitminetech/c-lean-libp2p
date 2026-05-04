@@ -633,6 +633,8 @@ QUIC_BACKEND_INTERNAL libp2p_quic_err_t quic_backend_write_conn_datagram(
         {
             conn->close_sent = 1U;
             conn->state = LIBP2P_QUIC_CONN_CLOSING;
+            conn->autopsy_tx_sent_bytes += (uint64_t)nwrite;
+            conn->autopsy_last_tx_us = now_us;
             datagram->local_addr = conn->local_addr;
             datagram->remote_addr = conn->remote_addr;
             datagram->data_len = (size_t)nwrite;
@@ -695,6 +697,8 @@ QUIC_BACKEND_INTERNAL libp2p_quic_err_t quic_backend_write_conn_datagram(
             uint8_t stream_writable = 0U;
 
             ngtcp2_conn_update_pkt_tx_time(conn->ngconn, ts);
+            conn->autopsy_tx_sent_bytes += (uint64_t)nwrite;
+            conn->autopsy_last_tx_us = now_us;
             datagram->local_addr = conn->local_addr;
             datagram->remote_addr = conn->remote_addr;
             datagram->data_len = (size_t)nwrite;
