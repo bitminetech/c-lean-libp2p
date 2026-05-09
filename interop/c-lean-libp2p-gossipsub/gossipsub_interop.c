@@ -4,7 +4,6 @@
 
 #include <arpa/inet.h>
 #include <errno.h>
-#include <fcntl.h>
 #include <limits.h>
 #include <netdb.h>
 #include <poll.h>
@@ -58,6 +57,13 @@
 #define GOSSIPSUB_INTEROP_REF_D_LOW                5U
 #define GOSSIPSUB_INTEROP_REF_D_HIGH               12U
 #define GOSSIPSUB_INTEROP_REF_D_LAZY               6U
+#define GOSSIPSUB_INTEROP_RANDOM_BASE              UINT64_C(0x6D65736873756231)
+#define GOSSIPSUB_INTEROP_RANDOM_CERT_DOMAIN       UINT64_C(0x43455254524E4731)
+#define GOSSIPSUB_INTEROP_RANDOM_QUIC_DOMAIN       UINT64_C(0x51554943524E4731)
+#define GOSSIPSUB_INTEROP_RANDOM_GOSSIP_DOMAIN     UINT64_C(0x47535542524E4731)
+#define GOSSIPSUB_INTEROP_RANDOM_GOLDEN_RATIO      UINT64_C(0x9E3779B97F4A7C15)
+#define GOSSIPSUB_INTEROP_RANDOM_MIX_A             UINT64_C(0xBF58476D1CE4E5B9)
+#define GOSSIPSUB_INTEROP_RANDOM_MIX_B             UINT64_C(0x94D049BB133111EB)
 #define GOSSIPSUB_INTEROP_REF_HEARTBEAT_US         UINT64_C(1000000)
 
 typedef union
@@ -104,11 +110,19 @@ typedef struct
 
 typedef struct
 {
+    uint64_t state;
+} gossipsub_interop_random_state_t;
+
+typedef struct
+{
     int node_id;
     uint8_t debug;
     uint8_t autopsy;
     uint64_t start_us;
     uint64_t next_autopsy_tick_us;
+    gossipsub_interop_random_state_t cert_random;
+    gossipsub_interop_random_state_t quic_random;
+    gossipsub_interop_random_state_t gossipsub_random;
     gossipsub_interop_identity_t identity;
     libp2p_quic_service_config_t quic_config;
     libp2p_host_config_t host_config;
@@ -139,49 +153,12 @@ static gossipsub_interop_host_storage_t g_host_storage;
 static gossipsub_interop_router_storage_t g_router_storage;
 static uint8_t g_publish_buffer[GOSSIPSUB_INTEROP_MAX_MESSAGE_BYTES];
 static volatile sig_atomic_t g_stop_requested = 0;
-static const uint8_t g_identify_protocol_version[] = {
-    'i',
-    'p',
-    'f',
-    's',
-    '/',
-    '0',
-    '.',
-    '1',
-    '.',
-    '0'};
-static const uint8_t g_identify_agent_version[] = {
-    'c',
-    '-',
-    'l',
-    'e',
-    'a',
-    'n',
-    '-',
-    'l',
-    'i',
-    'b',
-    'p',
-    '2',
-    'p',
-    '/',
-    'g',
-    'o',
-    's',
-    's',
-    'i',
-    'p',
-    's',
-    'u',
-    'b',
-    '-',
-    'i',
-    'n',
-    't',
-    'e',
-    'r',
-    'o',
-    'p'};
+static const uint8_t g_identify_protocol_version[] =
+    {'i', 'p', 'f', 's', '/', '0', '.', '1', '.', '0'};
+static const uint8_t g_identify_agent_version[] = {'c', '-', 'l', 'e', 'a', 'n', '-', 'l',
+                                                   'i', 'b', 'p', '2', 'p', '/', 'g', 'o',
+                                                   's', 's', 'i', 'p', 's', 'u', 'b', '-',
+                                                   'i', 'n', 't', 'e', 'r', 'o', 'p'};
 
 static void gossipsub_interop_trace(const char *message);
 static gossipsub_interop_err_t gossipsub_interop_drive_once(gossipsub_interop_app_t *app);
@@ -242,43 +219,76 @@ static uint64_t gossipsub_interop_now_us(void)
     return result;
 }
 
-static gossipsub_interop_err_t gossipsub_interop_read_urandom(uint8_t *out, size_t out_len)
+static uint64_t gossipsub_interop_random_mix(uint64_t value)
 {
-    int fd = -1;
-    size_t pos = 0U;
+    uint64_t mixed = value;
+
+    mixed ^= mixed >> 30U;
+    mixed *= GOSSIPSUB_INTEROP_RANDOM_MIX_A;
+    mixed ^= mixed >> 27U;
+    mixed *= GOSSIPSUB_INTEROP_RANDOM_MIX_B;
+    mixed ^= mixed >> 31U;
+
+    return mixed;
+}
+
+static void gossipsub_interop_random_state_init(
+    gossipsub_interop_random_state_t *state,
+    int node_id,
+    uint64_t domain)
+{
+    if (state != NULL)
+    {
+        const uint64_t node = (uint64_t)(uint32_t)node_id;
+
+        state->state = gossipsub_interop_random_mix(
+            GOSSIPSUB_INTEROP_RANDOM_BASE ^ domain ^
+            (node * GOSSIPSUB_INTEROP_RANDOM_GOLDEN_RATIO));
+        if (state->state == 0U)
+        {
+            state->state = GOSSIPSUB_INTEROP_RANDOM_GOLDEN_RATIO;
+        }
+    }
+}
+
+static uint64_t gossipsub_interop_random_next(gossipsub_interop_random_state_t *state)
+{
+    uint64_t value = 0U;
+
+    if (state != NULL)
+    {
+        state->state += GOSSIPSUB_INTEROP_RANDOM_GOLDEN_RATIO;
+        value = gossipsub_interop_random_mix(state->state);
+    }
+
+    return value;
+}
+
+static gossipsub_interop_err_t gossipsub_interop_random_bytes(
+    gossipsub_interop_random_state_t *state,
+    uint8_t *out,
+    size_t out_len)
+{
+    size_t index = 0U;
+    size_t available = 0U;
+    uint64_t word = 0U;
     gossipsub_interop_err_t result = GOSSIPSUB_INTEROP_OK;
 
-    if ((out == NULL) && (out_len != 0U))
+    if (((out == NULL) && (out_len != 0U)) || (state == NULL))
     {
         result = GOSSIPSUB_INTEROP_ERR_USAGE;
     }
-    if (result == GOSSIPSUB_INTEROP_OK)
+    while ((result == GOSSIPSUB_INTEROP_OK) && (index < out_len))
     {
-        fd = open("/dev/urandom", O_RDONLY);
-        if (fd < 0)
+        if (available == 0U)
         {
-            result = GOSSIPSUB_INTEROP_ERR_IO;
+            word = gossipsub_interop_random_next(state);
+            available = 8U;
         }
-    }
-    while ((result == GOSSIPSUB_INTEROP_OK) && (pos < out_len))
-    {
-        const ssize_t count = read(fd, &out[pos], out_len - pos);
-        if (count > 0)
-        {
-            pos += (size_t)count;
-        }
-        else if ((count < 0) && (errno == EINTR))
-        {
-            result = GOSSIPSUB_INTEROP_OK;
-        }
-        else
-        {
-            result = GOSSIPSUB_INTEROP_ERR_IO;
-        }
-    }
-    if (fd >= 0)
-    {
-        (void)close(fd);
+        out[index] = (uint8_t)(word & UINT64_C(0xFF));
+        word >>= 8U;
+        available--;
+        index++;
     }
 
     return result;
@@ -291,8 +301,10 @@ static libp2p_quic_err_t gossipsub_interop_quic_random(
 {
     libp2p_quic_err_t result = LIBP2P_QUIC_OK;
 
-    (void)user_data;
-    if (gossipsub_interop_read_urandom(out, out_len) != GOSSIPSUB_INTEROP_OK)
+    if (gossipsub_interop_random_bytes(
+            (gossipsub_interop_random_state_t *)user_data,
+            out,
+            out_len) != GOSSIPSUB_INTEROP_OK)
     {
         result = LIBP2P_QUIC_ERR_INTERNAL;
     }
@@ -307,8 +319,10 @@ static libp2p_gossipsub_err_t gossipsub_interop_random(
 {
     libp2p_gossipsub_err_t result = LIBP2P_GOSSIPSUB_OK;
 
-    (void)user_data;
-    if (gossipsub_interop_read_urandom(out, out_len) != GOSSIPSUB_INTEROP_OK)
+    if (gossipsub_interop_random_bytes(
+            (gossipsub_interop_random_state_t *)user_data,
+            out,
+            out_len) != GOSSIPSUB_INTEROP_OK)
     {
         result = LIBP2P_GOSSIPSUB_ERR_RANDOM;
     }
@@ -561,13 +575,14 @@ static gossipsub_interop_err_t gossipsub_interop_write_binary_file(
 static gossipsub_interop_err_t gossipsub_interop_identity_init_generated(
     gossipsub_interop_identity_t *identity,
     int node_id,
-    uint64_t cert_unix_seconds)
+    uint64_t cert_unix_seconds,
+    gossipsub_interop_random_state_t *cert_random)
 {
     libp2p_quic_host_key_t host_key;
     libp2p_quic_certificate_config_t cert_config;
     gossipsub_interop_err_t result = GOSSIPSUB_INTEROP_OK;
 
-    if (identity == NULL)
+    if ((identity == NULL) || (cert_random == NULL))
     {
         result = GOSSIPSUB_INTEROP_ERR_USAGE;
     }
@@ -608,7 +623,7 @@ static gossipsub_interop_err_t gossipsub_interop_identity_init_generated(
         cert_config.not_after_unix_seconds =
             cert_unix_seconds + GOSSIPSUB_INTEROP_CERT_VALIDITY_SECONDS;
         cert_config.random_fn = gossipsub_interop_quic_random;
-        cert_config.random_user_data = NULL;
+        cert_config.random_user_data = cert_random;
         if (libp2p_quic_identity_write_certificate_der(
                 &host_key,
                 &cert_config,
@@ -706,12 +721,17 @@ static gossipsub_interop_err_t gossipsub_interop_identity_init_cached(
 
 static gossipsub_interop_err_t gossipsub_interop_identity_init(
     gossipsub_interop_identity_t *identity,
-    int node_id)
+    int node_id,
+    gossipsub_interop_random_state_t *cert_random)
 {
     const char *identity_dir = getenv("C_LEAN_LIBP2P_GOSSIPSUB_IDENTITY_DIR");
     gossipsub_interop_err_t result = GOSSIPSUB_INTEROP_OK;
 
-    if ((identity_dir != NULL) && (identity_dir[0] != '\0'))
+    if (cert_random == NULL)
+    {
+        result = GOSSIPSUB_INTEROP_ERR_USAGE;
+    }
+    else if ((identity_dir != NULL) && (identity_dir[0] != '\0'))
     {
         result = gossipsub_interop_identity_init_cached(identity, node_id, identity_dir);
     }
@@ -725,7 +745,7 @@ static gossipsub_interop_err_t gossipsub_interop_identity_init(
         }
         else
         {
-            result = gossipsub_interop_identity_init_generated(identity, node_id, now);
+            result = gossipsub_interop_identity_init_generated(identity, node_id, now, cert_random);
         }
     }
 
@@ -831,14 +851,21 @@ static void gossipsub_interop_autopsy_hex(FILE *out, const uint8_t *data, size_t
     }
 }
 
-static void gossipsub_interop_autopsy_peer_text(FILE *out, const uint8_t *peer_id, size_t peer_id_len)
+static void gossipsub_interop_autopsy_peer_text(
+    FILE *out,
+    const uint8_t *peer_id,
+    size_t peer_id_len)
 {
     char peer_text[GOSSIPSUB_INTEROP_PEER_ID_TEXT_BYTES];
     size_t peer_text_len = 0U;
 
     if ((out != NULL) && (peer_id != NULL) && (peer_id_len != 0U) &&
-        (libp2p_peer_id_to_string(peer_id, peer_id_len, peer_text, sizeof(peer_text), &peer_text_len) ==
-         LIBP2P_PEER_ID_OK))
+        (libp2p_peer_id_to_string(
+             peer_id,
+             peer_id_len,
+             peer_text,
+             sizeof(peer_text),
+             &peer_text_len) == LIBP2P_PEER_ID_OK))
     {
         gossipsub_interop_json_escape(out, peer_text, peer_text_len);
     }
@@ -873,8 +900,7 @@ static uint8_t gossipsub_interop_autopsy_tx_topic_match(
 
     if ((gossipsub != NULL) && (item != NULL) && (topic != NULL) && (item->publish != 0U))
     {
-        for (size_t index = 0U;
-             (index < gossipsub->config.capacity.mcache_slots) && (result == 0U);
+        for (size_t index = 0U; (index < gossipsub->config.capacity.mcache_slots) && (result == 0U);
              index++)
         {
             const gossipsub_mcache_entry_t *entry = &gossipsub->mcache[index];
@@ -949,7 +975,8 @@ static void gossipsub_interop_autopsy_dump_peer_topics(
                 (void)fprintf(
                     out,
                     ":mesh=%u,q=%zu",
-                    (unsigned int)((gossipsub_mesh_contains(gossipsub, peer_index, topic_index) != 0)
+                    (unsigned int)((gossipsub_mesh_contains(gossipsub, peer_index, topic_index) !=
+                                    0)
                                        ? 1U
                                        : 0U),
                     gossipsub_interop_autopsy_topic_queue_depth(gossipsub, peer, topic));
@@ -968,7 +995,8 @@ static void gossipsub_interop_autopsy_dump_peers(
     if ((gossipsub_interop_autopsy_enabled(app) != 0U) && (app->gossipsub != NULL))
     {
         gossipsub = app->gossipsub;
-        for (size_t peer_index = 0U; peer_index < gossipsub->config.capacity.max_peers; peer_index++)
+        for (size_t peer_index = 0U; peer_index < gossipsub->config.capacity.max_peers;
+             peer_index++)
         {
             const gossipsub_peer_state_t *peer = &gossipsub->peers[peer_index];
 
@@ -1001,17 +1029,15 @@ static void gossipsub_interop_autopsy_dump_peers(
                 gossipsub_interop_autopsy_peer_text(stderr, peer->peer_id, peer->peer_id_len);
                 (void)fprintf(stderr, "\" topics=\"");
                 gossipsub_interop_autopsy_dump_peer_topics(stderr, gossipsub, peer, peer_index);
-                (void)fprintf(
-                    stderr,
-                    "\" depth=%zu head_message_id_hex=\"",
-                    peer->tx_queue_depth);
+                (void)fprintf(stderr, "\" depth=%zu head_message_id_hex=\"", peer->tx_queue_depth);
                 if (head != NULL)
                 {
                     gossipsub_interop_autopsy_hex(stderr, head->message_id, head->message_id_len);
                 }
                 (void)fprintf(
                     stderr,
-                    "\" head_offset=%zu head_len=%zu ready=%u transport_busy=%u stream_id=%lld conn_id=",
+                    "\" head_offset=%zu head_len=%zu ready=%u transport_busy=%u stream_id=%lld "
+                    "conn_id=",
                     (head != NULL) ? head->pos : 0U,
                     (head != NULL) ? head->len : 0U,
                     (unsigned int)peer->tx_ready,
@@ -1061,7 +1087,8 @@ static void gossipsub_interop_autopsy_dump_quic(
             libp2p_quic_service_autopsy_conn_t snapshot;
 
             (void)memset(&snapshot, 0, sizeof(snapshot));
-            if (libp2p_quic_service_autopsy_conn(service, index, now_us, &snapshot) == LIBP2P_QUIC_OK)
+            if (libp2p_quic_service_autopsy_conn(service, index, now_us, &snapshot) ==
+                LIBP2P_QUIC_OK)
             {
                 (void)fprintf(
                     stderr,
@@ -1224,9 +1251,7 @@ static void gossipsub_interop_autopsy_dump_delivery_graph(void)
                     stderr,
                     message->publisher_peer_id,
                     message->publisher_peer_id_len);
-                (void)fprintf(
-                    stderr,
-                    "\" publisher_peer_id_hex=\"");
+                (void)fprintf(stderr, "\" publisher_peer_id_hex=\"");
                 gossipsub_interop_autopsy_hex(
                     stderr,
                     message->publisher_peer_id,
@@ -1628,7 +1653,7 @@ static gossipsub_interop_err_t gossipsub_interop_configure_gossipsub(gossipsub_i
         app->gossipsub_config.mesh.d_lazy = GOSSIPSUB_INTEROP_REF_D_LAZY;
         app->gossipsub_config.mesh.heartbeat_interval_us = GOSSIPSUB_INTEROP_REF_HEARTBEAT_US;
         app->gossipsub_config.random_fn = gossipsub_interop_random;
-        app->gossipsub_config.random_user_data = NULL;
+        app->gossipsub_config.random_user_data = &app->gossipsub_random;
         app->gossipsub_config.message_id_fn = gossipsub_interop_message_id_fn;
         app->gossipsub_config.message_id_user_data = NULL;
         app->gossipsub_config.capacity.max_topics = 16U;
@@ -1737,7 +1762,7 @@ static gossipsub_interop_err_t gossipsub_interop_configure_host(gossipsub_intero
         app->quic_config.endpoint.identity = app->identity.quic;
         app->quic_config.endpoint.allocator = gossipsub_interop_backend_allocator();
         app->quic_config.endpoint.random_fn = gossipsub_interop_quic_random;
-        app->quic_config.endpoint.random_user_data = NULL;
+        app->quic_config.endpoint.random_user_data = &app->quic_random;
         app->quic_config.endpoint.unix_time_fn = gossipsub_interop_unix_time;
         app->quic_config.endpoint.unix_time_user_data = NULL;
         if (gossipsub_interop_env_enabled("LIBP2P_QUIC_DEBUG") != 0U)
@@ -2552,8 +2577,7 @@ static gossipsub_interop_err_t gossipsub_interop_drain_host_events(gossipsub_int
     return result;
 }
 
-static gossipsub_interop_err_t gossipsub_interop_drain_identify_events(
-    gossipsub_interop_app_t *app)
+static gossipsub_interop_err_t gossipsub_interop_drain_identify_events(gossipsub_interop_app_t *app)
 {
     libp2p_identify_event_t event;
     gossipsub_interop_err_t result = GOSSIPSUB_INTEROP_OK;
@@ -2606,10 +2630,7 @@ static gossipsub_interop_err_t gossipsub_interop_drain_gossipsub_events(
         }
         else if (event.type == LIBP2P_GOSSIPSUB_EVENT_PEER_CLOSED)
         {
-            gossipsub_interop_autopsy_dump_peers(
-                app,
-                "peer_closed",
-                gossipsub_interop_now_us());
+            gossipsub_interop_autopsy_dump_peers(app, "peer_closed", gossipsub_interop_now_us());
             gossipsub_interop_autopsy_dump_quic(app, "peer_closed", gossipsub_interop_now_us());
         }
         else if (
@@ -2934,10 +2955,17 @@ static gossipsub_interop_err_t gossipsub_interop_write_identities(
     }
     while ((result == GOSSIPSUB_INTEROP_OK) && (node_id < node_count))
     {
+        gossipsub_interop_random_state_t cert_random;
+
+        gossipsub_interop_random_state_init(
+            &cert_random,
+            node_id,
+            GOSSIPSUB_INTEROP_RANDOM_CERT_DOMAIN);
         result = gossipsub_interop_identity_init_generated(
             &identity,
             node_id,
-            GOSSIPSUB_INTEROP_SHADOW_CERT_UNIX_SECONDS);
+            GOSSIPSUB_INTEROP_SHADOW_CERT_UNIX_SECONDS,
+            &cert_random);
         if (result == GOSSIPSUB_INTEROP_OK)
         {
             result =
@@ -2984,11 +3012,23 @@ static gossipsub_interop_err_t gossipsub_interop_app_init(gossipsub_interop_app_
         app->autopsy = gossipsub_interop_env_enabled("LIBP2P_AUTOPSY");
         gossipsub_autopsy_set_enabled(app->autopsy);
         result = gossipsub_interop_parse_node_id(&app->node_id);
+        gossipsub_interop_random_state_init(
+            &app->cert_random,
+            app->node_id,
+            GOSSIPSUB_INTEROP_RANDOM_CERT_DOMAIN);
+        gossipsub_interop_random_state_init(
+            &app->quic_random,
+            app->node_id,
+            GOSSIPSUB_INTEROP_RANDOM_QUIC_DOMAIN);
+        gossipsub_interop_random_state_init(
+            &app->gossipsub_random,
+            app->node_id,
+            GOSSIPSUB_INTEROP_RANDOM_GOSSIP_DOMAIN);
     }
     if (result == GOSSIPSUB_INTEROP_OK)
     {
         gossipsub_interop_trace("identity init");
-        result = gossipsub_interop_identity_init(&app->identity, app->node_id);
+        result = gossipsub_interop_identity_init(&app->identity, app->node_id, &app->cert_random);
     }
     if (result == GOSSIPSUB_INTEROP_OK)
     {
