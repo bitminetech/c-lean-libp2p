@@ -126,7 +126,7 @@ static void quic_backend_settings_init(
     ngtcp2_settings_default(settings);
     {
         ngtcp2_tstamp initial_ts_relative = 0U;
-        if ((endpoint != NULL) && (endpoint->has_time_origin != 0U) &&
+        if ((endpoint->has_time_origin != 0U) &&
             (endpoint->last_observed_now_us >= endpoint->time_origin_us))
         {
             libp2p_quic_time_us_t relative_us =
