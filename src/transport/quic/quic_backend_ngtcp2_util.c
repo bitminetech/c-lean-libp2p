@@ -127,6 +127,10 @@ quic_backend_endpoint_time_to_ngtcp2(libp2p_quic_endpoint_t *endpoint, libp2p_qu
         {
             relative_us = now_us - endpoint->time_origin_us;
         }
+        if (now_us > endpoint->last_observed_now_us)
+        {
+            endpoint->last_observed_now_us = now_us;
+        }
     }
 
     return quic_backend_time_to_ngtcp2(relative_us);
