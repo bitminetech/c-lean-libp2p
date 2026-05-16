@@ -769,7 +769,12 @@ libp2p_host_err_t libp2p_host_next_event(libp2p_host_t *host, libp2p_host_event_
                 }
                 else if (out_event->type == LIBP2P_HOST_EVENT_STREAM_OPENED)
                 {
-                    out_event->stream_open->state = HOST_OPEN_EVENTED;
+                    if ((out_event->stream != NULL) &&
+                        (out_event->stream->open_attempt == out_event->stream_open))
+                    {
+                        out_event->stream->open_attempt = NULL;
+                    }
+                    out_event->stream_open->state = HOST_OPEN_FREE;
                 }
                 else
                 {

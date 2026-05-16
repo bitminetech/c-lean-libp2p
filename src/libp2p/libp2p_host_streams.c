@@ -189,6 +189,22 @@ libp2p_host_err_t host_stream_alloc(
     return result;
 }
 
+void host_stream_release(libp2p_host_stream_t *stream)
+{
+    if ((stream != NULL) && (stream->state != HOST_STREAM_FREE))
+    {
+        if ((stream->conn != NULL) && (stream->conn->stream_count != 0U))
+        {
+            stream->conn->stream_count--;
+        }
+        if ((stream->open_attempt != NULL) && (stream->open_attempt->state != HOST_OPEN_EVENTED))
+        {
+            stream->open_attempt->state = HOST_OPEN_FREE;
+        }
+        (void)memset(stream, 0, sizeof(*stream));
+    }
+}
+
 static libp2p_host_stream_open_t *host_open_alloc(libp2p_host_t *host)
 {
     libp2p_host_stream_open_t *result = NULL;
@@ -477,7 +493,6 @@ libp2p_host_err_t host_stream_fail_negotiation(
     else
     {
         stream->neg_state = HOST_NEG_FAILED;
-        stream->state = HOST_STREAM_CLOSED;
         (void)host->config.transport->stream_reset(host->transport, stream->transport_stream, 0U);
         if ((stream->direction == LIBP2P_HOST_STREAM_OUTBOUND) &&
             (stream->outbound_fail_event_queued == 0U))
@@ -496,7 +511,12 @@ libp2p_host_err_t host_stream_fail_negotiation(
             }
             stream->outbound_fail_event_queued = 1U;
             err = host_event_push(host, &event, result);
+            if ((err != LIBP2P_HOST_OK) && (stream->open_attempt != NULL))
+            {
+                stream->open_attempt->state = HOST_OPEN_FREE;
+            }
         }
+        host_stream_release(stream);
     }
 
     return err;
@@ -863,11 +883,38 @@ libp2p_host_err_t host_stream_open_retry_one(
                         open->protocol,
                         open,
                         &stream);
-                    if (result != NULL)
+                    if (err == LIBP2P_HOST_OK)
                     {
-                        result->made_progress = 1U;
+                        if (result != NULL)
+                        {
+                            result->made_progress = 1U;
+                        }
+                        *out_progress = 1U;
                     }
-                    *out_progress = 1U;
+                    else
+                    {
+                        libp2p_host_err_t alloc_err = err;
+                        libp2p_host_event_t event;
+
+                        (void)host->config.transport
+                            ->stream_reset(host->transport, transport_stream, 0U);
+                        (void)memset(&event, 0, sizeof(event));
+                        event.type = LIBP2P_HOST_EVENT_STREAM_OPEN_FAILED;
+                        event.conn = open->conn;
+                        event.stream_open = open;
+                        event.user_data = open->user_data;
+                        event.reason = alloc_err;
+                        open->state = HOST_OPEN_EVENTED;
+                        err = host_event_push(host, &event, result);
+                        if (err != LIBP2P_HOST_OK)
+                        {
+                            open->state = HOST_OPEN_FREE;
+                        }
+                        else
+                        {
+                            *out_progress = 1U;
+                        }
+                    }
                 }
                 else if (err == LIBP2P_HOST_ERR_WOULD_BLOCK)
                 {
@@ -961,6 +1008,12 @@ libp2p_host_err_t libp2p_host_open_stream(
                 protocol,
                 open,
                 &stream);
+            if (result != LIBP2P_HOST_OK)
+            {
+                (void)host->config.transport
+                    ->stream_reset(host->transport, transport_stream, 0U);
+                open->state = HOST_OPEN_FREE;
+            }
         }
         else if (result == LIBP2P_HOST_ERR_WOULD_BLOCK)
         {

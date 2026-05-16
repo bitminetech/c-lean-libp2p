@@ -205,6 +205,7 @@ libp2p_host_err_t host_stream_alloc(
     const libp2p_host_protocol_t *protocol,
     libp2p_host_stream_open_t *open_attempt,
     libp2p_host_stream_t **out);
+void host_stream_release(libp2p_host_stream_t *stream);
 libp2p_host_err_t host_stream_negotiation_one(
     libp2p_host_t *host,
     libp2p_host_drive_result_t *result,
