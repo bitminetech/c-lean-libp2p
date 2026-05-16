@@ -156,7 +156,7 @@ static void host_transport_event_stream_mark(
         {
             if (stream->state == HOST_STREAM_NEGOTIATING)
             {
-                stream->state = HOST_STREAM_CLOSED;
+                host_stream_release(stream);
             }
             else
             {
@@ -167,7 +167,7 @@ static void host_transport_event_stream_mark(
         {
             if (stream->state == HOST_STREAM_NEGOTIATING)
             {
-                stream->state = HOST_STREAM_CLOSED;
+                host_stream_release(stream);
             }
             else
             {

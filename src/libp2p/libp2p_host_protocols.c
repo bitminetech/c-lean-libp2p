@@ -86,7 +86,7 @@ static libp2p_host_err_t host_protocol_call_event(
     if (out != LIBP2P_HOST_OK)
     {
         (void)host->config.transport->stream_reset(host->transport, stream->transport_stream, 0U);
-        stream->state = HOST_STREAM_CLOSED;
+        host_stream_release(stream);
     }
 
     return out;
@@ -130,7 +130,7 @@ libp2p_host_err_t host_protocol_event_one(
                         stream,
                         LIBP2P_HOST_PROTOCOL_EVENT_RESET,
                         result);
-                    stream->state = HOST_STREAM_CLOSED;
+                    host_stream_release(stream);
                 }
                 else if (stream->pending_closed != 0U)
                 {
@@ -141,7 +141,7 @@ libp2p_host_err_t host_protocol_event_one(
                         stream,
                         LIBP2P_HOST_PROTOCOL_EVENT_CLOSED,
                         result);
-                    stream->state = HOST_STREAM_CLOSED;
+                    host_stream_release(stream);
                 }
                 else if (stream->pending_readable != 0U)
                 {
