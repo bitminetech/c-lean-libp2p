@@ -149,6 +149,7 @@ struct libp2p_quic_endpoint
     uint8_t closed;
     uint8_t has_time_origin;
     libp2p_quic_time_us_t time_origin_us;
+    libp2p_quic_time_us_t last_observed_now_us;
     libp2p_quic_conn_t **connections;
     size_t connection_count;
     size_t incoming_connection_count;

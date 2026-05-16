@@ -124,7 +124,17 @@ static void quic_backend_settings_init(
     ngtcp2_settings *settings)
 {
     ngtcp2_settings_default(settings);
-    settings->initial_ts = 0U;
+    {
+        ngtcp2_tstamp initial_ts_relative = 0U;
+        if ((endpoint->has_time_origin != 0U) &&
+            (endpoint->last_observed_now_us >= endpoint->time_origin_us))
+        {
+            libp2p_quic_time_us_t relative_us =
+                endpoint->last_observed_now_us - endpoint->time_origin_us;
+            initial_ts_relative = quic_backend_time_to_ngtcp2(relative_us);
+        }
+        settings->initial_ts = initial_ts_relative;
+    }
     settings->max_tx_udp_payload_size = endpoint->config.max_datagram_payload_bytes;
     settings->handshake_timeout =
         quic_backend_duration_to_ngtcp2(endpoint->config.handshake_timeout_us);
