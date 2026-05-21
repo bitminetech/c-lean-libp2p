@@ -838,9 +838,11 @@ static libp2p_quic_err_t quic_service_drive_tx(
                      (result_code == LIBP2P_QUIC_OK) && (result->tx_drained == 0U);
          index++)
     {
+        uint8_t prepared = 0U;
         libp2p_quic_err_t err = quic_service_prepare_tx_datagram(service, now_us);
         if (err == LIBP2P_QUIC_OK)
         {
+            prepared = 1U;
             err = libp2p_quic_udp_socket_send_datagram(
                 &service->socket,
                 &service->pending_tx_datagram);
@@ -856,7 +858,14 @@ static libp2p_quic_err_t quic_service_drive_tx(
         }
         else if (err == LIBP2P_QUIC_ERR_WOULD_BLOCK)
         {
-            service->tx_pending = service->has_pending_tx_datagram;
+            if (prepared != 0U)
+            {
+                service->tx_pending = service->has_pending_tx_datagram;
+            }
+            else
+            {
+                service->tx_pending = (result->tx_datagrams != 0U) ? 1U : 0U;
+            }
             result->tx_drained = 1U;
         }
         else
