@@ -25,8 +25,11 @@ jobs:
         uses: actions/checkout@v4
         with:
           path: c-lean-libp2p
-          submodules: recursive
-          persist-credentials: false
+          submodules: false
+
+      - name: Checkout submodules
+        shell: bash
+        run: c-lean-libp2p/.github/scripts/checkout-submodules.sh c-lean-libp2p
 
       - name: Configure
         run: cmake -S c-lean-libp2p -B c-lean-libp2p/build -DCMAKE_EXPORT_COMPILE_COMMANDS=ON
@@ -56,8 +59,11 @@ jobs:
         uses: actions/checkout@v4
         with:
           path: c-lean-libp2p
-          submodules: recursive
-          persist-credentials: false
+          submodules: false
+
+      - name: Checkout submodules
+        shell: bash
+        run: c-lean-libp2p/.github/scripts/checkout-submodules.sh c-lean-libp2p
 
       - name: Install 32-bit toolchain
         run: |
@@ -93,8 +99,11 @@ jobs:
         uses: actions/checkout@v4
         with:
           path: c-lean-libp2p
-          submodules: recursive
-          persist-credentials: false
+          submodules: false
+
+      - name: Checkout submodules
+        shell: bash
+        run: c-lean-libp2p/.github/scripts/checkout-submodules.sh c-lean-libp2p
 
       - name: Install clang
         if: runner.os == 'Linux'
@@ -130,8 +139,11 @@ jobs:
         uses: actions/checkout@v4
         with:
           path: c-lean-libp2p
-          submodules: recursive
-          persist-credentials: false
+          submodules: false
+
+      - name: Checkout submodules
+        shell: bash
+        run: c-lean-libp2p/.github/scripts/checkout-submodules.sh c-lean-libp2p
 
       - name: Install analysis tools
         run: |

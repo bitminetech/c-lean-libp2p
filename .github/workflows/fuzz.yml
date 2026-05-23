@@ -20,8 +20,11 @@ jobs:
         uses: actions/checkout@v4
         with:
           path: c-lean-libp2p
-          submodules: recursive
-          persist-credentials: false
+          submodules: false
+
+      - name: Checkout submodules
+        shell: bash
+        run: c-lean-libp2p/.github/scripts/checkout-submodules.sh c-lean-libp2p
 
       - name: Discover fuzz harnesses
         id: discover
@@ -265,8 +268,11 @@ jobs:
         uses: actions/checkout@v4
         with:
           path: c-lean-libp2p
-          submodules: recursive
-          persist-credentials: false
+          submodules: false
+
+      - name: Checkout submodules
+        shell: bash
+        run: c-lean-libp2p/.github/scripts/checkout-submodules.sh c-lean-libp2p
 
       - name: Discover fuzz harnesses
         id: discover
