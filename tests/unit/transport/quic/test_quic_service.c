@@ -509,6 +509,60 @@ static void quic_service_test_runtime_driver_and_stream_api(void)
     quic_service_fixture_deinit(&fixture);
 }
 
+static void quic_service_test_drive_batches_stream_datagrams(void)
+{
+    static uint8_t payload[64U * 1024U];
+    quic_service_fixture_t fixture;
+    libp2p_quic_addr_t server_addr;
+    libp2p_quic_stream_t *client_stream = NULL;
+    libp2p_quic_service_drive_result_t client_result;
+    size_t accepted = 0U;
+
+    for (size_t index = 0U; index < sizeof(payload); index++)
+    {
+        payload[index] = (uint8_t)(index & 0xffU);
+    }
+
+    quic_service_fixture_init(&fixture);
+    assert(libp2p_quic_service_local_addr(fixture.server, &server_addr) == LIBP2P_QUIC_OK);
+    assert(
+        libp2p_quic_addr_set_peer_id(
+            &server_addr,
+            fixture.identity.peer_id,
+            fixture.identity.peer_id_len) == LIBP2P_QUIC_OK);
+    assert(
+        libp2p_quic_service_dial(fixture.client, &server_addr, NULL, &fixture.client_conn) ==
+        LIBP2P_QUIC_OK);
+    quic_service_wait_established(&fixture);
+    quic_service_wait_write_idle(&fixture);
+
+    assert(
+        libp2p_quic_service_open_stream(fixture.client, fixture.client_conn, &client_stream) ==
+        LIBP2P_QUIC_OK);
+    assert(
+        libp2p_quic_service_stream_write(
+            fixture.client,
+            client_stream,
+            payload,
+            sizeof(payload),
+            0,
+            &accepted) == LIBP2P_QUIC_OK);
+    assert(accepted == sizeof(payload));
+
+    (void)memset(&client_result, 0, sizeof(client_result));
+    assert(
+        libp2p_quic_service_drive(
+            fixture.client,
+            fixture.now_us,
+            LIBP2P_QUIC_SERVICE_READY_ALL,
+            &client_result) == LIBP2P_QUIC_OK);
+    assert(client_result.tx_datagrams > 1U);
+
+    fixture.now_us += 1000U;
+    quic_service_wait_write_idle(&fixture);
+    quic_service_fixture_deinit(&fixture);
+}
+
 static void quic_service_test_close_event(void)
 {
     quic_service_fixture_t fixture;
@@ -554,6 +608,7 @@ int main(void)
 {
     quic_service_test_idle_app_timer_does_not_probe_tx();
     quic_service_test_runtime_driver_and_stream_api();
+    quic_service_test_drive_batches_stream_datagrams();
     quic_service_test_close_event();
     return 0;
 }

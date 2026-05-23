@@ -297,7 +297,7 @@ QUIC_BACKEND_INTERNAL libp2p_quic_err_t quic_backend_stream_write(
     }
     if (result == LIBP2P_QUIC_OK)
     {
-        size_t limit = 0U;
+        size_t retained_limit = 0U;
 
         if (stream->conn->endpoint->config.initial_stream_window_bytes >
             (SIZE_MAX / QUIC_BACKEND_STREAM_SEND_MULTIPLIER))
@@ -306,17 +306,22 @@ QUIC_BACKEND_INTERNAL libp2p_quic_err_t quic_backend_stream_write(
         }
         else
         {
-            limit = stream->conn->endpoint->config.initial_stream_window_bytes *
-                    QUIC_BACKEND_STREAM_SEND_MULTIPLIER;
+            retained_limit = stream->conn->endpoint->config.initial_stream_window_bytes *
+                             QUIC_BACKEND_STREAM_SEND_MULTIPLIER;
         }
-        if ((result == LIBP2P_QUIC_OK) && (stream->tx_len >= limit) && (accept_len != 0U))
+        if ((result == LIBP2P_QUIC_OK) && (stream->tx_len < stream->tx_sent_len))
+        {
+            result = LIBP2P_QUIC_ERR_STATE;
+        }
+        if ((result == LIBP2P_QUIC_OK) && (stream->tx_len >= retained_limit) &&
+            (accept_len != 0U))
         {
             result = LIBP2P_QUIC_ERR_WOULD_BLOCK;
             block_reason = 2U;
         }
         if (result == LIBP2P_QUIC_OK)
         {
-            const size_t available = limit - stream->tx_len;
+            const size_t available = retained_limit - stream->tx_len;
 
             if (accept_len > available)
             {
@@ -325,7 +330,7 @@ QUIC_BACKEND_INTERNAL libp2p_quic_err_t quic_backend_stream_write(
         }
         if ((result == LIBP2P_QUIC_OK) &&
             ((quic_backend_size_add_overflow(stream->tx_len, accept_len, &required) != 0) ||
-             (required > limit)))
+             (required > retained_limit)))
         {
             result = LIBP2P_QUIC_ERR_WOULD_BLOCK;
             block_reason = 2U;
@@ -346,7 +351,7 @@ QUIC_BACKEND_INTERNAL libp2p_quic_err_t quic_backend_stream_write(
                  * later writes cannot move data still eligible for retransmit.
                  */
                 new_data = quic_backend_bytes_from_memory(
-                    quic_backend_realloc(stream->conn->endpoint, stream->tx_data, limit));
+                    quic_backend_realloc(stream->conn->endpoint, stream->tx_data, retained_limit));
                 if (new_data == NULL)
                 {
                     result = LIBP2P_QUIC_ERR_NO_MEMORY;
@@ -354,7 +359,7 @@ QUIC_BACKEND_INTERNAL libp2p_quic_err_t quic_backend_stream_write(
                 else
                 {
                     stream->tx_data = new_data;
-                    stream->tx_cap = limit;
+                    stream->tx_cap = retained_limit;
                 }
             }
         }

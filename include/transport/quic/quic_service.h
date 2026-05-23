@@ -32,6 +32,8 @@ typedef uint32_t libp2p_quic_service_ready_t;
     (LIBP2P_QUIC_SERVICE_READY_READ | LIBP2P_QUIC_SERVICE_READY_WRITE | \
      LIBP2P_QUIC_SERVICE_READY_TIMER | LIBP2P_QUIC_SERVICE_READY_APP)
 
+#define LIBP2P_QUIC_SERVICE_DEFAULT_DATAGRAM_BUDGET 65536U
+
 /** File-descriptor interests requested by the service. */
 typedef uint32_t libp2p_quic_service_interest_t;
 #define LIBP2P_QUIC_SERVICE_INTEREST_NONE  0U
