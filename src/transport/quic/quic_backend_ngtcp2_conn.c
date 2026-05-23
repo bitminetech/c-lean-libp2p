@@ -669,11 +669,18 @@ quic_backend_conn_confirm_tx_datagram(libp2p_quic_conn_t *conn, libp2p_quic_time
 {
     if ((conn != NULL) && (conn->tx_time_update_unconfirmed != 0U))
     {
-        const ngtcp2_tstamp ts = quic_backend_endpoint_time_to_ngtcp2(conn->endpoint, now_us);
-
-        ngtcp2_conn_update_pkt_tx_time(conn->ngconn, ts);
         conn->tx_time_update_unconfirmed = 0U;
-        conn->tx_time_update_pending = 0U;
+        if (conn->endpoint->defer_tx_time_updates != 0U)
+        {
+            conn->tx_time_update_pending = 1U;
+        }
+        else
+        {
+            const ngtcp2_tstamp ts = quic_backend_endpoint_time_to_ngtcp2(conn->endpoint, now_us);
+
+            ngtcp2_conn_update_pkt_tx_time(conn->ngconn, ts);
+            conn->tx_time_update_pending = 0U;
+        }
     }
 }
 

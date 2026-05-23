@@ -21,6 +21,7 @@ libp2p_gossipsub_err_t gossipsub_config_validate_storage(const libp2p_gossipsub_
             (config->capacity.max_peer_topics == 0U) || (config->capacity.max_streams == 0U) ||
             (config->capacity.max_mesh_edges == 0U) ||
             (config->capacity.max_backoff_entries == 0U) ||
+            (config->capacity.max_peer_tx_queue == 0U) ||
             (config->capacity.max_tx_rpc_queue == 0U) || (config->capacity.tx_buffer_bytes == 0U) ||
             (config->capacity.mcache_slots == 0U) || (config->capacity.mcache_bytes == 0U) ||
             (config->capacity.seen_entries == 0U) || (config->capacity.pending_validations == 0U) ||
@@ -372,6 +373,7 @@ libp2p_gossipsub_err_t libp2p_gossipsub_config_default(libp2p_gossipsub_config_t
         config->capacity.max_backoff_entries = LIBP2P_GOSSIPSUB_DEFAULT_MAX_BACKOFF_ENTRIES;
         config->capacity.max_streams = LIBP2P_GOSSIPSUB_DEFAULT_MAX_STREAMS;
         config->capacity.max_pending_opens = LIBP2P_GOSSIPSUB_DEFAULT_MAX_PENDING_OPENS;
+        config->capacity.max_peer_tx_queue = LIBP2P_GOSSIPSUB_DEFAULT_MAX_PEER_TX_QUEUE;
         config->capacity.max_tx_rpc_queue = LIBP2P_GOSSIPSUB_DEFAULT_MAX_TX_RPC_QUEUE;
         config->capacity.tx_buffer_bytes = LIBP2P_GOSSIPSUB_DEFAULT_TX_BUFFER_BYTES;
         config->capacity.mcache_slots = LIBP2P_GOSSIPSUB_DEFAULT_MCACHE_SLOTS;

@@ -13,11 +13,10 @@
 
 #define QUIC_SERVICE_MAGIC ((uint32_t)0x71535631U)
 
-#define QUIC_SERVICE_DEFAULT_DATAGRAM_BUDGET 64U
-#define QUIC_SERVICE_EVENTS_PER_CONNECTION   8U
-#define QUIC_SERVICE_EXTRA_EVENTS            16U
-#define QUIC_SERVICE_STORAGE_ALIGN           8U
-#define QUIC_SERVICE_DEBUG_MESSAGE_BYTES     96U
+#define QUIC_SERVICE_EVENTS_PER_CONNECTION 8U
+#define QUIC_SERVICE_EXTRA_EVENTS          16U
+#define QUIC_SERVICE_STORAGE_ALIGN         8U
+#define QUIC_SERVICE_DEBUG_MESSAGE_BYTES   96U
 
 typedef struct
 {
@@ -905,8 +904,8 @@ libp2p_quic_err_t libp2p_quic_service_config_default(libp2p_quic_service_config_
         {
             config->nonblocking = 1U;
             config->event_capacity = 0U;
-            config->max_rx_datagrams_per_drive = QUIC_SERVICE_DEFAULT_DATAGRAM_BUDGET;
-            config->max_tx_datagrams_per_drive = QUIC_SERVICE_DEFAULT_DATAGRAM_BUDGET;
+            config->max_rx_datagrams_per_drive = LIBP2P_QUIC_SERVICE_DEFAULT_DATAGRAM_BUDGET;
+            config->max_tx_datagrams_per_drive = LIBP2P_QUIC_SERVICE_DEFAULT_DATAGRAM_BUDGET;
         }
     }
 

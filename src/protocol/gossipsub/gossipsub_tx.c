@@ -479,11 +479,21 @@ static libp2p_gossipsub_err_t gossipsub_tx_alloc_with_priority(
     {
         result = LIBP2P_GOSSIPSUB_ERR_INVALID_ARG;
     }
-    else if (gossipsub->tx_queue_len >= gossipsub->config.capacity.max_tx_rpc_queue)
+    else
+    {
+        const gossipsub_peer_state_t *peer = &gossipsub->peers[peer_index];
+
+        if (peer->tx_queue_depth >= gossipsub->config.capacity.max_peer_tx_queue)
+        {
+            result = LIBP2P_GOSSIPSUB_ERR_LIMIT;
+        }
+    }
+    if ((result == LIBP2P_GOSSIPSUB_OK) &&
+        (gossipsub->tx_queue_len >= gossipsub->config.capacity.max_tx_rpc_queue))
     {
         result = LIBP2P_GOSSIPSUB_ERR_LIMIT;
     }
-    else
+    if (result == LIBP2P_GOSSIPSUB_OK)
     {
         if ((frame_len >
              (gossipsub->config.capacity.tx_buffer_bytes - gossipsub->tx_buffer_used)) &&
@@ -1184,8 +1194,6 @@ libp2p_gossipsub_err_t gossipsub_flush_peer(
                     }
                     if (item->pos == item->len)
                     {
-                        uint8_t wait_for_transport_flush = 0U;
-
                         if (item->publish != 0U)
                         {
                             gossipsub_autopsy_record_attempt(
@@ -1195,19 +1203,8 @@ libp2p_gossipsub_err_t gossipsub_flush_peer(
                                 item->message_id_len,
                                 GOSSIPSUB_AUTOPSY_OUTCOME_SENT);
                         }
-                        if (bytes_written != 0U)
-                        {
-                            wait_for_transport_flush = 1U;
-                        }
                         gossipsub_tx_remove(gossipsub, item_index);
                         (*rpcs_sent)++;
-                        if (wait_for_transport_flush != 0U)
-                        {
-                            peer_blocked = 1U;
-                            peer->tx_transport_busy = 1U;
-                            gossipsub_tx_set_peer_ready(gossipsub, peer_index, 0U);
-                            keep_writing = 0U;
-                        }
                     }
                     else if (accepted == 0U)
                     {

@@ -130,6 +130,7 @@
 #define LIBP2P_GOSSIPSUB_DEFAULT_MAX_BACKOFF_ENTRIES 2048U
 #define LIBP2P_GOSSIPSUB_DEFAULT_MAX_STREAMS         128U
 #define LIBP2P_GOSSIPSUB_DEFAULT_MAX_PENDING_OPENS   128U
+#define LIBP2P_GOSSIPSUB_DEFAULT_MAX_PEER_TX_QUEUE   32U
 #define LIBP2P_GOSSIPSUB_DEFAULT_MAX_TX_RPC_QUEUE    1024U
 #define LIBP2P_GOSSIPSUB_DEFAULT_TX_BUFFER_BYTES     2097152U
 #define LIBP2P_GOSSIPSUB_DEFAULT_MCACHE_SLOTS        1024U
@@ -257,6 +258,7 @@ typedef struct
     size_t max_backoff_entries;
     size_t max_streams;
     size_t max_pending_opens;
+    size_t max_peer_tx_queue;
     size_t max_tx_rpc_queue;
     size_t tx_buffer_bytes;
     size_t mcache_slots;
