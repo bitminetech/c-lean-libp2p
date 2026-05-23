@@ -29,6 +29,7 @@ jobs:
         with:
           path: c-lean-libp2p
           submodules: recursive
+          persist-credentials: false
 
       - name: Install harness dependencies
         run: |

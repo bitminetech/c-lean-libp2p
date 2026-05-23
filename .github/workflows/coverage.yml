@@ -20,6 +20,7 @@ jobs:
         with:
           path: c-lean-libp2p
           submodules: recursive
+          persist-credentials: false
 
       - name: Install lcov
         run: |
@@ -151,6 +152,7 @@ jobs:
         with:
           path: c-lean-libp2p
           submodules: recursive
+          persist-credentials: false
 
       - name: Install 32-bit toolchain and lcov
         run: |

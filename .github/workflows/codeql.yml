@@ -25,6 +25,7 @@ jobs:
         with:
           path: c-lean-libp2p
           submodules: recursive
+          persist-credentials: false
 
       - name: Initialize CodeQL
         uses: github/codeql-action/init@v3

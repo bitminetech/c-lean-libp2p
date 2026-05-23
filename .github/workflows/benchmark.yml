@@ -17,6 +17,7 @@ jobs:
         with:
           path: c-lean-libp2p
           submodules: recursive
+          persist-credentials: false
 
       - name: Discover benchmark sources
         id: discover

@@ -19,6 +19,7 @@ jobs:
         with:
           path: c-lean-libp2p
           submodules: recursive
+          persist-credentials: false
 
       - name: Install Rust toolchain
         uses: dtolnay/rust-toolchain@stable

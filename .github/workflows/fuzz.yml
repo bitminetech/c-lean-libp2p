@@ -21,6 +21,7 @@ jobs:
         with:
           path: c-lean-libp2p
           submodules: recursive
+          persist-credentials: false
 
       - name: Discover fuzz harnesses
         id: discover
@@ -265,6 +266,7 @@ jobs:
         with:
           path: c-lean-libp2p
           submodules: recursive
+          persist-credentials: false
 
       - name: Discover fuzz harnesses
         id: discover

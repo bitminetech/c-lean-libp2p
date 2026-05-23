@@ -26,6 +26,7 @@ jobs:
         with:
           path: c-lean-libp2p
           submodules: recursive
+          persist-credentials: false
 
       - name: Configure
         run: cmake -S c-lean-libp2p -B c-lean-libp2p/build -DCMAKE_EXPORT_COMPILE_COMMANDS=ON
@@ -56,6 +57,7 @@ jobs:
         with:
           path: c-lean-libp2p
           submodules: recursive
+          persist-credentials: false
 
       - name: Install 32-bit toolchain
         run: |
@@ -92,6 +94,7 @@ jobs:
         with:
           path: c-lean-libp2p
           submodules: recursive
+          persist-credentials: false
 
       - name: Install clang
         if: runner.os == 'Linux'
@@ -128,6 +131,7 @@ jobs:
         with:
           path: c-lean-libp2p
           submodules: recursive
+          persist-credentials: false
 
       - name: Install analysis tools
         run: |

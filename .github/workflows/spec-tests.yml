@@ -21,6 +21,7 @@ jobs:
         with:
           path: c-lean-libp2p
           submodules: recursive
+          persist-credentials: false
 
       - name: Prepare multiformats specs
         shell: bash
@@ -83,6 +84,7 @@ jobs:
         with:
           path: c-lean-libp2p
           submodules: recursive
+          persist-credentials: false
 
       - name: Download fixtures
         uses: actions/download-artifact@v4
@@ -140,6 +142,7 @@ jobs:
         with:
           path: c-lean-libp2p
           submodules: recursive
+          persist-credentials: false
 
       - name: Download fixtures
         uses: actions/download-artifact@v4
@@ -168,6 +171,7 @@ jobs:
         with:
           path: c-lean-libp2p
           submodules: recursive
+          persist-credentials: false
 
       - name: Download fixtures
         uses: actions/download-artifact@v4
@@ -230,6 +234,7 @@ jobs:
         with:
           path: c-lean-libp2p
           submodules: recursive
+          persist-credentials: false
 
       - name: Download fixtures
         uses: actions/download-artifact@v4
