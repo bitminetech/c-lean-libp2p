@@ -69,6 +69,10 @@
 #define GOSSIPSUB_TX_LOCAL_PUBLISH_LIFETIME_US UINT64_C(5000000)
 #define GOSSIPSUB_TX_FORWARD_LIFETIME_US       UINT64_C(1000000)
 #define GOSSIPSUB_GOSSIP_FACTOR_DENOMINATOR    1000000U
+#define GOSSIPSUB_STREAM_RX_SMALL_CAP          4096U
+#define GOSSIPSUB_STREAM_RX_READ_CHUNK         65536U
+#define GOSSIPSUB_STREAM_RX_LARGE_POOL_STREAMS 6U
+#define GOSSIPSUB_RX_NO_OFFSET                 SIZE_MAX
 
 typedef struct
 {
@@ -137,9 +141,12 @@ typedef struct
     libp2p_host_conn_t *conn;
     libp2p_host_stream_direction_t direction;
     libp2p_gossipsub_protocol_version_t version;
+    size_t stream_index;
     size_t peer_index;
     uint8_t *rx;
     size_t rx_len;
+    size_t rx_cap;
+    size_t rx_offset;
 } gossipsub_stream_state_t;
 
 typedef struct
@@ -220,6 +227,12 @@ struct libp2p_gossipsub
     gossipsub_mesh_edge_state_t *mesh_edges;
     gossipsub_backoff_state_t *backoff;
     gossipsub_stream_state_t *streams;
+    uint8_t *stream_rx_small;
+    uint8_t *stream_rx_buffer;
+    size_t stream_rx_small_stride;
+    size_t stream_rx_max_cap;
+    size_t stream_rx_buffer_cap;
+    size_t stream_rx_buffer_used;
     gossipsub_tx_item_t *tx_queue;
     uint8_t *tx_buffer;
     size_t tx_buffer_used;
@@ -257,6 +270,7 @@ typedef struct
     size_t backoff_offset;
     size_t streams_offset;
     size_t stream_rx_offset;
+    size_t stream_rx_buffer_offset;
     size_t tx_queue_offset;
     size_t tx_buffer_offset;
     size_t mcache_offset;
@@ -266,6 +280,8 @@ typedef struct
     size_t idontwant_offset;
     size_t events_offset;
     size_t stream_rx_stride;
+    size_t stream_rx_max_cap;
+    size_t stream_rx_buffer_cap;
     size_t total;
 } gossipsub_storage_layout_t;
 
@@ -764,6 +780,16 @@ libp2p_gossipsub_err_t gossipsub_stream_decode_available(
     libp2p_gossipsub_t *gossipsub,
     gossipsub_stream_state_t *stream_state,
     uint64_t now_us);
+void gossipsub_stream_rx_reset(
+    libp2p_gossipsub_t *gossipsub,
+    gossipsub_stream_state_t *stream_state);
+libp2p_gossipsub_err_t gossipsub_stream_rx_reserve(
+    libp2p_gossipsub_t *gossipsub,
+    gossipsub_stream_state_t *stream_state,
+    size_t required);
+void gossipsub_stream_rx_shrink(
+    libp2p_gossipsub_t *gossipsub,
+    gossipsub_stream_state_t *stream_state);
 libp2p_gossipsub_err_t gossipsub_stream_read(
     libp2p_gossipsub_t *gossipsub,
     libp2p_host_t *host,

@@ -260,8 +260,8 @@ gossipsub_stream_state_t *gossipsub_alloc_stream(libp2p_gossipsub_t *gossipsub, 
             if (gossipsub->streams[index].state == GOSSIPSUB_STREAM_FREE)
             {
                 result = &gossipsub->streams[index];
+                gossipsub_stream_rx_reset(gossipsub, result);
                 result->state = GOSSIPSUB_STREAM_OPEN;
-                result->rx_len = 0U;
                 *out_index = index;
                 break;
             }

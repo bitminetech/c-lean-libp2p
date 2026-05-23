@@ -21,6 +21,8 @@ static void quic_lifecycle_test_multiple_streams(void)
     uint8_t read_done[4];
     uint8_t read_bufs[4][16];
     size_t read_totals[4];
+    const size_t retained_limit =
+        LIBP2P_QUIC_DEFAULT_STREAM_WINDOW_BYTES * QUIC_BACKEND_STREAM_SEND_MULTIPLIER;
     size_t index = 0U;
     size_t accepted_count = 0U;
     size_t read_count = 0U;
@@ -51,6 +53,8 @@ static void quic_lifecycle_test_multiple_streams(void)
                 1,
                 &accepted) == LIBP2P_QUIC_OK);
         assert(accepted == sizeof(messages[index]));
+        assert(client_streams[index]->tx_cap >= sizeof(messages[index]));
+        assert(client_streams[index]->tx_cap < retained_limit);
     }
 
     for (round = 0U; round < 1000U; round++)
@@ -236,6 +240,8 @@ static void quic_lifecycle_test_stream_reset_discards_pending_tx(void)
     assert(libp2p_quic_stream_reset(client_stream, 88U) == LIBP2P_QUIC_OK);
     assert(client_stream->tx_len == 0U);
     assert(client_stream->tx_sent_len == 0U);
+    assert(client_stream->tx_data == NULL);
+    assert(client_stream->tx_cap == 0U);
     assert(client_stream->tx_base_offset == (uint64_t)sent_before_reset);
     assert(client_stream->local_fin_queued == 0U);
     assert(client_stream->local_fin_sent == 0U);

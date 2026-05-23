@@ -151,11 +151,8 @@ libp2p_gossipsub_err_t gossipsub_storage_layout(
         }
         else
         {
-            result = gossipsub_reserve(
-                &cursor,
-                GOSSIPSUB_STORAGE_ALIGN,
-                bytes,
-                &layout->backoff_offset);
+            result =
+                gossipsub_reserve(&cursor, GOSSIPSUB_STORAGE_ALIGN, bytes, &layout->backoff_offset);
         }
     }
     if (result == LIBP2P_GOSSIPSUB_OK)
@@ -178,22 +175,54 @@ libp2p_gossipsub_err_t gossipsub_storage_layout(
         if (gossipsub_size_add(
                 config->limits.max_rpc_bytes,
                 LIBP2P_GOSSIPSUB_FRAME_LEN_MAX_BYTES,
-                &layout->stream_rx_stride) != 0)
-        {
-            result = LIBP2P_GOSSIPSUB_ERR_LIMIT;
-        }
-        else if (
-            gossipsub_size_mul(config->capacity.max_streams, layout->stream_rx_stride, &bytes) != 0)
+                &layout->stream_rx_max_cap) != 0)
         {
             result = LIBP2P_GOSSIPSUB_ERR_LIMIT;
         }
         else
+        {
+            layout->stream_rx_stride = GOSSIPSUB_STREAM_RX_SMALL_CAP;
+            if (layout->stream_rx_stride > layout->stream_rx_max_cap)
+            {
+                layout->stream_rx_stride = layout->stream_rx_max_cap;
+            }
+            if (gossipsub_size_mul(
+                    config->capacity.max_streams,
+                    layout->stream_rx_stride,
+                    &bytes) != 0)
+            {
+                result = LIBP2P_GOSSIPSUB_ERR_LIMIT;
+            }
+        }
+        if (result == LIBP2P_GOSSIPSUB_OK)
         {
             result = gossipsub_reserve(
                 &cursor,
                 GOSSIPSUB_STORAGE_ALIGN,
                 bytes,
                 &layout->stream_rx_offset);
+        }
+    }
+    if ((result == LIBP2P_GOSSIPSUB_OK) && (layout->stream_rx_max_cap > layout->stream_rx_stride))
+    {
+        size_t pool_streams = config->capacity.max_streams;
+
+        if (pool_streams > GOSSIPSUB_STREAM_RX_LARGE_POOL_STREAMS)
+        {
+            pool_streams = GOSSIPSUB_STREAM_RX_LARGE_POOL_STREAMS;
+        }
+        if (gossipsub_size_mul(pool_streams, layout->stream_rx_max_cap, &bytes) != 0)
+        {
+            result = LIBP2P_GOSSIPSUB_ERR_LIMIT;
+        }
+        else
+        {
+            layout->stream_rx_buffer_cap = bytes;
+            result = gossipsub_reserve(
+                &cursor,
+                GOSSIPSUB_STORAGE_ALIGN,
+                layout->stream_rx_buffer_cap,
+                &layout->stream_rx_buffer_offset);
         }
     }
     if (result == LIBP2P_GOSSIPSUB_OK)
@@ -445,6 +474,7 @@ libp2p_gossipsub_err_t libp2p_gossipsub_init(
     gossipsub_storage_layout_t layout;
     libp2p_gossipsub_t *gossipsub = NULL;
     uint8_t *rx_base = NULL;
+    uint8_t *rx_buffer = NULL;
     const void *storage_ptr = NULL;
     libp2p_gossipsub_err_t result = gossipsub_config_validate_init(config);
 
@@ -471,6 +501,11 @@ libp2p_gossipsub_err_t libp2p_gossipsub_init(
         gossipsub = gossipsub_storage_router(storage);
         storage_ptr = gossipsub_storage_at(storage, layout.stream_rx_offset);
         gossipsub_pointer_store((void *)&rx_base, storage_ptr);
+        if (layout.stream_rx_buffer_cap != 0U)
+        {
+            storage_ptr = gossipsub_storage_at(storage, layout.stream_rx_buffer_offset);
+            gossipsub_pointer_store((void *)&rx_buffer, storage_ptr);
+        }
         gossipsub->config = *config;
         gossipsub->storage_base = gossipsub_storage_bytes(storage);
         gossipsub->storage_len = storage_len;
@@ -486,6 +521,12 @@ libp2p_gossipsub_err_t libp2p_gossipsub_init(
         gossipsub_pointer_store((void *)&gossipsub->backoff, storage_ptr);
         storage_ptr = gossipsub_storage_at(storage, layout.streams_offset);
         gossipsub_pointer_store((void *)&gossipsub->streams, storage_ptr);
+        gossipsub->stream_rx_small = rx_base;
+        gossipsub->stream_rx_buffer = rx_buffer;
+        gossipsub->stream_rx_small_stride = layout.stream_rx_stride;
+        gossipsub->stream_rx_max_cap = layout.stream_rx_max_cap;
+        gossipsub->stream_rx_buffer_cap = layout.stream_rx_buffer_cap;
+        gossipsub->stream_rx_buffer_used = 0U;
         storage_ptr = gossipsub_storage_at(storage, layout.tx_queue_offset);
         gossipsub_pointer_store((void *)&gossipsub->tx_queue, storage_ptr);
         storage_ptr = gossipsub_storage_at(storage, layout.tx_buffer_offset);
@@ -508,7 +549,10 @@ libp2p_gossipsub_err_t libp2p_gossipsub_init(
         gossipsub->protocol_user_data[1].version = LIBP2P_GOSSIPSUB_VERSION_11;
         for (size_t index = 0U; index < config->capacity.max_streams; index++)
         {
+            gossipsub->streams[index].stream_index = index;
             gossipsub->streams[index].rx = &rx_base[index * layout.stream_rx_stride];
+            gossipsub->streams[index].rx_cap = layout.stream_rx_stride;
+            gossipsub->streams[index].rx_offset = GOSSIPSUB_RX_NO_OFFSET;
         }
         for (size_t index = 0U; index < config->capacity.max_peers; index++)
         {
@@ -530,6 +574,10 @@ void libp2p_gossipsub_deinit(libp2p_gossipsub_t *gossipsub)
 {
     if (gossipsub != NULL)
     {
+        for (size_t index = 0U; index < gossipsub->config.capacity.max_streams; index++)
+        {
+            gossipsub_stream_rx_reset(gossipsub, &gossipsub->streams[index]);
+        }
         gossipsub->started = 0U;
         gossipsub->closing = 1U;
     }
