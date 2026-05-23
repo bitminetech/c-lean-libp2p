@@ -607,6 +607,7 @@ static int quic_backend_reclaim_acked_stream_data(
             stream->tx_base_offset = sent_end;
             stream->tx_len = pending;
             stream->tx_sent_len = 0U;
+            quic_backend_stream_shrink_tx(stream);
             quic_backend_stream_clear_ack_ranges(stream);
             quic_backend_debug_stream_state(
                 stream,

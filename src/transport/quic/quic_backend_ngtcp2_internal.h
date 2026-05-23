@@ -38,6 +38,7 @@
 #define QUIC_BACKEND_EVENTS_PER_CONNECTION  8U
 #define QUIC_BACKEND_EXTRA_EVENTS           16U
 #define QUIC_BACKEND_ACTIVE_CID_LIMIT       8U
+#define QUIC_BACKEND_STREAM_SEND_MIN_CAP    4096U
 #define QUIC_BACKEND_STREAM_SEND_MULTIPLIER 2U
 #define QUIC_BACKEND_STREAM_ACK_RANGE_CAP   32U
 
@@ -323,6 +324,8 @@ QUIC_BACKEND_INTERNAL int quic_backend_stream_record_acked_range(
     uint64_t datalen,
     uint8_t *out_sent_window_acked);
 
+QUIC_BACKEND_INTERNAL void quic_backend_stream_shrink_tx(libp2p_quic_stream_t *stream);
+
 QUIC_BACKEND_INTERNAL libp2p_quic_err_t
 quic_backend_stream_reset(libp2p_quic_stream_t *stream, uint64_t app_error_code);
 
@@ -359,20 +362,22 @@ QUIC_BACKEND_INTERNAL libp2p_quic_err_t quic_backend_write_conn_datagram(
     libp2p_quic_tx_datagram_t *datagram,
     libp2p_quic_time_us_t now_us);
 
-QUIC_BACKEND_INTERNAL void
-quic_backend_conn_confirm_tx_datagram(libp2p_quic_conn_t *conn, libp2p_quic_time_us_t now_us);
+QUIC_BACKEND_INTERNAL void quic_backend_conn_confirm_tx_datagram(
+    libp2p_quic_conn_t *conn,
+    libp2p_quic_time_us_t now_us);
 
 QUIC_BACKEND_INTERNAL void quic_backend_conn_discard_tx_datagram(libp2p_quic_conn_t *conn);
 
-QUIC_BACKEND_INTERNAL void
-quic_backend_conn_flush_tx_time_update(libp2p_quic_conn_t *conn, libp2p_quic_time_us_t now_us);
+QUIC_BACKEND_INTERNAL void quic_backend_conn_flush_tx_time_update(
+    libp2p_quic_conn_t *conn,
+    libp2p_quic_time_us_t now_us);
 
 QUIC_BACKEND_INTERNAL void quic_backend_endpoint_set_defer_tx_time_updates(
     libp2p_quic_endpoint_t *endpoint,
     uint8_t enabled);
 
-QUIC_BACKEND_INTERNAL libp2p_quic_conn_t *
-quic_backend_endpoint_last_tx_conn(const libp2p_quic_endpoint_t *endpoint);
+QUIC_BACKEND_INTERNAL libp2p_quic_conn_t *quic_backend_endpoint_last_tx_conn(
+    const libp2p_quic_endpoint_t *endpoint);
 
 QUIC_BACKEND_INTERNAL libp2p_quic_err_t quic_backend_endpoint_flush_tx_time_updates(
     libp2p_quic_endpoint_t *endpoint,

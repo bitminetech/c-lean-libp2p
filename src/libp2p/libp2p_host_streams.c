@@ -172,6 +172,10 @@ libp2p_host_err_t host_stream_alloc(
                 stream->conn = conn;
                 stream->transport_stream = transport_stream;
                 stream->protocol = protocol;
+                if (open_attempt != NULL)
+                {
+                    stream->fallback_protocol = open_attempt->fallback_protocol;
+                }
                 stream->open_attempt = open_attempt;
                 stream->direction = direction;
                 stream->state = HOST_STREAM_NEGOTIATING;
@@ -569,7 +573,14 @@ static libp2p_host_err_t host_stream_outbound_step(
                 err = host_stream_send_prepared(host, stream, made_progress);
                 if ((err == LIBP2P_HOST_OK) && (stream->out_len == 0U))
                 {
-                    stream->neg_state = HOST_NEG_OUT_READ_MS;
+                    if (stream->outbound_multistream_ready != 0U)
+                    {
+                        stream->neg_state = HOST_NEG_OUT_READ_PROTOCOL;
+                    }
+                    else
+                    {
+                        stream->neg_state = HOST_NEG_OUT_READ_MS;
+                    }
                     *made_progress = 1U;
                 }
             }
@@ -588,6 +599,7 @@ static libp2p_host_err_t host_stream_outbound_step(
                     (const uint8_t *)LIBP2P_MULTISTREAM_SELECT_PROTOCOL_ID,
                     LIBP2P_MULTISTREAM_SELECT_PROTOCOL_ID_LEN) != 0)
             {
+                stream->outbound_multistream_ready = 1U;
                 stream->neg_state = HOST_NEG_OUT_READ_PROTOCOL;
             }
             else
@@ -618,8 +630,27 @@ static libp2p_host_err_t host_stream_outbound_step(
                     (const uint8_t *)LIBP2P_MULTISTREAM_SELECT_NA,
                     LIBP2P_MULTISTREAM_SELECT_NA_LEN) != 0)
             {
-                err =
-                    host_stream_fail_negotiation(host, stream, LIBP2P_HOST_ERR_UNSUPPORTED, result);
+                if (stream->fallback_protocol != NULL)
+                {
+                    stream->protocol = stream->fallback_protocol;
+                    stream->fallback_protocol = NULL;
+                    stream->payload_len = 0U;
+                    stream->neg_state = HOST_NEG_OUT_SEND_PROTOCOL;
+                    if (stream->open_attempt != NULL)
+                    {
+                        stream->open_attempt->protocol = stream->protocol;
+                        stream->open_attempt->fallback_protocol = NULL;
+                    }
+                    *made_progress = 1U;
+                }
+                else
+                {
+                    err = host_stream_fail_negotiation(
+                        host,
+                        stream,
+                        LIBP2P_HOST_ERR_UNSUPPORTED,
+                        result);
+                }
             }
             else
             {
@@ -945,15 +976,18 @@ libp2p_host_err_t host_stream_open_retry_one(
     return err;
 }
 
-libp2p_host_err_t libp2p_host_open_stream(
+static libp2p_host_err_t host_open_stream_with_optional_fallback(
     libp2p_host_t *host,
     libp2p_host_conn_t *conn,
     const uint8_t *protocol_id,
     size_t protocol_id_len,
+    const uint8_t *fallback_protocol_id,
+    size_t fallback_protocol_id_len,
     void *user_data,
     libp2p_host_stream_open_t **out_open)
 {
     const libp2p_host_protocol_t *protocol = NULL;
+    const libp2p_host_protocol_t *fallback_protocol = NULL;
     libp2p_host_stream_open_t *open = NULL;
     void *transport_stream = NULL;
     libp2p_host_err_t result = host_validate_started(host);
@@ -965,7 +999,9 @@ libp2p_host_err_t libp2p_host_open_stream(
     if (result == LIBP2P_HOST_OK)
     {
         if ((conn == NULL) || (conn->host != host) || (protocol_id == NULL) ||
-            (protocol_id_len == 0U) || (out_open == NULL))
+            (protocol_id_len == 0U) || (out_open == NULL) ||
+            ((fallback_protocol_id == NULL) && (fallback_protocol_id_len != 0U)) ||
+            ((fallback_protocol_id != NULL) && (fallback_protocol_id_len == 0U)))
         {
             result = LIBP2P_HOST_ERR_INVALID_ARG;
         }
@@ -977,6 +1013,14 @@ libp2p_host_err_t libp2p_host_open_stream(
         {
             result = host_protocol_find(host, protocol_id, protocol_id_len, &protocol);
         }
+    }
+    if ((result == LIBP2P_HOST_OK) && (fallback_protocol_id != NULL))
+    {
+        result = host_protocol_find(
+            host,
+            fallback_protocol_id,
+            fallback_protocol_id_len,
+            &fallback_protocol);
     }
     if (result == LIBP2P_HOST_OK)
     {
@@ -991,6 +1035,7 @@ libp2p_host_err_t libp2p_host_open_stream(
         open->conn = conn;
         open->transport_conn = conn->transport_conn;
         open->protocol = protocol;
+        open->fallback_protocol = fallback_protocol;
         open->user_data = user_data;
         result = host->config.transport
                      ->open_stream(host->transport, conn->transport_conn, &transport_stream);
@@ -1029,6 +1074,50 @@ libp2p_host_err_t libp2p_host_open_stream(
     {
         *out_open = open;
     }
+
+    return result;
+}
+
+libp2p_host_err_t libp2p_host_open_stream(
+    libp2p_host_t *host,
+    libp2p_host_conn_t *conn,
+    const uint8_t *protocol_id,
+    size_t protocol_id_len,
+    void *user_data,
+    libp2p_host_stream_open_t **out_open)
+{
+    libp2p_host_err_t result = host_open_stream_with_optional_fallback(
+        host,
+        conn,
+        protocol_id,
+        protocol_id_len,
+        NULL,
+        0U,
+        user_data,
+        out_open);
+
+    return result;
+}
+
+libp2p_host_err_t libp2p_host_open_stream_with_fallback(
+    libp2p_host_t *host,
+    libp2p_host_conn_t *conn,
+    const uint8_t *protocol_id,
+    size_t protocol_id_len,
+    const uint8_t *fallback_protocol_id,
+    size_t fallback_protocol_id_len,
+    void *user_data,
+    libp2p_host_stream_open_t **out_open)
+{
+    libp2p_host_err_t result = host_open_stream_with_optional_fallback(
+        host,
+        conn,
+        protocol_id,
+        protocol_id_len,
+        fallback_protocol_id,
+        fallback_protocol_id_len,
+        user_data,
+        out_open);
 
     return result;
 }

@@ -3,6 +3,307 @@
 
 #include "gossipsub_internal.h"
 
+static uint8_t *gossipsub_stream_rx_small(
+    const libp2p_gossipsub_t *gossipsub,
+    const gossipsub_stream_state_t *stream_state)
+{
+    uint8_t *result = NULL;
+
+    if ((gossipsub != NULL) && (stream_state != NULL) && (gossipsub->stream_rx_small != NULL) &&
+        (stream_state->stream_index < gossipsub->config.capacity.max_streams))
+    {
+        result =
+            &gossipsub
+                 ->stream_rx_small[stream_state->stream_index * gossipsub->stream_rx_small_stride];
+    }
+
+    return result;
+}
+
+static uint8_t gossipsub_stream_rx_is_large(const gossipsub_stream_state_t *stream_state)
+{
+    uint8_t result = 0U;
+
+    if ((stream_state != NULL) && (stream_state->rx_offset != GOSSIPSUB_RX_NO_OFFSET))
+    {
+        result = 1U;
+    }
+
+    return result;
+}
+
+static size_t gossipsub_stream_rx_next_cap(
+    size_t current_cap,
+    size_t required,
+    size_t retained_limit)
+{
+    size_t result = current_cap;
+    size_t min_cap = GOSSIPSUB_STREAM_RX_SMALL_CAP;
+
+    if (min_cap > retained_limit)
+    {
+        min_cap = retained_limit;
+    }
+    if (result < min_cap)
+    {
+        result = min_cap;
+    }
+    while ((result < required) && (result < retained_limit))
+    {
+        if (result > (retained_limit / 2U))
+        {
+            result = retained_limit;
+        }
+        else
+        {
+            result *= 2U;
+        }
+    }
+    if (result < required)
+    {
+        result = required;
+    }
+    if (result > retained_limit)
+    {
+        result = retained_limit;
+    }
+
+    return result;
+}
+
+static size_t gossipsub_stream_rx_active_count(
+    const libp2p_gossipsub_t *gossipsub,
+    size_t tail_index)
+{
+    size_t result = 0U;
+
+    if (gossipsub != NULL)
+    {
+        for (size_t index = 0U; index < gossipsub->config.capacity.max_streams; index++)
+        {
+            const gossipsub_stream_state_t *stream_state = &gossipsub->streams[index];
+
+            if ((index != tail_index) && (gossipsub_stream_rx_is_large(stream_state) != 0U))
+            {
+                result++;
+            }
+        }
+    }
+
+    return result;
+}
+
+static void gossipsub_stream_rx_move_large(
+    libp2p_gossipsub_t *gossipsub,
+    gossipsub_stream_state_t *stream_state,
+    size_t *cursor)
+{
+    if ((gossipsub != NULL) && (stream_state != NULL) && (cursor != NULL) &&
+        (gossipsub->stream_rx_buffer != NULL) &&
+        (gossipsub_stream_rx_is_large(stream_state) != 0U) &&
+        (*cursor <= gossipsub->stream_rx_buffer_cap) &&
+        (stream_state->rx_offset <= gossipsub->stream_rx_buffer_cap) &&
+        (stream_state->rx_cap <= (gossipsub->stream_rx_buffer_cap - stream_state->rx_offset)) &&
+        (stream_state->rx_cap <= (gossipsub->stream_rx_buffer_cap - *cursor)))
+    {
+        const size_t old_offset = stream_state->rx_offset;
+
+        if ((stream_state->rx_cap != 0U) && (old_offset != *cursor))
+        {
+            (void)memmove(
+                &gossipsub->stream_rx_buffer[*cursor],
+                &gossipsub->stream_rx_buffer[old_offset],
+                stream_state->rx_cap);
+        }
+        stream_state->rx_offset = *cursor;
+        stream_state->rx = &gossipsub->stream_rx_buffer[*cursor];
+        *cursor += stream_state->rx_cap;
+    }
+}
+
+static void gossipsub_stream_rx_compact(libp2p_gossipsub_t *gossipsub, size_t tail_index)
+{
+    size_t cursor = 0U;
+
+    if ((gossipsub != NULL) && (gossipsub->stream_rx_buffer != NULL))
+    {
+        size_t moved = 0U;
+        const size_t active_count = gossipsub_stream_rx_active_count(gossipsub, tail_index);
+        size_t search_offset = 0U;
+
+        while (moved < active_count)
+        {
+            size_t best_index = gossipsub->config.capacity.max_streams;
+            size_t best_offset = SIZE_MAX;
+
+            for (size_t index = 0U; index < gossipsub->config.capacity.max_streams; index++)
+            {
+                const gossipsub_stream_state_t *stream_state = &gossipsub->streams[index];
+
+                if ((index != tail_index) && (gossipsub_stream_rx_is_large(stream_state) != 0U) &&
+                    (stream_state->rx_offset >= search_offset) &&
+                    (stream_state->rx_offset < best_offset))
+                {
+                    best_index = index;
+                    best_offset = stream_state->rx_offset;
+                }
+            }
+            if (best_index >= gossipsub->config.capacity.max_streams)
+            {
+                moved = active_count;
+            }
+            else
+            {
+                gossipsub_stream_state_t *stream_state = &gossipsub->streams[best_index];
+                const size_t old_offset = stream_state->rx_offset;
+
+                gossipsub_stream_rx_move_large(gossipsub, stream_state, &cursor);
+                if (stream_state->rx_cap <= (SIZE_MAX - old_offset))
+                {
+                    search_offset = old_offset + stream_state->rx_cap;
+                }
+                else
+                {
+                    search_offset = SIZE_MAX;
+                }
+                if ((search_offset == old_offset) && (search_offset < SIZE_MAX))
+                {
+                    search_offset++;
+                }
+                moved++;
+            }
+        }
+        if (tail_index < gossipsub->config.capacity.max_streams)
+        {
+            gossipsub_stream_rx_move_large(gossipsub, &gossipsub->streams[tail_index], &cursor);
+        }
+        gossipsub->stream_rx_buffer_used = cursor;
+    }
+}
+
+void gossipsub_stream_rx_reset(
+    libp2p_gossipsub_t *gossipsub,
+    gossipsub_stream_state_t *stream_state)
+{
+    uint8_t *small = gossipsub_stream_rx_small(gossipsub, stream_state);
+
+    if ((gossipsub != NULL) && (stream_state != NULL))
+    {
+        stream_state->rx_offset = GOSSIPSUB_RX_NO_OFFSET;
+        stream_state->rx = small;
+        stream_state->rx_len = 0U;
+        stream_state->rx_cap = gossipsub->stream_rx_small_stride;
+        gossipsub_stream_rx_compact(gossipsub, gossipsub->config.capacity.max_streams);
+    }
+}
+
+libp2p_gossipsub_err_t gossipsub_stream_rx_reserve(
+    libp2p_gossipsub_t *gossipsub,
+    gossipsub_stream_state_t *stream_state,
+    size_t required)
+{
+    libp2p_gossipsub_err_t result = LIBP2P_GOSSIPSUB_OK;
+
+    if ((gossipsub == NULL) || (stream_state == NULL) || (stream_state->rx == NULL))
+    {
+        result = LIBP2P_GOSSIPSUB_ERR_INVALID_ARG;
+    }
+    else if (required > gossipsub->stream_rx_max_cap)
+    {
+        result = LIBP2P_GOSSIPSUB_ERR_LIMIT;
+    }
+    else if (required <= stream_state->rx_cap)
+    {
+        result = LIBP2P_GOSSIPSUB_OK;
+    }
+    else
+    {
+        const size_t new_cap = gossipsub_stream_rx_next_cap(
+            stream_state->rx_cap,
+            required,
+            gossipsub->stream_rx_max_cap);
+
+        if ((gossipsub->stream_rx_buffer == NULL) || (new_cap < required) ||
+            (new_cap > gossipsub->stream_rx_buffer_cap))
+        {
+            result = LIBP2P_GOSSIPSUB_ERR_LIMIT;
+        }
+        else if (gossipsub_stream_rx_is_large(stream_state) != 0U)
+        {
+            gossipsub_stream_rx_compact(gossipsub, stream_state->stream_index);
+            if ((stream_state->rx_offset > gossipsub->stream_rx_buffer_cap) ||
+                (stream_state->rx_cap >
+                 (gossipsub->stream_rx_buffer_cap - stream_state->rx_offset)) ||
+                (new_cap < stream_state->rx_cap))
+            {
+                result = LIBP2P_GOSSIPSUB_ERR_INTERNAL;
+            }
+            else
+            {
+                const size_t old_end = stream_state->rx_offset + stream_state->rx_cap;
+                const size_t delta = new_cap - stream_state->rx_cap;
+
+                if (delta <= (gossipsub->stream_rx_buffer_cap - old_end))
+                {
+                    stream_state->rx_cap = new_cap;
+                    gossipsub->stream_rx_buffer_used = stream_state->rx_offset + new_cap;
+                }
+                else
+                {
+                    result = LIBP2P_GOSSIPSUB_ERR_WOULD_BLOCK;
+                }
+            }
+        }
+        else
+        {
+            gossipsub_stream_rx_compact(gossipsub, gossipsub->config.capacity.max_streams);
+            if (new_cap <= (gossipsub->stream_rx_buffer_cap - gossipsub->stream_rx_buffer_used))
+            {
+                const size_t offset = gossipsub->stream_rx_buffer_used;
+
+                if (stream_state->rx_len != 0U)
+                {
+                    (void)memcpy(
+                        &gossipsub->stream_rx_buffer[offset],
+                        stream_state->rx,
+                        stream_state->rx_len);
+                }
+                stream_state->rx_offset = offset;
+                stream_state->rx = &gossipsub->stream_rx_buffer[offset];
+                stream_state->rx_cap = new_cap;
+                gossipsub->stream_rx_buffer_used += new_cap;
+            }
+            else
+            {
+                result = LIBP2P_GOSSIPSUB_ERR_WOULD_BLOCK;
+            }
+        }
+    }
+
+    return result;
+}
+
+void gossipsub_stream_rx_shrink(
+    libp2p_gossipsub_t *gossipsub,
+    gossipsub_stream_state_t *stream_state)
+{
+    uint8_t *small = gossipsub_stream_rx_small(gossipsub, stream_state);
+
+    if ((gossipsub != NULL) && (stream_state != NULL) && (small != NULL) &&
+        (gossipsub_stream_rx_is_large(stream_state) != 0U) &&
+        (stream_state->rx_len <= gossipsub->stream_rx_small_stride))
+    {
+        if (stream_state->rx_len != 0U)
+        {
+            (void)memcpy(small, stream_state->rx, stream_state->rx_len);
+        }
+        stream_state->rx = small;
+        stream_state->rx_cap = gossipsub->stream_rx_small_stride;
+        stream_state->rx_offset = GOSSIPSUB_RX_NO_OFFSET;
+        gossipsub_stream_rx_compact(gossipsub, gossipsub->config.capacity.max_streams);
+    }
+}
+
 static uint64_t gossipsub_rx_prune_backoff_us(
     const libp2p_gossipsub_t *gossipsub,
     uint64_t backoff_seconds)
@@ -334,7 +635,8 @@ libp2p_gossipsub_err_t gossipsub_process_rpc(
             }
             else if (
                 (gossipsub_mesh_contains(gossipsub, peer_index, topic_index) != 0) ||
-                (gossipsub_mesh_count_topic(gossipsub, topic_index) < gossipsub->config.mesh.d_high))
+                (gossipsub_mesh_count_topic(gossipsub, topic_index) <
+                 gossipsub->config.mesh.d_high))
             {
                 result = gossipsub_mesh_add(gossipsub, peer_index, topic_index);
             }
@@ -531,6 +833,10 @@ libp2p_gossipsub_err_t gossipsub_stream_decode_available(
             }
         }
     }
+    if (result == LIBP2P_GOSSIPSUB_OK)
+    {
+        gossipsub_stream_rx_shrink(gossipsub, stream_state);
+    }
 
     return result;
 }
@@ -556,19 +862,52 @@ libp2p_gossipsub_err_t gossipsub_stream_read(
     }
     while ((result == LIBP2P_GOSSIPSUB_OK) && (keep_reading != 0U))
     {
-        if (stream_state->rx_len >=
-            (gossipsub->config.limits.max_rpc_bytes + LIBP2P_GOSSIPSUB_FRAME_LEN_MAX_BYTES))
+        const size_t rx_limit =
+            gossipsub->config.limits.max_rpc_bytes + LIBP2P_GOSSIPSUB_FRAME_LEN_MAX_BYTES;
+        size_t read_capacity = 0U;
+
+        if (stream_state->rx_len >= rx_limit)
         {
             result = LIBP2P_GOSSIPSUB_ERR_LIMIT;
         }
         else
         {
+            read_capacity = stream_state->rx_cap - stream_state->rx_len;
+            if (read_capacity == 0U)
+            {
+                size_t required = 0U;
+
+                if ((rx_limit - stream_state->rx_len) > GOSSIPSUB_STREAM_RX_READ_CHUNK)
+                {
+                    required = stream_state->rx_len + GOSSIPSUB_STREAM_RX_READ_CHUNK;
+                }
+                else
+                {
+                    required = rx_limit;
+                }
+                result = gossipsub_stream_rx_reserve(gossipsub, stream_state, required);
+                if (result == LIBP2P_GOSSIPSUB_OK)
+                {
+                    read_capacity = stream_state->rx_cap - stream_state->rx_len;
+                }
+            }
+        }
+        if ((result == LIBP2P_GOSSIPSUB_OK) && (read_capacity > GOSSIPSUB_STREAM_RX_READ_CHUNK))
+        {
+            read_capacity = GOSSIPSUB_STREAM_RX_READ_CHUNK;
+        }
+        if (result == LIBP2P_GOSSIPSUB_ERR_WOULD_BLOCK)
+        {
+            result = LIBP2P_GOSSIPSUB_OK;
+            keep_reading = 0U;
+        }
+        if ((result == LIBP2P_GOSSIPSUB_OK) && (keep_reading != 0U))
+        {
             result = gossipsub_host_to_err(libp2p_host_stream_read(
                 host,
                 stream_state->stream,
                 &stream_state->rx[stream_state->rx_len],
-                (gossipsub->config.limits.max_rpc_bytes + LIBP2P_GOSSIPSUB_FRAME_LEN_MAX_BYTES) -
-                    stream_state->rx_len,
+                read_capacity,
                 &read_len,
                 &fin));
         }

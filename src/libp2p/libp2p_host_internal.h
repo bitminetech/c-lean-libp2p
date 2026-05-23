@@ -78,6 +78,7 @@ struct libp2p_host_stream_open
     void *transport_conn;
     void *transport_stream;
     const libp2p_host_protocol_t *protocol;
+    const libp2p_host_protocol_t *fallback_protocol;
     void *user_data;
 };
 
@@ -95,6 +96,7 @@ struct libp2p_host_stream
     libp2p_host_conn_t *conn;
     void *transport_stream;
     const libp2p_host_protocol_t *protocol;
+    const libp2p_host_protocol_t *fallback_protocol;
     libp2p_host_stream_open_t *open_attempt;
     void *user_data;
     host_stream_state_t state;
@@ -104,6 +106,7 @@ struct libp2p_host_stream
     uint8_t pending_writable;
     uint8_t pending_reset;
     uint8_t pending_closed;
+    uint8_t outbound_multistream_ready;
     uint8_t outbound_open_event_queued;
     uint8_t outbound_fail_event_queued;
     uint8_t in_frame[HOST_NEGOTIATION_FRAME_CAP];

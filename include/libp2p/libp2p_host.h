@@ -571,6 +571,16 @@ libp2p_host_err_t libp2p_host_open_stream(
     void *user_data,
     libp2p_host_stream_open_t **out_open);
 
+libp2p_host_err_t libp2p_host_open_stream_with_fallback(
+    libp2p_host_t *host,
+    libp2p_host_conn_t *conn,
+    const uint8_t *protocol_id,
+    size_t protocol_id_len,
+    const uint8_t *fallback_protocol_id,
+    size_t fallback_protocol_id_len,
+    void *user_data,
+    libp2p_host_stream_open_t **out_open);
+
 /**
  * Return the local identity's peer ID.
  *

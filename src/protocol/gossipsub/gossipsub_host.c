@@ -270,6 +270,17 @@ libp2p_gossipsub_err_t libp2p_gossipsub_handle_host_event(
                 gossipsub->peers[index].tx_transport_busy = 0U;
             }
         }
+        for (size_t index = 0U; index < gossipsub->config.capacity.max_streams; index++)
+        {
+            if ((gossipsub->streams[index].state == GOSSIPSUB_STREAM_OPEN) &&
+                (gossipsub->streams[index].conn == event->conn))
+            {
+                gossipsub_stream_rx_reset(gossipsub, &gossipsub->streams[index]);
+                gossipsub->streams[index].state = GOSSIPSUB_STREAM_FREE;
+                gossipsub->streams[index].stream = NULL;
+                gossipsub->streams[index].conn = NULL;
+            }
+        }
     }
     else if (event->type == LIBP2P_HOST_EVENT_STREAM_OPEN_FAILED)
     {
@@ -297,7 +308,9 @@ libp2p_gossipsub_err_t libp2p_gossipsub_open_peer(
     libp2p_host_stream_open_t **out_open)
 {
     const uint8_t *protocol_id = NULL;
+    const uint8_t *fallback_protocol_id = NULL;
     size_t protocol_id_len = 0U;
+    size_t fallback_protocol_id_len = 0U;
     libp2p_gossipsub_err_t result = LIBP2P_GOSSIPSUB_OK;
 
     if ((gossipsub == NULL) || (host == NULL) || (conn == NULL) || (out_open == NULL))
@@ -316,6 +329,11 @@ libp2p_gossipsub_err_t libp2p_gossipsub_open_peer(
         {
             protocol_id = (const uint8_t *)LIBP2P_GOSSIPSUB_PROTOCOL_ID_V12;
             protocol_id_len = LIBP2P_GOSSIPSUB_PROTOCOL_ID_V12_LEN;
+            if ((gossipsub->config.protocol_mask & LIBP2P_GOSSIPSUB_PROTOCOL_MASK_V11) != 0U)
+            {
+                fallback_protocol_id = (const uint8_t *)LIBP2P_GOSSIPSUB_PROTOCOL_ID_V11;
+                fallback_protocol_id_len = LIBP2P_GOSSIPSUB_PROTOCOL_ID_V11_LEN;
+            }
         }
         else if (version == LIBP2P_GOSSIPSUB_VERSION_11)
         {
@@ -329,8 +347,28 @@ libp2p_gossipsub_err_t libp2p_gossipsub_open_peer(
     }
     if (result == LIBP2P_GOSSIPSUB_OK)
     {
-        result = gossipsub_host_to_err(
-            libp2p_host_open_stream(host, conn, protocol_id, protocol_id_len, user_data, out_open));
+        if (fallback_protocol_id != NULL)
+        {
+            result = gossipsub_host_to_err(libp2p_host_open_stream_with_fallback(
+                host,
+                conn,
+                protocol_id,
+                protocol_id_len,
+                fallback_protocol_id,
+                fallback_protocol_id_len,
+                user_data,
+                out_open));
+        }
+        else
+        {
+            result = gossipsub_host_to_err(libp2p_host_open_stream(
+                host,
+                conn,
+                protocol_id,
+                protocol_id_len,
+                user_data,
+                out_open));
+        }
     }
 
     return result;
@@ -489,8 +527,10 @@ libp2p_host_err_t gossipsub_protocol_on_event(
             gossipsub->peers[stream_state->peer_index].stream = NULL;
             gossipsub->peers[stream_state->peer_index].tx_transport_busy = 0U;
         }
+        gossipsub_stream_rx_reset(gossipsub, stream_state);
         stream_state->state = GOSSIPSUB_STREAM_FREE;
         stream_state->stream = NULL;
+        stream_state->conn = NULL;
     }
     else
     {

@@ -329,6 +329,101 @@ static void gossipsub_test_defaults_and_required_message_id(void)
     free(storage);
 }
 
+static void gossipsub_test_large_rpc_limit_does_not_scale_rx_by_stream_count(void)
+{
+    gossipsub_test_runtime_t runtime = {3U};
+    libp2p_gossipsub_config_t config;
+    libp2p_gossipsub_t *gossipsub = NULL;
+    void *storage = NULL;
+    size_t storage_len = 0U;
+    size_t full_rx_bytes = 0U;
+    size_t pool_rx_bytes = 0U;
+    const size_t rx_limit = (10U * 1024U * 1024U) + LIBP2P_GOSSIPSUB_FRAME_LEN_MAX_BYTES;
+
+    gossipsub_test_config_small(&config, &runtime);
+    config.limits.max_message_data_bytes = 10U * 1024U * 1024U;
+    config.limits.max_rpc_bytes = rx_limit - LIBP2P_GOSSIPSUB_FRAME_LEN_MAX_BYTES;
+    config.capacity.max_streams = 128U;
+    config.capacity.tx_buffer_bytes = 4096U;
+    config.capacity.mcache_bytes = 4096U;
+    assert(libp2p_gossipsub_storage_size(&config, &storage_len) == LIBP2P_GOSSIPSUB_OK);
+    assert(gossipsub_size_mul(config.capacity.max_streams, rx_limit, &full_rx_bytes) == 0);
+    assert(storage_len < (full_rx_bytes / 16U));
+
+    storage = calloc(1U, storage_len);
+    assert(storage != NULL);
+    assert(libp2p_gossipsub_init(storage, storage_len, &config, &gossipsub) == LIBP2P_GOSSIPSUB_OK);
+    assert(gossipsub->streams[0].rx_cap == GOSSIPSUB_STREAM_RX_SMALL_CAP);
+    assert(gossipsub->streams[127].rx_cap == GOSSIPSUB_STREAM_RX_SMALL_CAP);
+    assert(gossipsub->streams[0].rx_offset == GOSSIPSUB_RX_NO_OFFSET);
+    assert(gossipsub->streams[127].rx_offset == GOSSIPSUB_RX_NO_OFFSET);
+    assert(gossipsub->stream_rx_max_cap == rx_limit);
+    assert(
+        gossipsub_size_mul(GOSSIPSUB_STREAM_RX_LARGE_POOL_STREAMS, rx_limit, &pool_rx_bytes) ==
+        0);
+    assert(gossipsub->stream_rx_buffer_cap == pool_rx_bytes);
+    assert(gossipsub->stream_rx_buffer_used == 0U);
+
+    libp2p_gossipsub_deinit(gossipsub);
+    free(storage);
+}
+
+static void gossipsub_test_stream_rx_grows_and_shrinks(void)
+{
+    gossipsub_test_runtime_t runtime = {5U};
+    libp2p_gossipsub_config_t config;
+    libp2p_gossipsub_t *gossipsub = NULL;
+    gossipsub_stream_state_t *stream0 = NULL;
+    gossipsub_stream_state_t *stream1 = NULL;
+    void *storage = NULL;
+    size_t storage_len = 0U;
+
+    gossipsub_test_config_small(&config, &runtime);
+    config.limits.max_rpc_bytes = 16384U;
+    config.limits.max_message_data_bytes = 16384U;
+    assert(libp2p_gossipsub_storage_size(&config, &storage_len) == LIBP2P_GOSSIPSUB_OK);
+    storage = calloc(1U, storage_len);
+    assert(storage != NULL);
+    assert(libp2p_gossipsub_init(storage, storage_len, &config, &gossipsub) == LIBP2P_GOSSIPSUB_OK);
+
+    stream0 = &gossipsub->streams[0];
+    stream1 = &gossipsub->streams[1];
+    assert(stream0->rx_cap == GOSSIPSUB_STREAM_RX_SMALL_CAP);
+    assert(
+        gossipsub_stream_rx_reserve(gossipsub, stream0, GOSSIPSUB_STREAM_RX_SMALL_CAP + 1U) ==
+        LIBP2P_GOSSIPSUB_OK);
+    assert(stream0->rx == gossipsub->stream_rx_buffer);
+    assert(stream0->rx_cap >= (GOSSIPSUB_STREAM_RX_SMALL_CAP + 1U));
+    assert(stream0->rx_offset == 0U);
+    assert(
+        gossipsub_stream_rx_reserve(gossipsub, stream1, GOSSIPSUB_STREAM_RX_SMALL_CAP + 1U) ==
+        LIBP2P_GOSSIPSUB_OK);
+    assert(stream1->rx != stream0->rx);
+    assert(stream1->rx_cap == stream0->rx_cap);
+    assert(stream1->rx_offset == stream0->rx_cap);
+
+    stream0->rx_len = 1U;
+    stream0->rx[0] = 0xA5U;
+    stream1->rx_len = 1U;
+    stream1->rx[0] = 0x5AU;
+    gossipsub_stream_rx_shrink(gossipsub, stream0);
+    assert(stream0->rx_cap == GOSSIPSUB_STREAM_RX_SMALL_CAP);
+    assert(stream0->rx != gossipsub->stream_rx_buffer);
+    assert(stream0->rx_len == 1U);
+    assert(stream0->rx[0] == 0xA5U);
+    assert(stream0->rx_offset == GOSSIPSUB_RX_NO_OFFSET);
+    assert(stream1->rx_offset == 0U);
+    assert(stream1->rx[0] == 0x5AU);
+    assert(gossipsub->stream_rx_buffer_used == stream1->rx_cap);
+    gossipsub_stream_rx_shrink(gossipsub, stream1);
+    assert(stream1->rx_cap == GOSSIPSUB_STREAM_RX_SMALL_CAP);
+    assert(stream1->rx_offset == GOSSIPSUB_RX_NO_OFFSET);
+    assert(gossipsub->stream_rx_buffer_used == 0U);
+
+    libp2p_gossipsub_deinit(gossipsub);
+    free(storage);
+}
+
 static void gossipsub_test_publish_requires_capacity_and_writes_id(void)
 {
     static const uint8_t topic[] = "blocks";
@@ -372,7 +467,8 @@ static void gossipsub_test_register_protocols(libp2p_host_t *host, libp2p_gossip
     assert(
         libp2p_gossipsub_protocols(gossipsub, protocols, LIBP2P_GOSSIPSUB_PROTOCOL_COUNT, &count) ==
         LIBP2P_GOSSIPSUB_OK);
-    assert(count == 2U);
+    assert(count != 0U);
+    assert(count <= LIBP2P_GOSSIPSUB_PROTOCOL_COUNT);
     for (index = 0U; index < count; index++)
     {
         assert(libp2p_host_handle(host, &protocols[index]) == LIBP2P_HOST_OK);
@@ -406,6 +502,197 @@ static void gossipsub_test_drain_host_events(
             libp2p_gossipsub_handle_host_event(server_gossipsub, pair->server, &event) ==
             LIBP2P_GOSSIPSUB_OK);
     }
+}
+
+static void gossipsub_test_drain_host_events_count_failed(
+    protocol_loopback_pair_t *pair,
+    libp2p_gossipsub_t *client_gossipsub,
+    libp2p_gossipsub_t *server_gossipsub,
+    size_t *client_failed,
+    size_t *server_failed)
+{
+    libp2p_host_event_t event;
+
+    assert(client_failed != NULL);
+    assert(server_failed != NULL);
+    while (libp2p_host_next_event(pair->client, &event) == LIBP2P_HOST_OK)
+    {
+        if (event.type == LIBP2P_HOST_EVENT_CONN_ESTABLISHED)
+        {
+            pair->client_conn = event.conn;
+        }
+        if (event.type == LIBP2P_HOST_EVENT_STREAM_OPEN_FAILED)
+        {
+            (*client_failed)++;
+        }
+        assert(
+            libp2p_gossipsub_handle_host_event(client_gossipsub, pair->client, &event) ==
+            LIBP2P_GOSSIPSUB_OK);
+    }
+    while (libp2p_host_next_event(pair->server, &event) == LIBP2P_HOST_OK)
+    {
+        if (event.type == LIBP2P_HOST_EVENT_CONN_ESTABLISHED)
+        {
+            pair->server_conn = event.conn;
+        }
+        if (event.type == LIBP2P_HOST_EVENT_STREAM_OPEN_FAILED)
+        {
+            (*server_failed)++;
+        }
+        assert(
+            libp2p_gossipsub_handle_host_event(server_gossipsub, pair->server, &event) ==
+            LIBP2P_GOSSIPSUB_OK);
+    }
+}
+
+static void gossipsub_test_open_peer_falls_back_to_v11(void)
+{
+    gossipsub_test_runtime_t client_runtime = {23U};
+    gossipsub_test_runtime_t server_runtime = {53U};
+    libp2p_gossipsub_config_t client_config;
+    libp2p_gossipsub_config_t server_config;
+    libp2p_gossipsub_t *client_gossipsub = NULL;
+    libp2p_gossipsub_t *server_gossipsub = NULL;
+    protocol_loopback_pair_t pair;
+    libp2p_host_config_t client_host_config;
+    libp2p_host_config_t server_host_config;
+    libp2p_quic_service_config_t client_service_config;
+    libp2p_quic_service_config_t server_service_config;
+    libp2p_quic_addr_t server_addr;
+    uint8_t server_dial[160];
+    void *client_storage = NULL;
+    void *server_storage = NULL;
+    size_t server_dial_len = 0U;
+    size_t client_storage_len = 0U;
+    size_t server_storage_len = 0U;
+    size_t round = 0U;
+    size_t client_failed = 0U;
+    size_t server_failed = 0U;
+    int open_started = 0;
+    int opened_v11 = 0;
+    int failed_event = 0;
+
+    gossipsub_test_config_small(&client_config, &client_runtime);
+    gossipsub_test_config_small(&server_config, &server_runtime);
+    server_config.protocol_mask = LIBP2P_GOSSIPSUB_PROTOCOL_MASK_V11;
+    server_config.preferred_protocol = LIBP2P_GOSSIPSUB_VERSION_11;
+    assert(
+        libp2p_gossipsub_storage_size(&client_config, &client_storage_len) == LIBP2P_GOSSIPSUB_OK);
+    assert(
+        libp2p_gossipsub_storage_size(&server_config, &server_storage_len) == LIBP2P_GOSSIPSUB_OK);
+    client_storage = calloc(1U, client_storage_len);
+    server_storage = calloc(1U, server_storage_len);
+    assert(client_storage != NULL);
+    assert(server_storage != NULL);
+    assert(
+        libp2p_gossipsub_init(
+            client_storage,
+            client_storage_len,
+            &client_config,
+            &client_gossipsub) == LIBP2P_GOSSIPSUB_OK);
+    assert(
+        libp2p_gossipsub_init(
+            server_storage,
+            server_storage_len,
+            &server_config,
+            &server_gossipsub) == LIBP2P_GOSSIPSUB_OK);
+
+    protocol_loopback_init(
+        &pair,
+        39112U,
+        39113U,
+        4U,
+        &client_host_config,
+        &server_host_config,
+        &client_service_config,
+        &server_service_config,
+        &server_addr,
+        server_dial,
+        sizeof(server_dial),
+        &server_dial_len);
+    gossipsub_test_register_protocols(pair.client, client_gossipsub);
+    gossipsub_test_register_protocols(pair.server, server_gossipsub);
+    assert(libp2p_host_start(pair.client) == LIBP2P_HOST_OK);
+    assert(libp2p_host_start(pair.server) == LIBP2P_HOST_OK);
+    assert(
+        libp2p_gossipsub_start(client_gossipsub, pair.client, pair.now_us) == LIBP2P_GOSSIPSUB_OK);
+    assert(
+        libp2p_gossipsub_start(server_gossipsub, pair.server, pair.now_us) == LIBP2P_GOSSIPSUB_OK);
+
+    {
+        libp2p_host_dial_t *dial = NULL;
+
+        assert(
+            libp2p_host_dial(pair.client, server_dial, server_dial_len, NULL, &dial) ==
+            LIBP2P_HOST_OK);
+    }
+
+    for (round = 0U; round < 5000U; round++)
+    {
+        libp2p_gossipsub_event_t event;
+
+        protocol_loopback_drive(&pair);
+        gossipsub_test_drain_host_events_count_failed(
+            &pair,
+            client_gossipsub,
+            server_gossipsub,
+            &client_failed,
+            &server_failed);
+        assert(
+            libp2p_gossipsub_drive(client_gossipsub, pair.client, pair.now_us, NULL) ==
+            LIBP2P_GOSSIPSUB_OK);
+        assert(
+            libp2p_gossipsub_drive(server_gossipsub, pair.server, pair.now_us, NULL) ==
+            LIBP2P_GOSSIPSUB_OK);
+        if ((pair.client_conn != NULL) && (open_started == 0))
+        {
+            libp2p_host_stream_open_t *open = NULL;
+
+            assert(
+                libp2p_gossipsub_open_peer(
+                    client_gossipsub,
+                    pair.client,
+                    pair.client_conn,
+                    LIBP2P_GOSSIPSUB_VERSION_NONE,
+                    NULL,
+                    &open) == LIBP2P_GOSSIPSUB_OK);
+            open_started = 1;
+        }
+        while (libp2p_gossipsub_next_event(client_gossipsub, &event) == LIBP2P_GOSSIPSUB_OK)
+        {
+            if ((event.type == LIBP2P_GOSSIPSUB_EVENT_PEER_OPENED) &&
+                (event.direction == LIBP2P_HOST_STREAM_OUTBOUND) &&
+                (event.protocol_version == LIBP2P_GOSSIPSUB_VERSION_11))
+            {
+                opened_v11 = 1;
+            }
+            if (event.type == LIBP2P_GOSSIPSUB_EVENT_PEER_FAILED)
+            {
+                failed_event = 1;
+            }
+        }
+        while (libp2p_gossipsub_next_event(server_gossipsub, &event) == LIBP2P_GOSSIPSUB_OK)
+        {
+            if (event.type == LIBP2P_GOSSIPSUB_EVENT_PEER_FAILED)
+            {
+                failed_event = 1;
+            }
+        }
+        if (opened_v11 != 0)
+        {
+            break;
+        }
+    }
+
+    assert(opened_v11 != 0);
+    assert(client_failed == 0U);
+    assert(server_failed == 0U);
+    assert(failed_event == 0);
+    protocol_loopback_deinit(&pair);
+    libp2p_gossipsub_deinit(client_gossipsub);
+    libp2p_gossipsub_deinit(server_gossipsub);
+    free(client_storage);
+    free(server_storage);
 }
 
 static void gossipsub_test_quic_loopback_publish_and_idontwant(void)
@@ -2125,7 +2412,10 @@ static void gossipsub_test_local_prune_records_backoff(void)
 int main(void)
 {
     gossipsub_test_defaults_and_required_message_id();
+    gossipsub_test_large_rpc_limit_does_not_scale_rx_by_stream_count();
+    gossipsub_test_stream_rx_grows_and_shrinks();
     gossipsub_test_publish_requires_capacity_and_writes_id();
+    gossipsub_test_open_peer_falls_back_to_v11();
     gossipsub_test_quic_loopback_publish_and_idontwant();
     gossipsub_test_per_peer_queue_state();
     gossipsub_test_priority_queue_precedes_normal_items();
