@@ -137,6 +137,17 @@ static void gossipsub_spec_idontwant_vector(void)
     libp2p_gossipsub_limits_t limits;
     libp2p_gossipsub_bytes_t id_span;
     libp2p_gossipsub_control_idontwant_t idontwant;
+    libp2p_gossipsub_rpc_subscription_t decoded_subs[1];
+    libp2p_gossipsub_message_t decoded_publish[1];
+    libp2p_gossipsub_control_ihave_t decoded_ihave[1];
+    libp2p_gossipsub_control_iwant_t decoded_iwant[1];
+    libp2p_gossipsub_control_graft_t decoded_graft[1];
+    libp2p_gossipsub_control_prune_t decoded_prune[1];
+    libp2p_gossipsub_control_idontwant_t decoded_idontwant[1];
+    libp2p_gossipsub_bytes_t decoded_ids[2];
+    libp2p_gossipsub_peer_info_t decoded_peers[1];
+    libp2p_gossipsub_rpc_decode_storage_t storage;
+    libp2p_gossipsub_rpc_t decoded;
     libp2p_gossipsub_rpc_t rpc;
     uint8_t encoded[32];
     size_t written = 0U;
@@ -144,6 +155,7 @@ static void gossipsub_spec_idontwant_vector(void)
     gossipsub_spec_limits(&limits);
     (void)memset(&id_span, 0, sizeof(id_span));
     (void)memset(&idontwant, 0, sizeof(idontwant));
+    (void)memset(&storage, 0, sizeof(storage));
     (void)memset(&rpc, 0, sizeof(rpc));
     id_span.data = id;
     id_span.len = sizeof(id) - 1U;
@@ -165,6 +177,53 @@ static void gossipsub_spec_idontwant_vector(void)
     assert(
         libp2p_gossipsub_rpc_body_size(LIBP2P_GOSSIPSUB_VERSION_11, &limits, &rpc, &written) ==
         LIBP2P_GOSSIPSUB_ERR_UNSUPPORTED_VERSION);
+
+    storage.subscriptions = decoded_subs;
+    storage.subscription_capacity = 1U;
+    storage.publish = decoded_publish;
+    storage.publish_capacity = 1U;
+    storage.ihave = decoded_ihave;
+    storage.ihave_capacity = 1U;
+    storage.iwant = decoded_iwant;
+    storage.iwant_capacity = 1U;
+    storage.graft = decoded_graft;
+    storage.graft_capacity = 1U;
+    storage.prune = decoded_prune;
+    storage.prune_capacity = 1U;
+    storage.idontwant = decoded_idontwant;
+    storage.idontwant_capacity = 1U;
+    storage.message_ids = decoded_ids;
+    storage.message_id_capacity = 2U;
+    storage.peer_infos = decoded_peers;
+    storage.peer_info_capacity = 1U;
+
+    (void)memset(&decoded, 0, sizeof(decoded));
+    assert(
+        libp2p_gossipsub_rpc_body_decode(
+            LIBP2P_GOSSIPSUB_VERSION_12,
+            &limits,
+            expected,
+            sizeof(expected),
+            &storage,
+            &decoded) == LIBP2P_GOSSIPSUB_OK);
+    assert(decoded.control.idontwant_count == 1U);
+    assert(decoded.control.idontwant[0].message_id_count == 1U);
+    assert(decoded.control.idontwant[0].message_ids[0].len == sizeof(id) - 1U);
+    assert(memcmp(decoded.control.idontwant[0].message_ids[0].data, id, sizeof(id) - 1U) == 0);
+
+    (void)memset(&decoded, 0, sizeof(decoded));
+    assert(
+        libp2p_gossipsub_rpc_body_decode(
+            LIBP2P_GOSSIPSUB_VERSION_11,
+            &limits,
+            expected,
+            sizeof(expected),
+            &storage,
+            &decoded) == LIBP2P_GOSSIPSUB_OK);
+    assert(decoded.control.idontwant_count == 1U);
+    assert(decoded.control.idontwant[0].message_id_count == 1U);
+    assert(decoded.control.idontwant[0].message_ids[0].len == sizeof(id) - 1U);
+    assert(memcmp(decoded.control.idontwant[0].message_ids[0].data, id, sizeof(id) - 1U) == 0);
 }
 
 static void gossipsub_spec_prune_px_decode_and_no_encode(void)
