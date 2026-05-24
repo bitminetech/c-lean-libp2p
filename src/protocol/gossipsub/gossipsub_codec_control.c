@@ -291,12 +291,9 @@ libp2p_gossipsub_err_t gossipsub_idontwant_decode(
     libp2p_gossipsub_control_iwant_t iwant;
     libp2p_gossipsub_err_t result = LIBP2P_GOSSIPSUB_OK;
 
+    (void)version;
     (void)memset(&iwant, 0, sizeof(iwant));
-    if (version != LIBP2P_GOSSIPSUB_VERSION_12)
-    {
-        result = LIBP2P_GOSSIPSUB_ERR_UNSUPPORTED_VERSION;
-    }
-    else if (out == NULL)
+    if (out == NULL)
     {
         result = LIBP2P_GOSSIPSUB_ERR_INVALID_ARG;
     }

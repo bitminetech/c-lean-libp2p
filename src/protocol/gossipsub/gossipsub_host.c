@@ -495,8 +495,7 @@ libp2p_host_err_t gossipsub_protocol_on_event(
             }
         }
     }
-    if ((result == LIBP2P_GOSSIPSUB_OK) && (kind == LIBP2P_HOST_PROTOCOL_EVENT_READABLE) &&
-        (stream_state->direction == LIBP2P_HOST_STREAM_INBOUND))
+    if ((result == LIBP2P_GOSSIPSUB_OK) && (kind == LIBP2P_HOST_PROTOCOL_EVENT_READABLE))
     {
         result = gossipsub_stream_read(gossipsub, host, stream_state, gossipsub->last_drive_us);
     }
