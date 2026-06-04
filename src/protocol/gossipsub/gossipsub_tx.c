@@ -607,6 +607,10 @@ libp2p_gossipsub_err_t gossipsub_tx_alloc(
     {
         gossipsub_tx_remove(gossipsub, item_index);
     }
+    else
+    {
+        /* No reserved item was created, so there is nothing to roll back. */
+    }
 
     return result;
 }
@@ -685,6 +689,10 @@ static libp2p_gossipsub_err_t gossipsub_enqueue_rpc_with_lifetime(
     else if (tx_index != GOSSIPSUB_TX_NO_ITEM)
     {
         gossipsub_tx_remove(gossipsub, tx_index);
+    }
+    else
+    {
+        /* No reserved item was created, so there is nothing to roll back. */
     }
 
     return result;

@@ -205,13 +205,14 @@ static uint8_t
 quic_backend_packet_is_acceptable_initial(const libp2p_quic_rx_datagram_t *datagram)
 {
     ngtcp2_pkt_hd hd;
+    const uint8_t initial_type = (uint8_t)NGTCP2_PKT_INITIAL;
     uint8_t result = 0U;
 
     if ((datagram != NULL) && (datagram->data != NULL) && (datagram->data_len != 0U))
     {
         (void)memset(&hd, 0, sizeof(hd));
         if ((ngtcp2_accept(&hd, datagram->data, datagram->data_len) == 0) &&
-            (hd.version == LIBP2P_QUIC_VERSION_RFC9000) && (hd.type == NGTCP2_PKT_INITIAL))
+            (hd.version == LIBP2P_QUIC_VERSION_RFC9000) && (hd.type == initial_type))
         {
             result = 1U;
         }
@@ -470,7 +471,6 @@ QUIC_BACKEND_INTERNAL libp2p_quic_conn_t *quic_backend_find_conn_by_packet(
     ngtcp2_version_cid version_cid;
     size_t conn_index = 0U;
     libp2p_quic_conn_t *result = NULL;
-    uint8_t acceptable_initial = 0U;
 
     for (conn_index = 0U; (conn_index < endpoint->connection_count) && (result == NULL);
          conn_index++)
@@ -500,10 +500,8 @@ QUIC_BACKEND_INTERNAL libp2p_quic_conn_t *quic_backend_find_conn_by_packet(
 
     if (result == NULL)
     {
-        acceptable_initial = quic_backend_packet_is_acceptable_initial(datagram);
-    }
-    if (result == NULL)
-    {
+        uint8_t acceptable_initial = quic_backend_packet_is_acceptable_initial(datagram);
+
         for (conn_index = 0U; (conn_index < endpoint->connection_count) && (result == NULL);
              conn_index++)
         {
