@@ -1034,6 +1034,65 @@ static void gossipsub_test_tx_buffer_compacts_after_remove(void)
     free(storage);
 }
 
+static void gossipsub_test_reserved_tx_not_flushable_until_committed(void)
+{
+    gossipsub_test_runtime_t runtime = {21U};
+    gossipsub_test_write_stream_t write0 = {0U, 0U, 0U, 0U, 0U};
+    libp2p_gossipsub_config_t config;
+    libp2p_gossipsub_t *gossipsub = NULL;
+    libp2p_host_t host;
+    libp2p_host_transport_vtable_t transport;
+    libp2p_host_stream_t stream0;
+    uint8_t *out = NULL;
+    void *storage = NULL;
+    uint8_t made_progress = 0U;
+    size_t storage_len = 0U;
+    size_t rpcs_sent = 0U;
+    size_t item = GOSSIPSUB_TX_NO_ITEM;
+
+    gossipsub_test_config_small(&config, &runtime);
+    assert(libp2p_gossipsub_storage_size(&config, &storage_len) == LIBP2P_GOSSIPSUB_OK);
+    storage = calloc(1U, storage_len);
+    assert(storage != NULL);
+    assert(libp2p_gossipsub_init(storage, storage_len, &config, &gossipsub) == LIBP2P_GOSSIPSUB_OK);
+    gossipsub_test_fake_host_stream(&host, &transport, &stream0, &write0);
+    gossipsub_test_attach_peer(gossipsub, 0U, &stream0);
+
+    assert(gossipsub_tx_reserve(gossipsub, 0U, 8U, 0U, &out, &item) == LIBP2P_GOSSIPSUB_OK);
+    assert(out != NULL);
+    (void)memset(out, 0xA5, 8U);
+    assert(gossipsub->tx_queue_len == 1U);
+    assert(gossipsub->tx_buffer_used == 8U);
+    assert(gossipsub->tx_ready_count == 0U);
+    assert(gossipsub->peers[0].tx_head == GOSSIPSUB_TX_NO_ITEM);
+    assert(gossipsub->peers[0].tx_tail == GOSSIPSUB_TX_NO_ITEM);
+    assert(gossipsub->peers[0].tx_queue_depth == 0U);
+
+    assert(
+        gossipsub_flush_peer(gossipsub, &host, 0U, 0U, &made_progress, &rpcs_sent) ==
+        LIBP2P_GOSSIPSUB_OK);
+    assert(write0.calls == 0U);
+    assert(made_progress == 0U);
+    assert(rpcs_sent == 0U);
+
+    assert(gossipsub_tx_commit_reserved(gossipsub, 0U, item, 0U) == LIBP2P_GOSSIPSUB_OK);
+    assert(gossipsub->tx_queue_len == 1U);
+    assert(gossipsub->tx_ready_count == 1U);
+    assert(gossipsub->peers[0].tx_head == item);
+    assert(gossipsub->peers[0].tx_tail == item);
+    assert(gossipsub->peers[0].tx_queue_depth == 1U);
+
+    assert(
+        gossipsub_flush_peer(gossipsub, &host, 0U, 0U, &made_progress, &rpcs_sent) ==
+        LIBP2P_GOSSIPSUB_OK);
+    assert(write0.calls == 1U);
+    assert(write0.bytes == 8U);
+    assert(rpcs_sent == 1U);
+
+    libp2p_gossipsub_deinit(gossipsub);
+    free(storage);
+}
+
 static void gossipsub_test_fair_scheduler_skips_blocked_peer(void)
 {
     gossipsub_test_runtime_t runtime = {19U};
@@ -2420,6 +2479,7 @@ int main(void)
     gossipsub_test_per_peer_queue_state();
     gossipsub_test_priority_queue_precedes_normal_items();
     gossipsub_test_tx_buffer_compacts_after_remove();
+    gossipsub_test_reserved_tx_not_flushable_until_committed();
     gossipsub_test_fair_scheduler_skips_blocked_peer();
     gossipsub_test_writable_event_requires_selected_outbound_stream();
     gossipsub_test_readiness_flips_on_writable();

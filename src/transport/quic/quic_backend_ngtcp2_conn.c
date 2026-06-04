@@ -201,6 +201,25 @@ static libp2p_quic_err_t quic_backend_random_cid(libp2p_quic_endpoint_t *endpoin
     return result;
 }
 
+static uint8_t
+quic_backend_packet_is_acceptable_initial(const libp2p_quic_rx_datagram_t *datagram)
+{
+    ngtcp2_pkt_hd hd;
+    uint8_t result = 0U;
+
+    if ((datagram != NULL) && (datagram->data != NULL) && (datagram->data_len != 0U))
+    {
+        (void)memset(&hd, 0, sizeof(hd));
+        if ((ngtcp2_accept(&hd, datagram->data, datagram->data_len) == 0) &&
+            (hd.version == LIBP2P_QUIC_VERSION_RFC9000) && (hd.type == NGTCP2_PKT_INITIAL))
+        {
+            result = 1U;
+        }
+    }
+
+    return result;
+}
+
 QUIC_BACKEND_INTERNAL void quic_backend_conn_free(libp2p_quic_conn_t *conn)
 {
     libp2p_quic_endpoint_t *endpoint = NULL;
@@ -451,6 +470,7 @@ QUIC_BACKEND_INTERNAL libp2p_quic_conn_t *quic_backend_find_conn_by_packet(
     ngtcp2_version_cid version_cid;
     size_t conn_index = 0U;
     libp2p_quic_conn_t *result = NULL;
+    uint8_t acceptable_initial = 0U;
 
     for (conn_index = 0U; (conn_index < endpoint->connection_count) && (result == NULL);
          conn_index++)
@@ -478,16 +498,24 @@ QUIC_BACKEND_INTERNAL libp2p_quic_conn_t *quic_backend_find_conn_by_packet(
         }
     }
 
-    for (conn_index = 0U; (conn_index < endpoint->connection_count) && (result == NULL);
-         conn_index++)
+    if (result == NULL)
     {
-        libp2p_quic_conn_t *conn = endpoint->connections[conn_index];
-
-        if ((conn != NULL) &&
-            (libp2p_quic_addr_equal(&conn->local_addr, &datagram->local_addr, 0) != 0) &&
-            (libp2p_quic_addr_equal(&conn->remote_addr, &datagram->remote_addr, 0) != 0))
+        acceptable_initial = quic_backend_packet_is_acceptable_initial(datagram);
+    }
+    if (result == NULL)
+    {
+        for (conn_index = 0U; (conn_index < endpoint->connection_count) && (result == NULL);
+             conn_index++)
         {
-            result = conn;
+            libp2p_quic_conn_t *conn = endpoint->connections[conn_index];
+
+            if ((conn != NULL) &&
+                (libp2p_quic_addr_equal(&conn->local_addr, &datagram->local_addr, 0) != 0) &&
+                (libp2p_quic_addr_equal(&conn->remote_addr, &datagram->remote_addr, 0) != 0) &&
+                ((acceptable_initial == 0U) || (conn->role != LIBP2P_QUIC_ROLE_CLIENT)))
+            {
+                result = conn;
+            }
         }
     }
 

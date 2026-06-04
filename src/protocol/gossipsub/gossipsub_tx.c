@@ -407,6 +407,36 @@ static void gossipsub_tx_append_peer_item(
     }
 }
 
+libp2p_gossipsub_err_t gossipsub_tx_commit_reserved(
+    libp2p_gossipsub_t *gossipsub,
+    size_t peer_index,
+    size_t item_index,
+    uint8_t priority)
+{
+    libp2p_gossipsub_err_t result = LIBP2P_GOSSIPSUB_OK;
+
+    if ((gossipsub == NULL) || (peer_index >= gossipsub->config.capacity.max_peers) ||
+        (item_index >= gossipsub->config.capacity.max_tx_rpc_queue))
+    {
+        result = LIBP2P_GOSSIPSUB_ERR_INVALID_ARG;
+    }
+    else
+    {
+        const gossipsub_tx_item_t *item = &gossipsub->tx_queue[item_index];
+
+        if ((item->used == 0U) || (item->peer_index != peer_index) || (item->pos != 0U))
+        {
+            result = LIBP2P_GOSSIPSUB_ERR_STATE;
+        }
+    }
+    if (result == LIBP2P_GOSSIPSUB_OK)
+    {
+        gossipsub_tx_append_peer_item(gossipsub, peer_index, item_index, priority);
+    }
+
+    return result;
+}
+
 static void gossipsub_tx_compact_buffer(libp2p_gossipsub_t *gossipsub)
 {
     if ((gossipsub != NULL) && (gossipsub->tx_queue_len != 0U))
@@ -461,12 +491,11 @@ static void gossipsub_tx_compact_buffer(libp2p_gossipsub_t *gossipsub)
     }
 }
 
-static libp2p_gossipsub_err_t gossipsub_tx_alloc_with_priority(
+libp2p_gossipsub_err_t gossipsub_tx_reserve(
     libp2p_gossipsub_t *gossipsub,
     size_t peer_index,
     size_t frame_len,
     uint64_t lifetime_us,
-    uint8_t priority,
     uint8_t **out,
     size_t *out_index)
 {
@@ -535,7 +564,6 @@ static libp2p_gossipsub_err_t gossipsub_tx_alloc_with_priority(
         *out_index = item_index;
         gossipsub->tx_buffer_used += frame_len;
         gossipsub->tx_queue_len++;
-        gossipsub_tx_append_peer_item(gossipsub, peer_index, item_index, priority);
     }
 
     return result;
@@ -549,14 +577,38 @@ libp2p_gossipsub_err_t gossipsub_tx_alloc(
     uint8_t **out,
     size_t *out_index)
 {
-    return gossipsub_tx_alloc_with_priority(
-        gossipsub,
-        peer_index,
-        frame_len,
-        lifetime_us,
-        0U,
-        out,
-        out_index);
+    size_t item_index = GOSSIPSUB_TX_NO_ITEM;
+    libp2p_gossipsub_err_t result = LIBP2P_GOSSIPSUB_OK;
+
+    if (out_index == NULL)
+    {
+        result = LIBP2P_GOSSIPSUB_ERR_INVALID_ARG;
+    }
+    if (result == LIBP2P_GOSSIPSUB_OK)
+    {
+        result = gossipsub_tx_reserve(
+            gossipsub,
+            peer_index,
+            frame_len,
+            lifetime_us,
+            out,
+            &item_index);
+    }
+
+    if (result == LIBP2P_GOSSIPSUB_OK)
+    {
+        result = gossipsub_tx_commit_reserved(gossipsub, peer_index, item_index, 0U);
+    }
+    if (result == LIBP2P_GOSSIPSUB_OK)
+    {
+        *out_index = item_index;
+    }
+    else if (item_index != GOSSIPSUB_TX_NO_ITEM)
+    {
+        gossipsub_tx_remove(gossipsub, item_index);
+    }
+
+    return result;
 }
 
 static libp2p_gossipsub_err_t gossipsub_enqueue_rpc_with_lifetime(
@@ -597,12 +649,11 @@ static libp2p_gossipsub_err_t gossipsub_enqueue_rpc_with_lifetime(
     }
     if (result == LIBP2P_GOSSIPSUB_OK)
     {
-        result = gossipsub_tx_alloc_with_priority(
+        result = gossipsub_tx_reserve(
             gossipsub,
             peer_index,
             frame_len,
             lifetime_us,
-            priority,
             &out,
             &tx_index);
     }
@@ -620,9 +671,20 @@ static libp2p_gossipsub_err_t gossipsub_enqueue_rpc_with_lifetime(
             result = LIBP2P_GOSSIPSUB_ERR_INTERNAL;
         }
     }
-    if ((result == LIBP2P_GOSSIPSUB_OK) && (out_index != NULL))
+    if (result == LIBP2P_GOSSIPSUB_OK)
     {
-        *out_index = tx_index;
+        result = gossipsub_tx_commit_reserved(gossipsub, peer_index, tx_index, priority);
+    }
+    if (result == LIBP2P_GOSSIPSUB_OK)
+    {
+        if (out_index != NULL)
+        {
+            *out_index = tx_index;
+        }
+    }
+    else if (tx_index != GOSSIPSUB_TX_NO_ITEM)
+    {
+        gossipsub_tx_remove(gossipsub, tx_index);
     }
 
     return result;

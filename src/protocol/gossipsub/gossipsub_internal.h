@@ -651,6 +651,18 @@ libp2p_gossipsub_err_t gossipsub_tx_alloc(
     uint64_t lifetime_us,
     uint8_t **out,
     size_t *out_index);
+libp2p_gossipsub_err_t gossipsub_tx_reserve(
+    libp2p_gossipsub_t *gossipsub,
+    size_t peer_index,
+    size_t frame_len,
+    uint64_t lifetime_us,
+    uint8_t **out,
+    size_t *out_index);
+libp2p_gossipsub_err_t gossipsub_tx_commit_reserved(
+    libp2p_gossipsub_t *gossipsub,
+    size_t peer_index,
+    size_t item_index,
+    uint8_t priority);
 void gossipsub_tx_remove(libp2p_gossipsub_t *gossipsub, size_t index);
 uint64_t gossipsub_tx_next_deadline(const libp2p_gossipsub_t *gossipsub, uint64_t current_deadline);
 size_t gossipsub_tx_drop_stale(libp2p_gossipsub_t *gossipsub, uint64_t now_us);
