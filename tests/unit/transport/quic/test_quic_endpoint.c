@@ -1085,6 +1085,101 @@ static void quic_endpoint_test_stream_write_reclaims_acked_bytes(void)
     quic_endpoint_deinit_pair(client, client_storage, server, server_storage);
 }
 
+static void quic_endpoint_test_simultaneous_dial_accepts_inbound_initial(void)
+{
+    enum
+    {
+        NODE_A_PORT = 30120,
+        NODE_B_PORT = 30121
+    };
+    quic_endpoint_identity_fixture_t identity;
+    quic_endpoint_node_fixture_t node_a;
+    quic_endpoint_node_fixture_t node_b;
+    libp2p_quic_addr_t remote_addr;
+    libp2p_quic_dial_config_t dial_config;
+    libp2p_quic_conn_t *node_a_client_conn = NULL;
+    libp2p_quic_conn_t *node_b_client_conn = NULL;
+    libp2p_quic_conn_t *node_a_server_conn = NULL;
+    libp2p_quic_conn_t *node_b_server_conn = NULL;
+    libp2p_quic_time_us_t now_us = 0U;
+    uint8_t ip4[4] = {127U, 0U, 0U, 1U};
+    size_t index = 0U;
+
+    quic_endpoint_make_identity(&identity, 31U);
+    quic_endpoint_init_node(
+        &node_a,
+        LIBP2P_QUIC_ROLE_CLIENT_SERVER,
+        (uint16_t)NODE_A_PORT,
+        &identity.identity,
+        13U);
+    quic_endpoint_init_node(
+        &node_b,
+        LIBP2P_QUIC_ROLE_CLIENT_SERVER,
+        (uint16_t)NODE_B_PORT,
+        &identity.identity,
+        79U);
+
+    assert(libp2p_quic_addr_from_ip4(ip4, (uint16_t)NODE_B_PORT, &remote_addr) == LIBP2P_QUIC_OK);
+    assert(
+        libp2p_quic_addr_set_peer_id(&remote_addr, identity.peer_id, identity.peer_id_len) ==
+        LIBP2P_QUIC_OK);
+    dial_config.remote_addr = remote_addr;
+    dial_config.user_data = NULL;
+    assert(
+        libp2p_quic_endpoint_dial(node_a.endpoint, &dial_config, &node_a_client_conn) ==
+        LIBP2P_QUIC_OK);
+
+    assert(libp2p_quic_addr_from_ip4(ip4, (uint16_t)NODE_A_PORT, &remote_addr) == LIBP2P_QUIC_OK);
+    assert(
+        libp2p_quic_addr_set_peer_id(&remote_addr, identity.peer_id, identity.peer_id_len) ==
+        LIBP2P_QUIC_OK);
+    dial_config.remote_addr = remote_addr;
+    dial_config.user_data = NULL;
+    assert(
+        libp2p_quic_endpoint_dial(node_b.endpoint, &dial_config, &node_b_client_conn) ==
+        LIBP2P_QUIC_OK);
+
+    for (index = 0U; index < 1000U; index++)
+    {
+        libp2p_quic_conn_state_t node_a_client_state = LIBP2P_QUIC_CONN_IDLE;
+        libp2p_quic_conn_state_t node_b_client_state = LIBP2P_QUIC_CONN_IDLE;
+        libp2p_quic_conn_state_t node_a_server_state = LIBP2P_QUIC_CONN_IDLE;
+        libp2p_quic_conn_state_t node_b_server_state = LIBP2P_QUIC_CONN_IDLE;
+
+        quic_endpoint_pump(node_a.endpoint, node_b.endpoint, &now_us);
+        quic_endpoint_drain_events(node_a.endpoint, &node_a_server_conn, NULL, NULL, NULL);
+        quic_endpoint_drain_events(node_b.endpoint, &node_b_server_conn, NULL, NULL, NULL);
+
+        if ((node_a_server_conn != NULL) && (node_b_server_conn != NULL))
+        {
+            assert(
+                libp2p_quic_conn_state(node_a_client_conn, &node_a_client_state) ==
+                LIBP2P_QUIC_OK);
+            assert(
+                libp2p_quic_conn_state(node_b_client_conn, &node_b_client_state) ==
+                LIBP2P_QUIC_OK);
+            assert(
+                libp2p_quic_conn_state(node_a_server_conn, &node_a_server_state) ==
+                LIBP2P_QUIC_OK);
+            assert(
+                libp2p_quic_conn_state(node_b_server_conn, &node_b_server_state) ==
+                LIBP2P_QUIC_OK);
+
+            if ((node_a_client_state == LIBP2P_QUIC_CONN_ESTABLISHED) &&
+                (node_b_client_state == LIBP2P_QUIC_CONN_ESTABLISHED) &&
+                (node_a_server_state == LIBP2P_QUIC_CONN_ESTABLISHED) &&
+                (node_b_server_state == LIBP2P_QUIC_CONN_ESTABLISHED))
+            {
+                quic_endpoint_deinit_node(&node_a);
+                quic_endpoint_deinit_node(&node_b);
+                return;
+            }
+        }
+    }
+
+    assert(0 && "simultaneous QUIC dials did not create both inbound server connections");
+}
+
 static uint16_t quic_endpoint_next_tx_port(
     libp2p_quic_endpoint_t *endpoint,
     libp2p_quic_time_us_t now_us)
@@ -1216,6 +1311,7 @@ int main(void)
     quic_endpoint_test_small_write_writable_after_packetization();
     quic_endpoint_test_stream_write_backpressure();
     quic_endpoint_test_stream_write_reclaims_acked_bytes();
+    quic_endpoint_test_simultaneous_dial_accepts_inbound_initial();
     quic_endpoint_test_tx_rotates_between_connections();
     return 0;
 }
