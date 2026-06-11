@@ -230,7 +230,7 @@ libp2p_gossipsub_err_t gossipsub_stream_rx_reserve(
         }
         else if (gossipsub_stream_rx_is_large(stream_state) != 0U)
         {
-            gossipsub_stream_rx_compact(gossipsub, stream_state->stream_index);
+            gossipsub_stream_rx_compact(gossipsub, gossipsub->config.capacity.max_streams);
             if ((stream_state->rx_offset > gossipsub->stream_rx_buffer_cap) ||
                 (stream_state->rx_cap >
                  (gossipsub->stream_rx_buffer_cap - stream_state->rx_offset)) ||
@@ -238,12 +238,13 @@ libp2p_gossipsub_err_t gossipsub_stream_rx_reserve(
             {
                 result = LIBP2P_GOSSIPSUB_ERR_INTERNAL;
             }
-            else
+            else if (
+                (stream_state->rx_offset + stream_state->rx_cap) ==
+                gossipsub->stream_rx_buffer_used)
             {
-                const size_t old_end = stream_state->rx_offset + stream_state->rx_cap;
                 const size_t delta = new_cap - stream_state->rx_cap;
 
-                if (delta <= (gossipsub->stream_rx_buffer_cap - old_end))
+                if (delta <= (gossipsub->stream_rx_buffer_cap - gossipsub->stream_rx_buffer_used))
                 {
                     stream_state->rx_cap = new_cap;
                     gossipsub->stream_rx_buffer_used = stream_state->rx_offset + new_cap;
@@ -252,6 +253,28 @@ libp2p_gossipsub_err_t gossipsub_stream_rx_reserve(
                 {
                     result = LIBP2P_GOSSIPSUB_ERR_WOULD_BLOCK;
                 }
+            }
+            else if (new_cap <= (gossipsub->stream_rx_buffer_cap - gossipsub->stream_rx_buffer_used))
+            {
+                const size_t offset = gossipsub->stream_rx_buffer_used;
+                const size_t live_len = stream_state->rx_len;
+
+                if (live_len != 0U)
+                {
+                    (void)memcpy(
+                        &gossipsub->stream_rx_buffer[offset],
+                        stream_state->rx,
+                        live_len);
+                }
+                stream_state->rx_offset = offset;
+                stream_state->rx = &gossipsub->stream_rx_buffer[offset];
+                stream_state->rx_cap = new_cap;
+                gossipsub->stream_rx_buffer_used += new_cap;
+                gossipsub_stream_rx_compact(gossipsub, gossipsub->config.capacity.max_streams);
+            }
+            else
+            {
+                result = LIBP2P_GOSSIPSUB_ERR_WOULD_BLOCK;
             }
         }
         else
