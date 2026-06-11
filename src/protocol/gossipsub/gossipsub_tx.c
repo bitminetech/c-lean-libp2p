@@ -1,7 +1,51 @@
 #include <stdint.h>
+#include <stdio.h>
 #include <string.h>
 
 #include "gossipsub_internal.h"
+
+static void gossipsub_relay_trace_send(
+    const libp2p_gossipsub_t *gossipsub,
+    size_t peer_index,
+    const gossipsub_mcache_entry_t *entry)
+{
+    static const char hexdigits[] = "0123456789abcdef";
+
+    if ((gossipsub != NULL) && (entry != NULL) && (entry->data_len >= 1024U))
+    {
+        const uint8_t *payload = &gossipsub->mcache_data[entry->data_offset];
+        const gossipsub_peer_state_t *peer = &gossipsub->peers[peer_index];
+        uint64_t fnv = 1469598103934665603ULL;
+        char peer_hex[(LIBP2P_PEER_ID_MAX_BYTES * 2U) + 1U];
+        char first32_hex[(32U * 2U) + 1U];
+        size_t i;
+
+        for (i = 0U; i < entry->data_len; i++)
+        {
+            fnv ^= (uint64_t)payload[i];
+            fnv *= 1099511628211ULL;
+        }
+        for (i = 0U; i < peer->peer_id_len; i++)
+        {
+            peer_hex[i * 2U] = hexdigits[peer->peer_id[i] >> 4];
+            peer_hex[(i * 2U) + 1U] = hexdigits[peer->peer_id[i] & 0x0FU];
+        }
+        peer_hex[peer->peer_id_len * 2U] = '\0';
+        for (i = 0U; i < 32U; i++)
+        {
+            first32_hex[i * 2U] = hexdigits[payload[i] >> 4];
+            first32_hex[(i * 2U) + 1U] = hexdigits[payload[i] & 0x0FU];
+        }
+        first32_hex[32U * 2U] = '\0';
+        (void)fprintf(
+            stderr,
+            "LANTERN_RELAY_TRACE to_peer=%s len=%zu fnv64=%016llx first32=%s\n",
+            peer_hex,
+            entry->data_len,
+            (unsigned long long)fnv,
+            first32_hex);
+    }
+}
 
 #define GOSSIPSUB_AUTOPSY_MAX_MESSAGES 256U
 #define GOSSIPSUB_AUTOPSY_MAX_ATTEMPTS 4096U
@@ -1098,6 +1142,7 @@ static libp2p_gossipsub_err_t gossipsub_enqueue_publish_entry_with_lifetime(
         item->publish = 1U;
         item->message_id_len = entry->message_id_len;
         (void)memcpy(item->message_id, entry->message_id, entry->message_id_len);
+        gossipsub_relay_trace_send(gossipsub, peer_index, entry);
         gossipsub_autopsy_record_attempt(
             gossipsub,
             peer_index,

@@ -1,7 +1,42 @@
 #include <stdint.h>
+#include <stdio.h>
 #include <string.h>
 
 #include "gossipsub_internal.h"
+
+static void gossipsub_rx_trace_recv(
+    size_t peer_index,
+    const libp2p_gossipsub_message_t *message)
+{
+    static const char hexdigits[] = "0123456789abcdef";
+
+    if ((message != NULL) && (message->data.data != NULL) && (message->data.len >= 1024U))
+    {
+        const uint8_t *payload = message->data.data;
+        uint64_t fnv = 1469598103934665603ULL;
+        char first32_hex[(32U * 2U) + 1U];
+        size_t i;
+
+        for (i = 0U; i < message->data.len; i++)
+        {
+            fnv ^= (uint64_t)payload[i];
+            fnv *= 1099511628211ULL;
+        }
+        for (i = 0U; i < 32U; i++)
+        {
+            first32_hex[i * 2U] = hexdigits[payload[i] >> 4];
+            first32_hex[(i * 2U) + 1U] = hexdigits[payload[i] & 0x0FU];
+        }
+        first32_hex[32U * 2U] = '\0';
+        (void)fprintf(
+            stderr,
+            "LANTERN_RECV_TRACE from_peer_index=%zu len=%zu fnv64=%016llx first32=%s\n",
+            peer_index,
+            message->data.len,
+            (unsigned long long)fnv,
+            first32_hex);
+    }
+}
 
 static uint8_t *gossipsub_stream_rx_small(
     const libp2p_gossipsub_t *gossipsub,
@@ -437,6 +472,7 @@ libp2p_gossipsub_err_t gossipsub_process_message(
     }
     else
     {
+        gossipsub_rx_trace_recv(peer_index, message);
         result = gossipsub_compute_message_id(
             gossipsub,
             message,
