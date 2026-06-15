@@ -596,25 +596,27 @@ static void quic_service_mark_conn_closed(
 
 static void quic_service_forget_conn(libp2p_quic_service_t *service, const libp2p_quic_conn_t *conn)
 {
-    if ((service == NULL) || (conn == NULL))
+    if ((service != NULL) && (conn != NULL))
     {
-        return;
-    }
-
-    for (size_t index = 0U; index < service->conn_count; index++)
-    {
-        if (service->conns[index].conn == conn)
+        for (size_t index = 0U; index < service->conn_count; index++)
         {
-            const size_t last_index = service->conn_count - 1U;
-
-            if (index != last_index)
+            if (service->conns[index].conn == conn)
             {
-                service->conns[index] = service->conns[last_index];
+                const size_t last_index = service->conn_count - 1U;
+
+                if (index != last_index)
+                {
+                    service->conns[index] = service->conns[last_index];
+                }
+                (void)memset(&service->conns[last_index], 0, sizeof(service->conns[last_index]));
+                service->conn_count--;
+                break;
             }
-            (void)memset(&service->conns[last_index], 0, sizeof(service->conns[last_index]));
-            service->conn_count--;
-            break;
         }
+    }
+    else
+    {
+        /* Nothing needs to be forgotten. */
     }
 }
 
@@ -633,6 +635,10 @@ static int quic_service_event_references_conn(
         else if ((event->stream != NULL) && (event->stream->conn == conn))
         {
             result = 1;
+        }
+        else
+        {
+            /* This event does not reference the connection. */
         }
     }
 

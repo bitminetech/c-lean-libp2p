@@ -77,7 +77,7 @@ static libp2p_host_err_t host_conn_fail_waiting_opens(
 
 static libp2p_host_err_t host_conn_close_streams(
     libp2p_host_t *host,
-    libp2p_host_conn_t *conn,
+    const libp2p_host_conn_t *conn,
     libp2p_host_drive_result_t *result)
 {
     libp2p_host_err_t err = LIBP2P_HOST_OK;

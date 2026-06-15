@@ -256,6 +256,10 @@ static void quic_backend_conn_remove_live_at(libp2p_quic_endpoint_t *endpoint, s
     {
         endpoint->incoming_connection_count--;
     }
+    else
+    {
+        /* No incoming counter is available to decrement. */
+    }
 
     if (index != last_index)
     {
@@ -276,6 +280,10 @@ static void quic_backend_conn_remove_live_at(libp2p_quic_endpoint_t *endpoint, s
     {
         endpoint->next_tx_connection = 0U;
     }
+    else
+    {
+        /* The transmit cursor already points at a live slot. */
+    }
 
     if (endpoint->last_tx_conn == conn)
     {
@@ -288,27 +296,30 @@ static void quic_backend_conn_retire_from_endpoint(libp2p_quic_conn_t *conn)
 {
     libp2p_quic_endpoint_t *endpoint = NULL;
 
-    if ((conn == NULL) || (conn->endpoint_registered == 0U))
+    if ((conn != NULL) && (conn->endpoint_registered != 0U))
     {
-        return;
-    }
-
-    endpoint = conn->endpoint;
-    if (endpoint == NULL)
-    {
-        conn->endpoint_registered = 0U;
-        return;
-    }
-
-    for (size_t index = 0U; index < endpoint->connection_count; index++)
-    {
-        if (endpoint->connections[index] == conn)
+        endpoint = conn->endpoint;
+        if (endpoint == NULL)
         {
-            quic_backend_conn_remove_live_at(endpoint, index);
-            conn->retired_next = endpoint->retired_connections;
-            endpoint->retired_connections = conn;
-            break;
+            conn->endpoint_registered = 0U;
         }
+        else
+        {
+            for (size_t index = 0U; index < endpoint->connection_count; index++)
+            {
+                if (endpoint->connections[index] == conn)
+                {
+                    quic_backend_conn_remove_live_at(endpoint, index);
+                    conn->retired_next = endpoint->retired_connections;
+                    endpoint->retired_connections = conn;
+                    break;
+                }
+            }
+        }
+    }
+    else
+    {
+        /* Nothing needs to be retired. */
     }
 }
 
@@ -327,6 +338,10 @@ static int quic_backend_event_references_conn(
         else if ((event->stream != NULL) && (event->stream->conn == conn))
         {
             result = 1;
+        }
+        else
+        {
+            /* This event does not reference the connection. */
         }
     }
 
@@ -957,6 +972,10 @@ QUIC_BACKEND_INTERNAL libp2p_quic_err_t quic_backend_write_conn_datagram(
             else if (conn->close_error.type == NGTCP2_CCERR_TYPE_TRANSPORT)
             {
                 transport_error_code = conn->close_error.error_code;
+            }
+            else
+            {
+                /* No typed close error is present. */
             }
             (void)quic_backend_conn_mark_closed(conn, app_error_code, transport_error_code);
             result = LIBP2P_QUIC_OK;

@@ -783,7 +783,7 @@ libp2p_host_err_t libp2p_host_next_event(libp2p_host_t *host, libp2p_host_event_
                 {
                     result = LIBP2P_HOST_OK;
                 }
-                if ((result == LIBP2P_HOST_OK) && (open_conn != NULL))
+                if (open_conn != NULL)
                 {
                     result = host_conn_try_recycle(open_conn);
                 }
