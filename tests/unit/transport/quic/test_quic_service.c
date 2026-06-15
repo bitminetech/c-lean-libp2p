@@ -42,7 +42,8 @@ static void quic_service_init_one(
     const libp2p_quic_local_identity_t *identity,
     libp2p_quic_role_t role,
     uint8_t *random_state,
-    uint64_t *unix_time)
+    uint64_t *unix_time,
+    size_t max_connections)
 {
     uint8_t ip4[4] = {127U, 0U, 0U, 1U};
     libp2p_quic_service_config_t config;
@@ -61,6 +62,12 @@ static void quic_service_init_one(
     config.endpoint.random_user_data = random_state;
     config.endpoint.unix_time_fn = quic_test_unix_time;
     config.endpoint.unix_time_user_data = unix_time;
+    if (max_connections != 0U)
+    {
+        config.endpoint.max_connections = max_connections;
+        config.endpoint.max_incoming_connections = max_connections;
+        config.endpoint.max_outgoing_connections = max_connections;
+    }
     config.max_rx_datagrams_per_drive = 16U;
     config.max_tx_datagrams_per_drive = 16U;
     assert(libp2p_quic_addr_from_ip4(ip4, 0U, &config.local_addr) == LIBP2P_QUIC_OK);
@@ -75,7 +82,9 @@ static void quic_service_init_one(
     assert(libp2p_quic_service_init(*storage, storage_len, &config, service) == LIBP2P_QUIC_OK);
 }
 
-static void quic_service_fixture_init(quic_service_fixture_t *fixture)
+static void quic_service_fixture_init_with_limit(
+    quic_service_fixture_t *fixture,
+    size_t max_connections)
 {
     assert(fixture != NULL);
     (void)memset(fixture, 0, sizeof(*fixture));
@@ -90,14 +99,21 @@ static void quic_service_fixture_init(quic_service_fixture_t *fixture)
         &fixture->identity.identity,
         LIBP2P_QUIC_ROLE_CLIENT,
         &fixture->client_random,
-        &fixture->unix_time);
+        &fixture->unix_time,
+        max_connections);
     quic_service_init_one(
         &fixture->server,
         &fixture->server_storage,
         &fixture->identity.identity,
         LIBP2P_QUIC_ROLE_SERVER,
         &fixture->server_random,
-        &fixture->unix_time);
+        &fixture->unix_time,
+        max_connections);
+}
+
+static void quic_service_fixture_init(quic_service_fixture_t *fixture)
+{
+    quic_service_fixture_init_with_limit(fixture, 0U);
 }
 
 static void quic_service_fixture_deinit(quic_service_fixture_t *fixture)
@@ -604,11 +620,60 @@ static void quic_service_test_close_event(void)
     quic_service_fixture_deinit(&fixture);
 }
 
+static void quic_service_test_closed_connection_releases_tracking_slot(void)
+{
+    quic_service_fixture_t fixture;
+    libp2p_quic_addr_t server_addr;
+    quic_service_events_t client_events;
+    quic_service_events_t server_events;
+    size_t round = 0U;
+
+    quic_service_fixture_init_with_limit(&fixture, 1U);
+    assert(libp2p_quic_service_local_addr(fixture.server, &server_addr) == LIBP2P_QUIC_OK);
+    assert(
+        libp2p_quic_addr_set_peer_id(
+            &server_addr,
+            fixture.identity.peer_id,
+            fixture.identity.peer_id_len) == LIBP2P_QUIC_OK);
+    assert(
+        libp2p_quic_service_dial(fixture.client, &server_addr, NULL, &fixture.client_conn) ==
+        LIBP2P_QUIC_OK);
+    quic_service_wait_established(&fixture);
+
+    assert(
+        libp2p_quic_service_conn_close(fixture.client, fixture.client_conn, 4321U) ==
+        LIBP2P_QUIC_OK);
+    (void)memset(&client_events, 0, sizeof(client_events));
+    (void)memset(&server_events, 0, sizeof(server_events));
+    for (round = 0U; round < 1000U; round++)
+    {
+        quic_service_drive_pair(&fixture);
+        quic_service_drain_events(fixture.client, &client_events);
+        quic_service_drain_events(fixture.server, &server_events);
+        if ((client_events.closed_count != 0U) && (server_events.closed_count != 0U))
+        {
+            break;
+        }
+    }
+    assert(client_events.closed_count != 0U);
+    assert(server_events.closed_count != 0U);
+
+    fixture.client_conn = NULL;
+    fixture.server_conn = NULL;
+    assert(
+        libp2p_quic_service_dial(fixture.client, &server_addr, NULL, &fixture.client_conn) ==
+        LIBP2P_QUIC_OK);
+    quic_service_wait_established(&fixture);
+
+    quic_service_fixture_deinit(&fixture);
+}
+
 int main(void)
 {
     quic_service_test_idle_app_timer_does_not_probe_tx();
     quic_service_test_runtime_driver_and_stream_api();
     quic_service_test_drive_batches_stream_datagrams();
     quic_service_test_close_event();
+    quic_service_test_closed_connection_releases_tracking_slot();
     return 0;
 }

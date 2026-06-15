@@ -312,6 +312,16 @@ libp2p_quic_err_t libp2p_quic_service_conn_close(
     libp2p_quic_conn_t *conn,
     uint64_t app_error_code);
 
+/**
+ * Release a closed connection that is no longer referenced by service events.
+ *
+ * This is only for layers that own a downstream borrow of service connection
+ * identity. Endpoint-level QUIC users still receive endpoint-owned pointers.
+ */
+libp2p_quic_err_t libp2p_quic_service_conn_release(
+    libp2p_quic_service_t *service,
+    libp2p_quic_conn_t *conn);
+
 libp2p_quic_err_t libp2p_quic_service_open_stream(
     libp2p_quic_service_t *service,
     libp2p_quic_conn_t *conn,

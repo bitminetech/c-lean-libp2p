@@ -34,6 +34,90 @@ static libp2p_host_err_t host_transport_event_conn_established(
     return err;
 }
 
+static libp2p_host_err_t host_conn_fail_waiting_opens(
+    libp2p_host_t *host,
+    libp2p_host_conn_t *conn,
+    libp2p_host_drive_result_t *result)
+{
+    libp2p_host_err_t err = LIBP2P_HOST_OK;
+
+    if ((host == NULL) || (conn == NULL))
+    {
+        err = LIBP2P_HOST_ERR_INVALID_ARG;
+    }
+    else
+    {
+        for (size_t index = 0U; (index < host->open_capacity) && (err == LIBP2P_HOST_OK);
+             index++)
+        {
+            libp2p_host_stream_open_t *open = &host->opens[index];
+
+            if ((open->state == HOST_OPEN_WAIT_TRANSPORT) && (open->conn == conn))
+            {
+                libp2p_host_event_t event;
+
+                (void)memset(&event, 0, sizeof(event));
+                event.type = LIBP2P_HOST_EVENT_STREAM_OPEN_FAILED;
+                event.conn = conn;
+                event.stream_open = open;
+                event.user_data = open->user_data;
+                event.reason = LIBP2P_HOST_ERR_CLOSED;
+                open->state = HOST_OPEN_EVENTED;
+                err = host_event_push(host, &event, result);
+                if (err != LIBP2P_HOST_OK)
+                {
+                    host_open_release(open);
+                }
+            }
+        }
+    }
+
+    return err;
+}
+
+static libp2p_host_err_t host_conn_close_streams(
+    libp2p_host_t *host,
+    libp2p_host_conn_t *conn,
+    libp2p_host_drive_result_t *result)
+{
+    libp2p_host_err_t err = LIBP2P_HOST_OK;
+
+    if ((host == NULL) || (conn == NULL))
+    {
+        err = LIBP2P_HOST_ERR_INVALID_ARG;
+    }
+    else
+    {
+        for (size_t index = 0U; (index < host->stream_capacity) && (err == LIBP2P_HOST_OK);
+             index++)
+        {
+            libp2p_host_stream_t *stream = &host->streams[index];
+
+            if ((stream->state != HOST_STREAM_FREE) && (stream->conn == conn))
+            {
+                if (stream->state == HOST_STREAM_NEGOTIATING)
+                {
+                    err = host_stream_fail_negotiation(
+                        host,
+                        stream,
+                        LIBP2P_HOST_ERR_CLOSED,
+                        result);
+                }
+                else if (stream->state == HOST_STREAM_OPEN)
+                {
+                    stream->pending_closed = 1U;
+                }
+                else
+                {
+                    host_stream_release(stream);
+                }
+            }
+        }
+    }
+
+    return err;
+}
+
 static libp2p_host_err_t host_transport_event_conn_closed(
     libp2p_host_t *host,
     const libp2p_host_transport_event_t *transport_event,
@@ -49,13 +133,25 @@ static libp2p_host_err_t host_transport_event_conn_closed(
     (void)memset(&event, 0, sizeof(event));
     if (conn != NULL)
     {
-        event.type = LIBP2P_HOST_EVENT_CONN_CLOSED;
-        event.conn = conn;
-        event.reason = transport_event->reason;
-        event.app_error_code = transport_event->app_error_code;
-        event.transport_error_code = transport_event->transport_error_code;
-        conn->closed = 1U;
-        err = host_event_push(host, &event, result);
+        if (conn->closed == 0U)
+        {
+            err = host_conn_fail_waiting_opens(host, conn, result);
+            if (err == LIBP2P_HOST_OK)
+            {
+                err = host_conn_close_streams(host, conn, result);
+            }
+            if (err == LIBP2P_HOST_OK)
+            {
+                event.type = LIBP2P_HOST_EVENT_CONN_CLOSED;
+                event.conn = conn;
+                event.reason = transport_event->reason;
+                event.app_error_code = transport_event->app_error_code;
+                event.transport_error_code = transport_event->transport_error_code;
+                conn->closed = 1U;
+                conn->close_event_pending = 1U;
+                err = host_event_push(host, &event, result);
+            }
+        }
     }
     else if (dial != NULL)
     {
@@ -114,6 +210,11 @@ static libp2p_host_err_t host_transport_event_stream_incoming(
     if (conn == NULL)
     {
         err = LIBP2P_HOST_ERR_STATE;
+    }
+    else if (host_conn_validate_usable(conn, host) != LIBP2P_HOST_OK)
+    {
+        (void)host->config.transport->stream_reset(host->transport, transport_event->stream, 0U);
+        err = LIBP2P_HOST_OK;
     }
     else
     {
@@ -373,6 +474,10 @@ libp2p_host_err_t libp2p_host_drive(
             }
             if (err == LIBP2P_HOST_OK)
             {
+                err = host_conn_recycle_quiet(host);
+            }
+            if (err == LIBP2P_HOST_OK)
+            {
                 err = host_close_maybe_complete(host, &local_result, &close_progress);
             }
             if ((transport_progress != 0U) || (open_progress != 0U) ||
@@ -399,11 +504,8 @@ libp2p_host_err_t libp2p_host_conn_peer_id(
 {
     libp2p_host_err_t result = LIBP2P_HOST_OK;
 
-    if ((conn == NULL) || (conn->host == NULL))
-    {
-        result = LIBP2P_HOST_ERR_INVALID_ARG;
-    }
-    else
+    result = host_conn_validate_usable(conn, NULL);
+    if (result == LIBP2P_HOST_OK)
     {
         result =
             conn->host->config.transport->conn_peer_id(conn->transport_conn, out, out_len, written);
@@ -420,11 +522,8 @@ libp2p_host_err_t libp2p_host_conn_remote_multiaddr(
 {
     libp2p_host_err_t result = LIBP2P_HOST_OK;
 
-    if ((conn == NULL) || (conn->host == NULL))
-    {
-        result = LIBP2P_HOST_ERR_INVALID_ARG;
-    }
-    else
+    result = host_conn_validate_usable(conn, NULL);
+    if (result == LIBP2P_HOST_OK)
     {
         result = conn->host->config.transport
                      ->conn_remote_multiaddr(conn->transport_conn, out, out_len, written);
@@ -439,11 +538,8 @@ libp2p_host_err_t libp2p_host_conn_peer_identity(
 {
     libp2p_host_err_t result = LIBP2P_HOST_OK;
 
-    if ((conn == NULL) || (conn->host == NULL))
-    {
-        result = LIBP2P_HOST_ERR_INVALID_ARG;
-    }
-    else
+    result = host_conn_validate_usable(conn, NULL);
+    if (result == LIBP2P_HOST_OK)
     {
         result = conn->host->config.transport->conn_peer_identity(conn->transport_conn, out);
     }
@@ -460,11 +556,8 @@ libp2p_host_err_t libp2p_host_conn_close(
 
     if (result == LIBP2P_HOST_OK)
     {
-        if ((conn == NULL) || (conn->host != host))
-        {
-            result = LIBP2P_HOST_ERR_INVALID_ARG;
-        }
-        else
+        result = host_conn_validate_usable(conn, host);
+        if (result == LIBP2P_HOST_OK)
         {
             result = host->config.transport
                          ->conn_close(host->transport, conn->transport_conn, app_error_code);

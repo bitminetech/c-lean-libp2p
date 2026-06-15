@@ -240,6 +240,190 @@ QUIC_BACKEND_INTERNAL void quic_backend_conn_free(libp2p_quic_conn_t *conn)
     }
 }
 
+static void quic_backend_conn_remove_live_at(libp2p_quic_endpoint_t *endpoint, size_t index)
+{
+    libp2p_quic_conn_t *conn = endpoint->connections[index];
+    const size_t last_index = endpoint->connection_count - 1U;
+
+    if (conn->role == LIBP2P_QUIC_ROLE_CLIENT)
+    {
+        if (endpoint->outgoing_connection_count != 0U)
+        {
+            endpoint->outgoing_connection_count--;
+        }
+    }
+    else if (endpoint->incoming_connection_count != 0U)
+    {
+        endpoint->incoming_connection_count--;
+    }
+
+    if (index != last_index)
+    {
+        endpoint->connections[index] = endpoint->connections[last_index];
+    }
+    endpoint->connections[last_index] = NULL;
+    endpoint->connection_count--;
+
+    if (endpoint->connection_count == 0U)
+    {
+        endpoint->next_tx_connection = 0U;
+    }
+    else if (endpoint->next_tx_connection > index)
+    {
+        endpoint->next_tx_connection--;
+    }
+    else if (endpoint->next_tx_connection >= endpoint->connection_count)
+    {
+        endpoint->next_tx_connection = 0U;
+    }
+
+    if (endpoint->last_tx_conn == conn)
+    {
+        endpoint->last_tx_conn = NULL;
+    }
+    conn->endpoint_registered = 0U;
+}
+
+static void quic_backend_conn_retire_from_endpoint(libp2p_quic_conn_t *conn)
+{
+    libp2p_quic_endpoint_t *endpoint = NULL;
+
+    if ((conn == NULL) || (conn->endpoint_registered == 0U))
+    {
+        return;
+    }
+
+    endpoint = conn->endpoint;
+    if (endpoint == NULL)
+    {
+        conn->endpoint_registered = 0U;
+        return;
+    }
+
+    for (size_t index = 0U; index < endpoint->connection_count; index++)
+    {
+        if (endpoint->connections[index] == conn)
+        {
+            quic_backend_conn_remove_live_at(endpoint, index);
+            conn->retired_next = endpoint->retired_connections;
+            endpoint->retired_connections = conn;
+            break;
+        }
+    }
+}
+
+static int quic_backend_event_references_conn(
+    const libp2p_quic_event_t *event,
+    const libp2p_quic_conn_t *conn)
+{
+    int result = 0;
+
+    if ((event != NULL) && (conn != NULL))
+    {
+        if (event->conn == conn)
+        {
+            result = 1;
+        }
+        else if ((event->stream != NULL) && (event->stream->conn == conn))
+        {
+            result = 1;
+        }
+    }
+
+    return result;
+}
+
+static int quic_backend_endpoint_has_event_ref(
+    const libp2p_quic_endpoint_t *endpoint,
+    const libp2p_quic_conn_t *conn)
+{
+    int result = 0;
+
+    if ((endpoint != NULL) && (conn != NULL))
+    {
+        for (size_t index = 0U; index < endpoint->event_len; index++)
+        {
+            const size_t pos = (endpoint->event_head + index) % endpoint->event_cap;
+
+            if (quic_backend_event_references_conn(&endpoint->events[pos], conn) != 0)
+            {
+                result = 1;
+                break;
+            }
+        }
+    }
+
+    return result;
+}
+
+QUIC_BACKEND_INTERNAL libp2p_quic_err_t quic_backend_endpoint_release_retired_conn(
+    libp2p_quic_endpoint_t *endpoint,
+    libp2p_quic_conn_t *conn)
+{
+    libp2p_quic_err_t result = quic_backend_validate_endpoint(endpoint);
+
+    if (result == LIBP2P_QUIC_OK)
+    {
+        if ((conn == NULL) || (conn->magic != QUIC_BACKEND_CONN_MAGIC) ||
+            (conn->endpoint != endpoint))
+        {
+            result = LIBP2P_QUIC_ERR_INVALID_ARG;
+        }
+        else if (conn->state != LIBP2P_QUIC_CONN_CLOSED)
+        {
+            result = LIBP2P_QUIC_ERR_STATE;
+        }
+        else if ((conn->endpoint_registered != 0U) ||
+                 (quic_backend_endpoint_has_event_ref(endpoint, conn) != 0))
+        {
+            result = LIBP2P_QUIC_ERR_WOULD_BLOCK;
+        }
+        else
+        {
+            libp2p_quic_conn_t **link = &endpoint->retired_connections;
+
+            result = LIBP2P_QUIC_ERR_NOT_FOUND;
+            while (*link != NULL)
+            {
+                if (*link == conn)
+                {
+                    *link = conn->retired_next;
+                    conn->retired_next = NULL;
+                    quic_backend_conn_free(conn);
+                    result = LIBP2P_QUIC_OK;
+                    break;
+                }
+                link = &(*link)->retired_next;
+            }
+        }
+    }
+
+    return result;
+}
+
+static libp2p_quic_err_t quic_backend_conn_mark_closed(
+    libp2p_quic_conn_t *conn,
+    uint64_t app_error_code,
+    uint64_t transport_error_code)
+{
+    libp2p_quic_err_t result = LIBP2P_QUIC_OK;
+
+    if (conn->state != LIBP2P_QUIC_CONN_CLOSED)
+    {
+        conn->state = LIBP2P_QUIC_CONN_CLOSED;
+        result = quic_backend_event_push(
+            conn->endpoint,
+            LIBP2P_QUIC_EVENT_CONN_CLOSED,
+            conn,
+            NULL,
+            app_error_code,
+            transport_error_code);
+    }
+    quic_backend_conn_retire_from_endpoint(conn);
+
+    return result;
+}
+
 static libp2p_quic_err_t quic_backend_conn_add_to_endpoint(libp2p_quic_conn_t *conn)
 {
     libp2p_quic_endpoint_t *endpoint = conn->endpoint;
@@ -265,6 +449,7 @@ static libp2p_quic_err_t quic_backend_conn_add_to_endpoint(libp2p_quic_conn_t *c
     {
         endpoint->connections[endpoint->connection_count] = conn;
         endpoint->connection_count++;
+        conn->endpoint_registered = 1U;
         if (conn->role == LIBP2P_QUIC_ROLE_CLIENT)
         {
             endpoint->outgoing_connection_count++;
@@ -571,14 +756,7 @@ quic_backend_handle_conn_error(libp2p_quic_conn_t *conn, int rv)
                 }
             }
 
-            conn->state = LIBP2P_QUIC_CONN_CLOSED;
-            result = quic_backend_event_push(
-                conn->endpoint,
-                LIBP2P_QUIC_EVENT_CONN_CLOSED,
-                conn,
-                NULL,
-                app_error_code,
-                transport_error_code);
+            result = quic_backend_conn_mark_closed(conn, app_error_code, transport_error_code);
         }
         else
         {
@@ -757,9 +935,11 @@ QUIC_BACKEND_INTERNAL libp2p_quic_err_t quic_backend_write_conn_datagram(
             ts);
         if (nwrite > 0)
         {
+            uint64_t app_error_code = 0U;
+            uint64_t transport_error_code = 0U;
+
             quic_backend_conn_record_packet_write(conn, ts);
             conn->close_sent = 1U;
-            conn->state = LIBP2P_QUIC_CONN_CLOSING;
             conn->autopsy_tx_sent_bytes += (uint64_t)nwrite;
             if ((uint64_t)nwrite > conn->autopsy_max_tx_datagram_bytes)
             {
@@ -770,6 +950,15 @@ QUIC_BACKEND_INTERNAL libp2p_quic_err_t quic_backend_write_conn_datagram(
             datagram->remote_addr = conn->remote_addr;
             datagram->data_len = (size_t)nwrite;
             datagram->ecn = quic_backend_ecn_from_ngtcp2(pi.ecn);
+            if (conn->close_error.type == NGTCP2_CCERR_TYPE_APPLICATION)
+            {
+                app_error_code = conn->close_error.error_code;
+            }
+            else if (conn->close_error.type == NGTCP2_CCERR_TYPE_TRANSPORT)
+            {
+                transport_error_code = conn->close_error.error_code;
+            }
+            (void)quic_backend_conn_mark_closed(conn, app_error_code, transport_error_code);
             result = LIBP2P_QUIC_OK;
         }
         else if (nwrite == 0)

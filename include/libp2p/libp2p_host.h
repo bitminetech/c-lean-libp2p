@@ -307,6 +307,7 @@ typedef struct
 
     libp2p_host_err_t (*conn_peer_identity)(const void *conn, libp2p_host_peer_identity_t *out);
     libp2p_host_err_t (*conn_close)(void *transport, void *conn, uint64_t app_error_code);
+    libp2p_host_err_t (*conn_release)(void *transport, void *conn);
 
     libp2p_host_err_t (*stream_read)(
         void *transport,
@@ -367,7 +368,9 @@ typedef struct
  *     NULL for inbound connections.
  *
  *   LIBP2P_HOST_EVENT_CONN_CLOSED:
- *     conn, app_error_code, and transport_error_code are valid.
+ *     conn identifies the closed connection. The pointer is invalid after this
+ *     event is consumed; callers must drop any retained copy before draining the
+ *     next host event or initiating more host work.
  *
  *   LIBP2P_HOST_EVENT_DIAL_FAILED:
  *     dial, user_data, reason, app_error_code, and transport_error_code are

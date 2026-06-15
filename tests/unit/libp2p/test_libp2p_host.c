@@ -546,6 +546,65 @@ static void host_unit_test_graceful_shutdown(void)
     free(storage);
 }
 
+static void host_unit_test_closed_conn_recycles_slot_and_rejects_stale_accessors(void)
+{
+    libp2p_host_config_t config;
+    host_test_transport_config_t transport_config;
+    host_test_transport_fixture_t fixture;
+    host_test_conn_t conn1;
+    host_test_conn_t conn2;
+    libp2p_host_t *host = NULL;
+    libp2p_host_conn_t *host_conn1 = NULL;
+    libp2p_host_conn_t *host_conn2 = NULL;
+    libp2p_host_transport_event_t transport_event;
+    libp2p_host_drive_result_t result;
+    libp2p_host_event_t event;
+    uint8_t peer_id[LIBP2P_PEER_ID_MAX_BYTES];
+    size_t written = 0U;
+    libp2p_host_err_t stale_err;
+    void *storage = NULL;
+    size_t storage_len = 0U;
+
+    host_test_fixture_init(&fixture, &conn1);
+    conn2 = conn1;
+    conn2.peer_id[2] = 9U;
+    conn2.identity.peer_id[2] = 9U;
+    host_test_config_init(&config, &transport_config, &fixture, host_test_transport());
+    config.max_connections = 1U;
+    assert(libp2p_host_storage_size(&config, &storage_len) == LIBP2P_HOST_OK);
+    storage = calloc(1U, storage_len);
+    assert(storage != NULL);
+    assert(libp2p_host_init(storage, storage_len, &config, &host) == LIBP2P_HOST_OK);
+    assert(libp2p_host_start(host) == LIBP2P_HOST_OK);
+
+    host_unit_establish_mock_conn(host, &fixture, &conn1, &host_conn1);
+    assert(host_conn1 != NULL);
+
+    (void)memset(&transport_event, 0, sizeof(transport_event));
+    transport_event.type = LIBP2P_HOST_TRANSPORT_EVENT_CONN_CLOSED;
+    transport_event.conn = &conn1;
+    transport_event.app_error_code = 77U;
+    host_test_event_push(&fixture, &transport_event);
+    assert(libp2p_host_drive(host, 12U, LIBP2P_HOST_READY_APP, &result) == LIBP2P_HOST_OK);
+    assert(libp2p_host_next_event(host, &event) == LIBP2P_HOST_OK);
+    assert(event.type == LIBP2P_HOST_EVENT_CONN_CLOSED);
+    assert(event.conn == host_conn1);
+    assert(fixture.release_count == 1U);
+
+    stale_err = libp2p_host_conn_peer_id(host_conn1, peer_id, sizeof(peer_id), &written);
+    assert((stale_err == LIBP2P_HOST_ERR_INVALID_ARG) || (stale_err == LIBP2P_HOST_ERR_CLOSED));
+    stale_err = libp2p_host_conn_close(host, host_conn1, 88U);
+    assert((stale_err == LIBP2P_HOST_ERR_INVALID_ARG) || (stale_err == LIBP2P_HOST_ERR_CLOSED));
+
+    host_unit_establish_mock_conn(host, &fixture, &conn2, &host_conn2);
+    assert(host_conn2 != NULL);
+    assert(host_conn2 == host_conn1);
+    assert(fixture.release_count == 1U);
+
+    libp2p_host_deinit(host);
+    free(storage);
+}
+
 static void host_unit_test_secp256k1_identity_round_trip(void)
 {
     uint8_t private_key[32];
@@ -855,6 +914,7 @@ int main(void)
     host_unit_test_outbound_stream_resources_reused_after_close();
     host_unit_test_inbound_stream_negotiation_and_na();
     host_unit_test_graceful_shutdown();
+    host_unit_test_closed_conn_recycles_slot_and_rejects_stale_accessors();
     host_unit_test_secp256k1_identity_round_trip();
     host_unit_test_quic_loopback();
     return 0;
