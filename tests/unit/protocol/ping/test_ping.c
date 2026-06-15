@@ -60,6 +60,27 @@ static libp2p_host_t *ping_test_init_mock(
     return host;
 }
 
+static libp2p_host_t *ping_test_init_mock_with_max_connections(
+    libp2p_host_config_t *config,
+    host_test_transport_config_t *transport_config,
+    host_test_transport_fixture_t *fixture,
+    host_test_conn_t *conn,
+    size_t max_connections,
+    void **storage)
+{
+    size_t storage_len = 0U;
+    libp2p_host_t *host = NULL;
+
+    host_test_fixture_init(fixture, conn);
+    host_test_config_init(config, transport_config, fixture, host_test_transport());
+    config->max_connections = max_connections;
+    assert(libp2p_host_storage_size(config, &storage_len) == LIBP2P_HOST_OK);
+    *storage = calloc(1U, storage_len);
+    assert(*storage != NULL);
+    assert(libp2p_host_init(*storage, storage_len, config, &host) == LIBP2P_HOST_OK);
+    return host;
+}
+
 static void ping_test_establish_mock_conn(
     libp2p_host_t *host,
     host_test_transport_fixture_t *fixture,
@@ -269,6 +290,98 @@ static void ping_test_initiator_rtt_and_repeat_guard(void)
     free(storage);
 }
 
+static void ping_test_pending_terminal_event_ignores_reused_conn_slot(void)
+{
+    ping_test_runtime_t runtime = {31U, 9000U};
+    libp2p_ping_config_t ping_config;
+    libp2p_ping_t ping;
+    libp2p_host_protocol_t protocol;
+    libp2p_host_config_t host_config;
+    host_test_transport_config_t transport_config;
+    host_test_transport_fixture_t fixture;
+    host_test_conn_t conn1;
+    host_test_conn_t conn2;
+    host_test_stream_t stream1;
+    host_test_stream_t stream2;
+    libp2p_host_t *host = NULL;
+    libp2p_host_conn_t *host_conn1 = NULL;
+    libp2p_host_conn_t *host_conn2 = NULL;
+    libp2p_host_stream_open_t *open = NULL;
+    libp2p_host_transport_event_t transport_event;
+    libp2p_host_drive_result_t result;
+    libp2p_host_event_t host_event;
+    void *storage = NULL;
+
+    (void)memset(&stream1, 0, sizeof(stream1));
+    (void)memset(&stream2, 0, sizeof(stream2));
+    ping_test_config_init(&ping_config, &runtime);
+    assert(libp2p_ping_init(&ping, &ping_config) == LIBP2P_PING_OK);
+    assert(libp2p_ping_protocol(&ping, &protocol) == LIBP2P_PING_OK);
+
+    host = ping_test_init_mock_with_max_connections(
+        &host_config,
+        &transport_config,
+        &fixture,
+        &conn1,
+        1U,
+        &storage);
+    conn2 = conn1;
+    conn2.peer_id[2] = 12U;
+    conn2.identity.peer_id[2] = 12U;
+    assert(libp2p_host_handle(host, &protocol) == LIBP2P_HOST_OK);
+    assert(libp2p_host_start(host) == LIBP2P_HOST_OK);
+    ping_test_establish_mock_conn(host, &fixture, &conn1, &host_conn1);
+
+    host_test_stream_add_message(
+        &stream1,
+        (const uint8_t *)LIBP2P_MULTISTREAM_SELECT_PROTOCOL_ID,
+        LIBP2P_MULTISTREAM_SELECT_PROTOCOL_ID_LEN);
+    host_test_stream_add_message(
+        &stream1,
+        (const uint8_t *)LIBP2P_PING_PROTOCOL_ID,
+        LIBP2P_PING_PROTOCOL_ID_LEN);
+    fixture.next_stream = &stream1;
+    assert(libp2p_ping_initiate(&ping, host, host_conn1, &runtime, &open) == LIBP2P_PING_OK);
+    assert(open != NULL);
+    assert(libp2p_host_drive(host, 20U, LIBP2P_HOST_READY_APP, &result) == LIBP2P_HOST_OK);
+    assert(libp2p_host_next_event(host, &host_event) == LIBP2P_HOST_OK);
+    assert(host_event.type == LIBP2P_HOST_EVENT_STREAM_OPENED);
+
+    ping_test_push_stream_event(
+        &fixture,
+        &conn1,
+        &stream1,
+        LIBP2P_HOST_TRANSPORT_EVENT_STREAM_CLOSED);
+    assert(libp2p_host_drive(host, 21U, LIBP2P_HOST_READY_APP, &result) == LIBP2P_HOST_OK);
+
+    (void)memset(&transport_event, 0, sizeof(transport_event));
+    transport_event.type = LIBP2P_HOST_TRANSPORT_EVENT_CONN_CLOSED;
+    transport_event.conn = &conn1;
+    host_test_event_push(&fixture, &transport_event);
+    assert(libp2p_host_drive(host, 22U, LIBP2P_HOST_READY_APP, &result) == LIBP2P_HOST_OK);
+    assert(libp2p_host_next_event(host, &host_event) == LIBP2P_HOST_OK);
+    assert(host_event.type == LIBP2P_HOST_EVENT_CONN_CLOSED);
+    assert(fixture.release_count == 1U);
+
+    ping_test_establish_mock_conn(host, &fixture, &conn2, &host_conn2);
+    assert(host_conn2 == host_conn1);
+    host_test_stream_add_message(
+        &stream2,
+        (const uint8_t *)LIBP2P_MULTISTREAM_SELECT_PROTOCOL_ID,
+        LIBP2P_MULTISTREAM_SELECT_PROTOCOL_ID_LEN);
+    host_test_stream_add_message(
+        &stream2,
+        (const uint8_t *)LIBP2P_PING_PROTOCOL_ID,
+        LIBP2P_PING_PROTOCOL_ID_LEN);
+    fixture.next_stream = &stream2;
+    open = NULL;
+    assert(libp2p_ping_initiate(&ping, host, host_conn2, NULL, &open) == LIBP2P_PING_OK);
+    assert(open != NULL);
+
+    libp2p_host_deinit(host);
+    free(storage);
+}
+
 static void ping_test_quic_loopback(void)
 {
     ping_test_runtime_t client_runtime = {23U, 10000U};
@@ -378,6 +491,7 @@ int main(void)
 {
     ping_test_responder_echoes_chunk();
     ping_test_initiator_rtt_and_repeat_guard();
+    ping_test_pending_terminal_event_ignores_reused_conn_slot();
     ping_test_quic_loopback();
     return 0;
 }

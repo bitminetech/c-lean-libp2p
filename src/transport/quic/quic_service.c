@@ -594,6 +594,80 @@ static void quic_service_mark_conn_closed(
     }
 }
 
+static void quic_service_forget_conn(libp2p_quic_service_t *service, const libp2p_quic_conn_t *conn)
+{
+    if ((service != NULL) && (conn != NULL))
+    {
+        for (size_t index = 0U; index < service->conn_count; index++)
+        {
+            if (service->conns[index].conn == conn)
+            {
+                const size_t last_index = service->conn_count - 1U;
+
+                if (index != last_index)
+                {
+                    service->conns[index] = service->conns[last_index];
+                }
+                (void)memset(&service->conns[last_index], 0, sizeof(service->conns[last_index]));
+                service->conn_count--;
+                break;
+            }
+        }
+    }
+    else
+    {
+        /* Nothing needs to be forgotten. */
+    }
+}
+
+static int quic_service_event_references_conn(
+    const libp2p_quic_service_event_t *event,
+    const libp2p_quic_conn_t *conn)
+{
+    int result = 0;
+
+    if ((event != NULL) && (conn != NULL))
+    {
+        if (event->conn == conn)
+        {
+            result = 1;
+        }
+        else if ((event->stream != NULL) && (event->stream->conn == conn))
+        {
+            result = 1;
+        }
+        else
+        {
+            /* This event does not reference the connection. */
+        }
+    }
+
+    return result;
+}
+
+static int quic_service_has_event_ref(
+    const libp2p_quic_service_t *service,
+    const libp2p_quic_conn_t *conn)
+{
+    int result = 0;
+
+    if ((service != NULL) && (conn != NULL))
+    {
+        for (size_t index = 0U; index < service->event_len; index++)
+        {
+            const size_t pos = (service->event_head + index) % service->event_capacity;
+
+            if (quic_service_event_references_conn(&service->events[pos], conn) != 0)
+            {
+                result = 1;
+                break;
+            }
+        }
+    }
+
+    return result;
+}
+
 static libp2p_quic_err_t quic_service_translate_event(
     libp2p_quic_service_t *service,
     const libp2p_quic_event_t *event)
@@ -645,6 +719,7 @@ static libp2p_quic_err_t quic_service_translate_event(
                 NULL,
                 event->app_error_code,
                 event->transport_error_code);
+            quic_service_forget_conn(service, event->conn);
             break;
 
         case LIBP2P_QUIC_EVENT_STREAM_INCOMING:
@@ -1556,6 +1631,33 @@ libp2p_quic_err_t libp2p_quic_service_conn_close(
         if (result == LIBP2P_QUIC_OK)
         {
             service->tx_pending = 1U;
+        }
+    }
+
+    return result;
+}
+
+libp2p_quic_err_t libp2p_quic_service_conn_release(
+    libp2p_quic_service_t *service,
+    libp2p_quic_conn_t *conn)
+{
+    libp2p_quic_err_t result = quic_service_validate(service);
+
+    if (result == LIBP2P_QUIC_OK)
+    {
+        if (conn == NULL)
+        {
+            result = LIBP2P_QUIC_ERR_INVALID_ARG;
+        }
+        else if ((service->pending_tx_conn == conn) ||
+                 (quic_service_find_conn(service, conn) != NULL) ||
+                 (quic_service_has_event_ref(service, conn) != 0))
+        {
+            result = LIBP2P_QUIC_ERR_WOULD_BLOCK;
+        }
+        else
+        {
+            result = quic_backend_endpoint_release_retired_conn(service->endpoint, conn);
         }
     }
 

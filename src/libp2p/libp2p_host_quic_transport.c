@@ -505,6 +505,13 @@ static libp2p_host_err_t host_quic_conn_close(void *transport, void *conn, uint6
     return result;
 }
 
+static libp2p_host_err_t host_quic_conn_release(void *transport, void *conn)
+{
+    return host_quic_err(libp2p_quic_service_conn_release(
+        host_quic_service_from_void(transport),
+        host_quic_conn_from_void(conn)));
+}
+
 static libp2p_host_err_t host_quic_stream_read(
     void *transport,
     void *stream,
@@ -589,6 +596,7 @@ const libp2p_host_transport_vtable_t *libp2p_host_quic_transport(void)
          host_quic_conn_remote_multiaddr,
          host_quic_conn_peer_identity,
          host_quic_conn_close,
+         host_quic_conn_release,
          host_quic_stream_read,
          host_quic_stream_write,
          host_quic_stream_finish,

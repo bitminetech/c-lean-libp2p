@@ -365,6 +365,131 @@ static void quic_lifecycle_test_idle_timeout_closes(void)
     quic_test_pair_deinit(&pair);
 }
 
+static void quic_lifecycle_test_closed_connection_releases_endpoint_slot(void)
+{
+    quic_test_identity_fixture_t identity;
+    libp2p_quic_endpoint_config_t client_a_config;
+    libp2p_quic_endpoint_config_t client_b_config;
+    libp2p_quic_endpoint_config_t server_config;
+    libp2p_quic_endpoint_t *client_a = NULL;
+    libp2p_quic_endpoint_t *client_b = NULL;
+    libp2p_quic_endpoint_t *server = NULL;
+    libp2p_quic_conn_t *client_a_conn = NULL;
+    libp2p_quic_conn_t *client_b_conn = NULL;
+    libp2p_quic_conn_t *server_conn_a = NULL;
+    libp2p_quic_conn_t *server_conn_b = NULL;
+    libp2p_quic_addr_t client_a_addr;
+    libp2p_quic_addr_t client_b_addr;
+    libp2p_quic_addr_t server_addr;
+    libp2p_quic_dial_config_t dial_config;
+    quic_test_events_t client_a_events;
+    quic_test_events_t server_events;
+    void *client_a_storage = NULL;
+    void *client_b_storage = NULL;
+    void *server_storage = NULL;
+    uint8_t client_a_random = 11U;
+    uint8_t client_b_random = 53U;
+    uint8_t server_random = 197U;
+    uint64_t unix_time = UINT64_C(1750000000);
+    uint8_t ip4[4] = {127U, 0U, 0U, 1U};
+    libp2p_quic_time_us_t now_us = 0U;
+    size_t round = 0U;
+
+    quic_test_make_identity(&identity, 59U);
+    assert(libp2p_quic_endpoint_config_default(&client_a_config) == LIBP2P_QUIC_OK);
+    assert(libp2p_quic_endpoint_config_default(&client_b_config) == LIBP2P_QUIC_OK);
+    assert(libp2p_quic_endpoint_config_default(&server_config) == LIBP2P_QUIC_OK);
+
+    client_a_config.allocator = quic_test_allocator();
+    client_b_config.allocator = quic_test_allocator();
+    server_config.allocator = quic_test_allocator();
+    client_a_config.role = LIBP2P_QUIC_ROLE_CLIENT;
+    client_b_config.role = LIBP2P_QUIC_ROLE_CLIENT;
+    server_config.role = LIBP2P_QUIC_ROLE_SERVER;
+    client_a_config.identity = identity.identity;
+    client_b_config.identity = identity.identity;
+    server_config.identity = identity.identity;
+    client_a_config.random_fn = quic_test_random;
+    client_b_config.random_fn = quic_test_random;
+    server_config.random_fn = quic_test_random;
+    client_a_config.random_user_data = &client_a_random;
+    client_b_config.random_user_data = &client_b_random;
+    server_config.random_user_data = &server_random;
+    client_a_config.unix_time_fn = quic_test_unix_time;
+    client_b_config.unix_time_fn = quic_test_unix_time;
+    server_config.unix_time_fn = quic_test_unix_time;
+    client_a_config.unix_time_user_data = &unix_time;
+    client_b_config.unix_time_user_data = &unix_time;
+    server_config.unix_time_user_data = &unix_time;
+    client_a_config.max_connections = 1U;
+    client_a_config.max_incoming_connections = 1U;
+    client_a_config.max_outgoing_connections = 1U;
+    client_b_config.max_connections = 1U;
+    client_b_config.max_incoming_connections = 1U;
+    client_b_config.max_outgoing_connections = 1U;
+    server_config.max_connections = 1U;
+    server_config.max_incoming_connections = 1U;
+    server_config.max_outgoing_connections = 1U;
+
+    quic_test_endpoint_init_one(&client_a, &client_a_storage, &client_a_config);
+    quic_test_endpoint_init_one(&client_b, &client_b_storage, &client_b_config);
+    quic_test_endpoint_init_one(&server, &server_storage, &server_config);
+
+    assert(libp2p_quic_addr_from_ip4(ip4, 30020U, &client_a_addr) == LIBP2P_QUIC_OK);
+    assert(libp2p_quic_addr_from_ip4(ip4, 30021U, &server_addr) == LIBP2P_QUIC_OK);
+    assert(libp2p_quic_addr_from_ip4(ip4, 30022U, &client_b_addr) == LIBP2P_QUIC_OK);
+    assert(libp2p_quic_endpoint_bind(client_a, &client_a_addr) == LIBP2P_QUIC_OK);
+    assert(libp2p_quic_endpoint_bind(client_b, &client_b_addr) == LIBP2P_QUIC_OK);
+    assert(libp2p_quic_endpoint_bind(server, &server_addr) == LIBP2P_QUIC_OK);
+    assert(
+        libp2p_quic_addr_set_peer_id(&server_addr, identity.peer_id, identity.peer_id_len) ==
+        LIBP2P_QUIC_OK);
+
+    dial_config.remote_addr = server_addr;
+    dial_config.user_data = NULL;
+    assert(libp2p_quic_endpoint_dial(client_a, &dial_config, &client_a_conn) == LIBP2P_QUIC_OK);
+    quic_test_wait_established(client_a, server, client_a_conn, &server_conn_a, &now_us);
+    assert(client_a->connection_count == 1U);
+    assert(client_a->outgoing_connection_count == 1U);
+    assert(server->connection_count == 1U);
+    assert(server->incoming_connection_count == 1U);
+
+    assert(libp2p_quic_conn_close(client_a_conn, 99U) == LIBP2P_QUIC_OK);
+    (void)memset(&client_a_events, 0, sizeof(client_a_events));
+    (void)memset(&server_events, 0, sizeof(server_events));
+    for (round = 0U; round < 1000U; round++)
+    {
+        quic_test_pump(client_a, server, &now_us);
+        quic_test_drain_events(client_a, &client_a_events);
+        quic_test_drain_events(server, &server_events);
+        if ((client_a_events.closed_conn_count != 0U) && (server_events.closed_conn_count != 0U))
+        {
+            break;
+        }
+    }
+
+    assert(client_a_events.closed_conn == client_a_conn);
+    assert(server_events.closed_conn == server_conn_a);
+    assert(client_a->connection_count == 0U);
+    assert(client_a->outgoing_connection_count == 0U);
+    assert(server->connection_count == 0U);
+    assert(server->incoming_connection_count == 0U);
+
+    assert(libp2p_quic_endpoint_dial(client_b, &dial_config, &client_b_conn) == LIBP2P_QUIC_OK);
+    quic_test_wait_established(client_b, server, client_b_conn, &server_conn_b, &now_us);
+    assert(server_conn_b != NULL);
+    assert(server_conn_b != server_conn_a);
+    assert(server->connection_count == 1U);
+    assert(server->incoming_connection_count == 1U);
+
+    libp2p_quic_endpoint_deinit(client_a);
+    libp2p_quic_endpoint_deinit(client_b);
+    libp2p_quic_endpoint_deinit(server);
+    free(client_a_storage);
+    free(client_b_storage);
+    free(server_storage);
+}
+
 int main(void)
 {
     quic_lifecycle_test_multiple_streams();
@@ -375,6 +500,7 @@ int main(void)
     quic_lifecycle_test_ack_ranges_merge_to_full_window();
     quic_lifecycle_test_connection_close_propagates();
     quic_lifecycle_test_idle_timeout_closes();
+    quic_lifecycle_test_closed_connection_releases_endpoint_slot();
 
     return 0;
 }

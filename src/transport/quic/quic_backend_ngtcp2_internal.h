@@ -106,8 +106,10 @@ struct libp2p_quic_conn
     size_t cid_count;
     quic_backend_stream_vec_t streams;
     size_t next_tx_stream;
+    libp2p_quic_conn_t *retired_next;
     uint8_t close_requested;
     uint8_t close_sent;
+    uint8_t endpoint_registered;
     ngtcp2_ccerr close_error;
     libp2p_quic_err_t callback_error;
     uint8_t tx_time_update_unconfirmed;
@@ -152,6 +154,7 @@ struct libp2p_quic_endpoint
     libp2p_quic_time_us_t time_origin_us;
     libp2p_quic_time_us_t last_observed_now_us;
     libp2p_quic_conn_t **connections;
+    libp2p_quic_conn_t *retired_connections;
     size_t connection_count;
     size_t incoming_connection_count;
     size_t outgoing_connection_count;
@@ -403,6 +406,10 @@ quic_backend_conn_remote_addr(const libp2p_quic_conn_t *conn, libp2p_quic_addr_t
 
 QUIC_BACKEND_INTERNAL libp2p_quic_err_t
 quic_backend_conn_close(libp2p_quic_conn_t *conn, uint64_t app_error_code);
+
+QUIC_BACKEND_INTERNAL libp2p_quic_err_t quic_backend_endpoint_release_retired_conn(
+    libp2p_quic_endpoint_t *endpoint,
+    libp2p_quic_conn_t *conn);
 
 QUIC_BACKEND_INTERNAL libp2p_quic_err_t
 quic_backend_conn_open_bidi_stream(libp2p_quic_conn_t *conn, libp2p_quic_stream_t **out_stream);

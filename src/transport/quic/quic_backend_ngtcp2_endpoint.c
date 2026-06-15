@@ -227,6 +227,13 @@ static void quic_backend_endpoint_deinit(libp2p_quic_endpoint_t *endpoint)
         {
             quic_backend_conn_free(endpoint->connections[index]);
         }
+        while (endpoint->retired_connections != NULL)
+        {
+            libp2p_quic_conn_t *conn = endpoint->retired_connections;
+
+            endpoint->retired_connections = conn->retired_next;
+            quic_backend_conn_free(conn);
+        }
         SSL_CTX_free(endpoint->client_ctx);
         SSL_CTX_free(endpoint->server_ctx);
         quic_backend_free(endpoint, (void *)endpoint->connections);
@@ -440,8 +447,12 @@ static libp2p_quic_err_t quic_backend_endpoint_next_datagram(
                     if (result == LIBP2P_QUIC_OK)
                     {
                         endpoint->last_tx_conn = conn;
-                        endpoint->next_tx_connection =
-                            (conn_index + 1U) % endpoint->connection_count;
+                        if ((conn->endpoint_registered != 0U) &&
+                            (endpoint->connection_count != 0U))
+                        {
+                            endpoint->next_tx_connection =
+                                (conn_index + 1U) % endpoint->connection_count;
+                        }
                     }
                 }
             }

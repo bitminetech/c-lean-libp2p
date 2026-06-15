@@ -230,6 +230,7 @@ static int ping_conn_has_outbound(const libp2p_ping_t *ping, const libp2p_host_c
             const libp2p_ping_stream_state_t *slot = &ping->streams[index];
 
             if ((slot->state != LIBP2P_PING_SLOT_FREE) &&
+                (slot->state != LIBP2P_PING_SLOT_EVENTED) &&
                 (slot->direction == LIBP2P_HOST_STREAM_OUTBOUND) && (slot->conn == conn))
             {
                 found = 1;
@@ -291,6 +292,7 @@ static libp2p_host_err_t ping_fail_stream(
         event.reason = reason;
         event.user_data = slot->user_data;
         err = ping_event_push(ping, slot_index, &event);
+        slot->conn = NULL;
         slot->state = LIBP2P_PING_SLOT_EVENTED;
         if ((host != NULL) && (slot->stream != NULL))
         {
@@ -319,6 +321,7 @@ static libp2p_host_err_t ping_emit_closed(libp2p_ping_t *ping, size_t slot_index
         event.direction = slot->direction;
         event.user_data = slot->user_data;
         result = ping_event_push(ping, slot_index, &event);
+        slot->conn = NULL;
         slot->state = LIBP2P_PING_SLOT_EVENTED;
     }
 

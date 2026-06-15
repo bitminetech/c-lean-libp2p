@@ -107,6 +107,11 @@ set(BUILD_TESTING "${LIBP2P_BUILD_TESTING}" CACHE BOOL "Build c-lean-libp2p test
 if(MSVC)
     target_compile_options(secp256k1 PRIVATE /WX-)
     target_compile_options(secp256k1_precomputed PRIVATE /WX-)
+    # aws-lc builds its own targets with warnings-as-errors; a Windows SDK
+    # header (wingdi.h) emits C4865 under newer SDKs, which /WX promotes to an
+    # error. Disable warnings-as-errors for the vendored aws-lc targets only.
+    target_compile_options(ssl PRIVATE /WX-)
+    target_compile_options(crypto PRIVATE /WX-)
 endif()
 
 add_library(c_lean_libp2p_project_defaults INTERFACE)

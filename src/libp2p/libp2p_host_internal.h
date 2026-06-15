@@ -66,8 +66,10 @@ struct libp2p_host_conn
     libp2p_host_t *host;
     void *transport_conn;
     size_t stream_count;
+    size_t open_count;
     uint8_t active;
     uint8_t closed;
+    uint8_t close_event_pending;
 };
 
 struct libp2p_host_stream_open
@@ -197,6 +199,11 @@ libp2p_host_err_t host_conn_alloc(
     libp2p_host_t *host,
     void *transport_conn,
     libp2p_host_conn_t **out);
+libp2p_host_err_t host_conn_validate_usable(
+    const libp2p_host_conn_t *conn,
+    const libp2p_host_t *host);
+libp2p_host_err_t host_conn_try_recycle(libp2p_host_conn_t *conn);
+libp2p_host_err_t host_conn_recycle_quiet(libp2p_host_t *host);
 libp2p_host_dial_t *host_dial_find(libp2p_host_t *host, const void *transport_attempt);
 libp2p_host_err_t host_dial_mark_evented(libp2p_host_dial_t *dial);
 libp2p_host_stream_t *host_stream_find(libp2p_host_t *host, const void *transport_stream);
@@ -208,6 +215,7 @@ libp2p_host_err_t host_stream_alloc(
     const libp2p_host_protocol_t *protocol,
     libp2p_host_stream_open_t *open_attempt,
     libp2p_host_stream_t **out);
+void host_open_release(libp2p_host_stream_open_t *open);
 void host_stream_release(libp2p_host_stream_t *stream);
 libp2p_host_err_t host_stream_negotiation_one(
     libp2p_host_t *host,

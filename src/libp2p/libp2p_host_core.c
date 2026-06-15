@@ -682,7 +682,8 @@ libp2p_host_err_t libp2p_host_close(libp2p_host_t *host, uint64_t app_error_code
             host->close_app_error_code = app_error_code;
             for (index = 0U; (index < host->conn_capacity) && (result == LIBP2P_HOST_OK); index++)
             {
-                if ((host->conns[index].active != 0U) && (host->conns[index].closed == 0U))
+                if ((host->conns[index].active != 0U) && (host->conns[index].closed == 0U) &&
+                    (host->conns[index].transport_conn != NULL))
                 {
                     result = host->config.transport->conn_close(
                         host->transport,
@@ -763,9 +764,11 @@ libp2p_host_err_t libp2p_host_next_event(libp2p_host_t *host, libp2p_host_event_
             }
             if (out_event->stream_open != NULL)
             {
+                libp2p_host_conn_t *open_conn = out_event->stream_open->conn;
+
                 if (out_event->type == LIBP2P_HOST_EVENT_STREAM_OPEN_FAILED)
                 {
-                    out_event->stream_open->state = HOST_OPEN_FREE;
+                    host_open_release(out_event->stream_open);
                 }
                 else if (out_event->type == LIBP2P_HOST_EVENT_STREAM_OPENED)
                 {
@@ -774,12 +777,23 @@ libp2p_host_err_t libp2p_host_next_event(libp2p_host_t *host, libp2p_host_event_
                     {
                         out_event->stream->open_attempt = NULL;
                     }
-                    out_event->stream_open->state = HOST_OPEN_FREE;
+                    host_open_release(out_event->stream_open);
                 }
                 else
                 {
                     result = LIBP2P_HOST_OK;
                 }
+                if (open_conn != NULL)
+                {
+                    result = host_conn_try_recycle(open_conn);
+                }
+            }
+            if ((result == LIBP2P_HOST_OK) &&
+                (out_event->type == LIBP2P_HOST_EVENT_CONN_CLOSED) &&
+                (out_event->conn != NULL))
+            {
+                out_event->conn->close_event_pending = 0U;
+                result = host_conn_try_recycle(out_event->conn);
             }
         }
     }

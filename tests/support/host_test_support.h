@@ -47,6 +47,7 @@ typedef struct
     libp2p_host_time_us_t deadline;
     size_t drive_count;
     size_t close_count;
+    size_t release_count;
     uint8_t listen_multiaddr[HOST_TEST_MULTIADDR_CAP];
     size_t listen_multiaddr_len;
 } host_test_transport_fixture_t;
@@ -447,6 +448,19 @@ static inline libp2p_host_err_t host_test_conn_close(
     return LIBP2P_HOST_OK;
 }
 
+static inline libp2p_host_err_t host_test_conn_release(void *transport, void *conn)
+{
+    host_test_transport_fixture_t *fixture = (host_test_transport_fixture_t *)transport;
+
+    (void)conn;
+    if (fixture == NULL)
+    {
+        return LIBP2P_HOST_ERR_INVALID_ARG;
+    }
+    fixture->release_count++;
+    return LIBP2P_HOST_OK;
+}
+
 static inline libp2p_host_err_t host_test_stream_read(
     void *transport,
     void *stream,
@@ -586,6 +600,7 @@ static inline const libp2p_host_transport_vtable_t *host_test_transport(void)
          host_test_conn_remote_multiaddr,
          host_test_conn_peer_identity,
          host_test_conn_close,
+         host_test_conn_release,
          host_test_stream_read,
          host_test_stream_write,
          host_test_stream_finish,

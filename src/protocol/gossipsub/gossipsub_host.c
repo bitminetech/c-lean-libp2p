@@ -261,6 +261,8 @@ libp2p_gossipsub_err_t libp2p_gossipsub_handle_host_event(
             {
                 gs_event.type = LIBP2P_GOSSIPSUB_EVENT_PEER_CLOSED;
                 gossipsub_peer_to_event(&gossipsub->peers[index], &gs_event);
+                gs_event.conn = NULL;
+                gs_event.stream = NULL;
                 (void)gossipsub_event_push(gossipsub, &gs_event);
                 gossipsub_drop_queued_peer(gossipsub, index);
                 gossipsub_mesh_remove_peer(gossipsub, index);
@@ -285,7 +287,7 @@ libp2p_gossipsub_err_t libp2p_gossipsub_handle_host_event(
     else if (event->type == LIBP2P_HOST_EVENT_STREAM_OPEN_FAILED)
     {
         gs_event.type = LIBP2P_GOSSIPSUB_EVENT_PEER_FAILED;
-        gs_event.conn = event->conn;
+        gs_event.conn = NULL;
         gs_event.reason = gossipsub_host_to_err(event->reason);
         result = gossipsub_event_push(gossipsub, &gs_event);
     }
@@ -517,7 +519,8 @@ libp2p_host_err_t gossipsub_protocol_on_event(
         {
             event.type = LIBP2P_GOSSIPSUB_EVENT_PEER_CLOSED;
             gossipsub_peer_to_event(&gossipsub->peers[stream_state->peer_index], &event);
-            event.stream = stream_state->stream;
+            event.conn = NULL;
+            event.stream = NULL;
             event.direction = stream_state->direction;
             event.protocol_version = stream_state->version;
             (void)gossipsub_event_push(gossipsub, &event);
