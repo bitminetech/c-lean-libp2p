@@ -514,6 +514,61 @@ libp2p_host_err_t libp2p_host_conn_peer_id(
     return result;
 }
 
+libp2p_host_err_t libp2p_host_conn_for_peer_id(
+    libp2p_host_t *host,
+    const uint8_t *peer_id,
+    size_t peer_id_len,
+    libp2p_host_conn_t **out_conn)
+{
+    libp2p_host_err_t result = host_validate_started(host);
+
+    if (out_conn != NULL)
+    {
+        *out_conn = NULL;
+    }
+    if (result == LIBP2P_HOST_OK)
+    {
+        if ((peer_id == NULL) || (peer_id_len == 0U) ||
+            (peer_id_len > LIBP2P_PEER_ID_MAX_BYTES) || (out_conn == NULL))
+        {
+            result = LIBP2P_HOST_ERR_INVALID_ARG;
+        }
+    }
+    if (result == LIBP2P_HOST_OK)
+    {
+        uint8_t candidate[LIBP2P_PEER_ID_MAX_BYTES];
+        size_t written = 0U;
+
+        result = LIBP2P_HOST_ERR_NOT_FOUND;
+        for (size_t index = 0U; index < host->conn_capacity; index++)
+        {
+            libp2p_host_conn_t *conn = &host->conns[index];
+
+            if (host_conn_validate_usable(conn, host) != LIBP2P_HOST_OK)
+            {
+                continue;
+            }
+            written = 0U;
+            if (host->config.transport->conn_peer_id(
+                    conn->transport_conn,
+                    candidate,
+                    sizeof(candidate),
+                    &written) != LIBP2P_HOST_OK)
+            {
+                continue;
+            }
+            if ((written == peer_id_len) && (memcmp(candidate, peer_id, peer_id_len) == 0))
+            {
+                *out_conn = conn;
+                result = LIBP2P_HOST_OK;
+                break;
+            }
+        }
+    }
+
+    return result;
+}
+
 libp2p_host_err_t libp2p_host_conn_remote_multiaddr(
     const libp2p_host_conn_t *conn,
     uint8_t *out,
