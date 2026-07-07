@@ -623,6 +623,18 @@ libp2p_host_err_t libp2p_host_conn_peer_id(
     size_t *written);
 
 /**
+ * Return a currently-live connection for an authenticated remote peer ID.
+ *
+ * The returned handle is borrowed from the host and follows the same lifetime
+ * rules as connection handles from LIBP2P_HOST_EVENT_CONN_ESTABLISHED.
+ */
+libp2p_host_err_t libp2p_host_conn_for_peer_id(
+    libp2p_host_t *host,
+    const uint8_t *peer_id,
+    size_t peer_id_len,
+    libp2p_host_conn_t **out_conn);
+
+/**
  * Return a connection's authenticated remote multiaddr.
  *
  * For outbound connections this is the dial target after authentication. For

@@ -394,9 +394,9 @@ static int quic_backend_stream_close_cb(
     libp2p_quic_conn_t *conn = quic_backend_conn_from_memory(user_data);
     libp2p_quic_stream_t *stream = quic_backend_stream_from_memory(stream_user_data);
     uint64_t event_error_code = 0U;
+    int opened_stream = stream != NULL;
     int result = 0;
 
-    (void)ngconn;
     if (conn == NULL)
     {
         result = NGTCP2_ERR_CALLBACK_FAILURE;
@@ -413,6 +413,10 @@ static int quic_backend_stream_close_cb(
                 {
                     result = NGTCP2_ERR_CALLBACK_FAILURE;
                 }
+            }
+            else
+            {
+                opened_stream = 1;
             }
             if ((result == 0) &&
                 (ngtcp2_conn_set_stream_user_data(conn->ngconn, stream_id, stream) != 0))
@@ -444,6 +448,10 @@ static int quic_backend_stream_close_cb(
         {
             stream->state = LIBP2P_QUIC_STREAM_CLOSED;
             stream->reset = 0U;
+        }
+        if ((stream->incoming != 0U) && (opened_stream != 0) && ngtcp2_is_bidi_stream(stream_id))
+        {
+            ngtcp2_conn_extend_max_streams_bidi(ngconn, 1U);
         }
     }
 
