@@ -394,7 +394,7 @@ static int quic_backend_stream_close_cb(
     libp2p_quic_conn_t *conn = quic_backend_conn_from_memory(user_data);
     libp2p_quic_stream_t *stream = quic_backend_stream_from_memory(stream_user_data);
     uint64_t event_error_code = 0U;
-    int opened_stream = stream != NULL;
+    int opened_stream = (stream != NULL) ? 1 : 0;
     int result = 0;
 
     if (conn == NULL)
