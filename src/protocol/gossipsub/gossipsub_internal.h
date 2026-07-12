@@ -2,6 +2,7 @@
 #define GOSSIPSUB_INTERNAL_H
 
 #include <stddef.h>
+#include <stdatomic.h>
 #include <stdint.h>
 
 #include "multiformats/unsigned_varint/unsigned_varint.h"
@@ -246,6 +247,7 @@ struct libp2p_gossipsub
 
     size_t topic_count;
     size_t peer_count;
+    atomic_size_t mesh_peer_count;
     size_t tx_queue_len;
     size_t tx_ready_count;
     size_t tx_next_peer;

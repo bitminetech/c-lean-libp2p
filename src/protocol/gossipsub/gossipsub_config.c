@@ -509,6 +509,7 @@ libp2p_gossipsub_err_t libp2p_gossipsub_init(
         gossipsub->config = *config;
         gossipsub->storage_base = gossipsub_storage_bytes(storage);
         gossipsub->storage_len = storage_len;
+        atomic_init(&gossipsub->mesh_peer_count, 0U);
         storage_ptr = gossipsub_storage_at(storage, layout.topics_offset);
         gossipsub_pointer_store((void *)&gossipsub->topics, storage_ptr);
         storage_ptr = gossipsub_storage_at(storage, layout.peers_offset);
@@ -578,6 +579,7 @@ void libp2p_gossipsub_deinit(libp2p_gossipsub_t *gossipsub)
         {
             gossipsub_stream_rx_reset(gossipsub, &gossipsub->streams[index]);
         }
+        atomic_store_explicit(&gossipsub->mesh_peer_count, 0U, memory_order_relaxed);
         gossipsub->started = 0U;
         gossipsub->closing = 1U;
     }

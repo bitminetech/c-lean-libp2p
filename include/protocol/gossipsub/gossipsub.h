@@ -607,6 +607,18 @@ libp2p_gossipsub_err_t libp2p_gossipsub_tx_peer_stats(
     libp2p_gossipsub_tx_peer_stats_t *out_stats);
 
 /**
+ * Return an atomic snapshot of current mesh peer memberships.
+ *
+ * This is the sum of peer counts across all locally joined topic meshes. A
+ * peer present in N topic meshes contributes N. Transport peers that are not
+ * in a local topic mesh do not contribute. The query is safe to call while
+ * the router is being driven, provided the router remains alive for the call.
+ */
+libp2p_gossipsub_err_t libp2p_gossipsub_mesh_peer_count(
+    const libp2p_gossipsub_t *gossipsub,
+    size_t *out_count);
+
+/**
  * Feed a public host event into the gossipsub router.
  *
  * This is how outbound stream-open completion and connection closure reach the
