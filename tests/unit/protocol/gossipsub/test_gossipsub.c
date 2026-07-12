@@ -1714,6 +1714,65 @@ static void gossipsub_test_remote_subscriptions_fill_mesh(void)
     free(storage);
 }
 
+static void gossipsub_test_public_mesh_peer_count_tracks_topic_memberships(void)
+{
+    static const uint8_t blocks_topic[] = "blocks";
+    static const uint8_t votes_topic[] = "votes";
+    gossipsub_test_runtime_t runtime = {41U};
+    libp2p_gossipsub_config_t config;
+    libp2p_gossipsub_t *gossipsub = NULL;
+    void *storage = NULL;
+    size_t storage_len = 0U;
+    size_t blocks_index = 0U;
+    size_t votes_index = 0U;
+    size_t count = SIZE_MAX;
+
+    gossipsub_test_config_small(&config, &runtime);
+    assert(libp2p_gossipsub_storage_size(&config, &storage_len) == LIBP2P_GOSSIPSUB_OK);
+    storage = calloc(1U, storage_len);
+    assert(storage != NULL);
+    assert(libp2p_gossipsub_init(storage, storage_len, &config, &gossipsub) == LIBP2P_GOSSIPSUB_OK);
+    assert(libp2p_gossipsub_mesh_peer_count(NULL, &count) == LIBP2P_GOSSIPSUB_ERR_INVALID_ARG);
+    assert(libp2p_gossipsub_mesh_peer_count(gossipsub, NULL) == LIBP2P_GOSSIPSUB_ERR_INVALID_ARG);
+    assert(libp2p_gossipsub_mesh_peer_count(gossipsub, &count) == LIBP2P_GOSSIPSUB_OK);
+    assert(count == 0U);
+
+    gossipsub->peers[0].used = GOSSIPSUB_PEER_USED;
+    gossipsub->peers[1].used = GOSSIPSUB_PEER_USED;
+    assert(
+        gossipsub_find_or_add_topic(
+            gossipsub,
+            (libp2p_gossipsub_bytes_t){blocks_topic, sizeof(blocks_topic) - 1U},
+            &blocks_index) != NULL);
+    assert(
+        gossipsub_find_or_add_topic(
+            gossipsub,
+            (libp2p_gossipsub_bytes_t){votes_topic, sizeof(votes_topic) - 1U},
+            &votes_index) != NULL);
+    gossipsub->topics[blocks_index].local_subscribed = 1U;
+    gossipsub->topics[votes_index].local_subscribed = 1U;
+
+    assert(gossipsub_mesh_add(gossipsub, 0U, blocks_index) == LIBP2P_GOSSIPSUB_OK);
+    assert(gossipsub_mesh_add(gossipsub, 0U, votes_index) == LIBP2P_GOSSIPSUB_OK);
+    assert(gossipsub_mesh_add(gossipsub, 1U, blocks_index) == LIBP2P_GOSSIPSUB_OK);
+    assert(libp2p_gossipsub_mesh_peer_count(gossipsub, &count) == LIBP2P_GOSSIPSUB_OK);
+    assert(count == 3U);
+
+    assert(gossipsub_mesh_add(gossipsub, 0U, blocks_index) == LIBP2P_GOSSIPSUB_OK);
+    assert(libp2p_gossipsub_mesh_peer_count(gossipsub, &count) == LIBP2P_GOSSIPSUB_OK);
+    assert(count == 3U);
+    gossipsub_mesh_remove(gossipsub, 1U, blocks_index);
+    gossipsub_mesh_remove_topic(gossipsub, blocks_index);
+    assert(libp2p_gossipsub_mesh_peer_count(gossipsub, &count) == LIBP2P_GOSSIPSUB_OK);
+    assert(count == 1U);
+    gossipsub_mesh_remove_peer(gossipsub, 0U);
+    assert(libp2p_gossipsub_mesh_peer_count(gossipsub, &count) == LIBP2P_GOSSIPSUB_OK);
+    assert(count == 0U);
+
+    libp2p_gossipsub_deinit(gossipsub);
+    free(storage);
+}
+
 static uint32_t gossipsub_test_ranked_mesh_mask(const uint8_t *peer_ids, uint8_t trim)
 {
     static const uint8_t topic[] = "blocks";
@@ -2492,6 +2551,7 @@ int main(void)
     gossipsub_test_expired_partial_head_keeps_flushing();
     gossipsub_test_unsent_follower_expires_after_partial_head_flush();
     gossipsub_test_remote_subscriptions_fill_mesh();
+    gossipsub_test_public_mesh_peer_count_tracks_topic_memberships();
     gossipsub_test_ranked_mesh_selection_ignores_peer_slot_order();
     gossipsub_test_forward_uses_mesh_not_all_subscribers();
     gossipsub_test_publish_tolerates_full_peer_queue();

@@ -393,6 +393,24 @@ size_t gossipsub_mesh_count_topic(const libp2p_gossipsub_t *gossipsub, size_t to
     return result;
 }
 
+libp2p_gossipsub_err_t libp2p_gossipsub_mesh_peer_count(
+    const libp2p_gossipsub_t *gossipsub,
+    size_t *out_count)
+{
+    libp2p_gossipsub_err_t result = LIBP2P_GOSSIPSUB_OK;
+
+    if ((gossipsub == NULL) || (out_count == NULL))
+    {
+        result = LIBP2P_GOSSIPSUB_ERR_INVALID_ARG;
+    }
+    else
+    {
+        *out_count = atomic_load_explicit(&gossipsub->mesh_peer_count, memory_order_relaxed);
+    }
+
+    return result;
+}
+
 static uint64_t gossipsub_u64_add_saturating(uint64_t left, uint64_t right)
 {
     uint64_t result = UINT64_MAX;
@@ -576,6 +594,10 @@ libp2p_gossipsub_err_t gossipsub_mesh_add(
             edge->used = GOSSIPSUB_EDGE_USED;
             edge->peer_index = peer_index;
             edge->topic_index = topic_index;
+            (void)atomic_fetch_add_explicit(
+                &gossipsub->mesh_peer_count,
+                1U,
+                memory_order_relaxed);
         }
     }
     else
@@ -598,6 +620,10 @@ void gossipsub_mesh_remove(libp2p_gossipsub_t *gossipsub, size_t peer_index, siz
             {
                 (void)
                     memset(&gossipsub->mesh_edges[index], 0, sizeof(gossipsub->mesh_edges[index]));
+                (void)atomic_fetch_sub_explicit(
+                    &gossipsub->mesh_peer_count,
+                    1U,
+                    memory_order_relaxed);
                 break;
             }
         }
@@ -615,6 +641,10 @@ void gossipsub_mesh_remove_peer(libp2p_gossipsub_t *gossipsub, size_t peer_index
             {
                 (void)
                     memset(&gossipsub->mesh_edges[index], 0, sizeof(gossipsub->mesh_edges[index]));
+                (void)atomic_fetch_sub_explicit(
+                    &gossipsub->mesh_peer_count,
+                    1U,
+                    memory_order_relaxed);
             }
         }
     }
@@ -631,6 +661,10 @@ void gossipsub_mesh_remove_topic(libp2p_gossipsub_t *gossipsub, size_t topic_ind
             {
                 (void)
                     memset(&gossipsub->mesh_edges[index], 0, sizeof(gossipsub->mesh_edges[index]));
+                (void)atomic_fetch_sub_explicit(
+                    &gossipsub->mesh_peer_count,
+                    1U,
+                    memory_order_relaxed);
             }
         }
     }
