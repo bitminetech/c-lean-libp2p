@@ -203,7 +203,8 @@ QUIC_BACKEND_INTERNAL libp2p_quic_err_t quic_backend_stream_read(
     {
         result = LIBP2P_QUIC_ERR_INVALID_ARG;
     }
-    else if (stream->state == LIBP2P_QUIC_STREAM_RESET)
+    else if (
+        (stream->state == LIBP2P_QUIC_STREAM_RESET) && (stream->rx_read_offset == stream->rx_len))
     {
         result = LIBP2P_QUIC_ERR_CLOSED;
     }
