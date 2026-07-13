@@ -57,7 +57,8 @@ libp2p_quic_err_t libp2p_quic_stream_state(
  * @param[out] read_len  Bytes copied to out.
  * @param[out] fin       Non-zero when the peer's send side has finished.
  * @return LIBP2P_QUIC_OK on bytes or FIN,
- *         LIBP2P_QUIC_ERR_WOULD_BLOCK when no bytes are currently available.
+ *         LIBP2P_QUIC_ERR_WOULD_BLOCK when no bytes are currently available,
+ *         LIBP2P_QUIC_ERR_CLOSED after buffered bytes from a terminal stream are consumed.
  */
 libp2p_quic_err_t libp2p_quic_stream_read(
     libp2p_quic_stream_t *stream,
