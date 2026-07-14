@@ -319,6 +319,10 @@ static libp2p_host_err_t host_quic_next_event(
                     out_event->attempt = quic_event.conn;
                     out_event->app_error_code = quic_event.app_error_code;
                     out_event->transport_error_code = quic_event.transport_error_code;
+                    if (out_event->type == LIBP2P_HOST_TRANSPORT_EVENT_CONN_CLOSED)
+                    {
+                        out_event->reason = LIBP2P_HOST_ERR_CLOSED;
+                    }
                 }
             }
         }
