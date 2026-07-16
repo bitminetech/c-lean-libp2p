@@ -145,6 +145,7 @@ static libp2p_host_err_t host_transport_event_conn_closed(
                 event.type = LIBP2P_HOST_EVENT_CONN_CLOSED;
                 event.conn = conn;
                 event.reason = transport_event->reason;
+                event.locally_initiated = conn->local_close_requested;
                 event.app_error_code = transport_event->app_error_code;
                 event.transport_error_code = transport_event->transport_error_code;
                 conn->closed = 1U;
@@ -616,6 +617,10 @@ libp2p_host_err_t libp2p_host_conn_close(
         {
             result = host->config.transport
                          ->conn_close(host->transport, conn->transport_conn, app_error_code);
+            if (result == LIBP2P_HOST_OK)
+            {
+                conn->local_close_requested = 1U;
+            }
         }
     }
 

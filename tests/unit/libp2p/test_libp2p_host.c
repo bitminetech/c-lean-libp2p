@@ -534,6 +534,7 @@ static void host_unit_test_graceful_shutdown(void)
         if (event.type == LIBP2P_HOST_EVENT_CONN_CLOSED)
         {
             assert(event.conn == host_conn);
+            assert(event.locally_initiated != 0U);
             closed_events++;
         }
         if (event.type == LIBP2P_HOST_EVENT_HOST_CLOSED)
@@ -544,6 +545,55 @@ static void host_unit_test_graceful_shutdown(void)
     assert(closed_events == 2U);
     libp2p_host_deinit(host);
     free(storage);
+}
+
+static void host_unit_check_connection_close_event(uint8_t request_local_close)
+{
+    libp2p_host_config_t config;
+    host_test_transport_config_t transport_config;
+    host_test_transport_fixture_t fixture;
+    host_test_conn_t conn;
+    libp2p_host_t *host = NULL;
+    libp2p_host_conn_t *host_conn = NULL;
+    libp2p_host_transport_event_t transport_event;
+    libp2p_host_drive_result_t result;
+    libp2p_host_event_t event;
+    void *storage = NULL;
+
+    host = host_unit_init_mock(&config, &transport_config, &fixture, &conn, &storage);
+    assert(libp2p_host_start(host) == LIBP2P_HOST_OK);
+    host_unit_establish_mock_conn(host, &fixture, &conn, &host_conn);
+    assert(host_conn != NULL);
+    if (request_local_close != 0U)
+    {
+        assert(libp2p_host_conn_close(host, host_conn, 41U) == LIBP2P_HOST_OK);
+        assert(fixture.close_count == 1U);
+    }
+
+    (void)memset(&transport_event, 0, sizeof(transport_event));
+    transport_event.type = LIBP2P_HOST_TRANSPORT_EVENT_CONN_CLOSED;
+    transport_event.conn = &conn;
+    transport_event.reason = LIBP2P_HOST_ERR_CLOSED;
+    transport_event.app_error_code = 41U;
+    transport_event.transport_error_code = 73U;
+    host_test_event_push(&fixture, &transport_event);
+    assert(libp2p_host_drive(host, 7U, LIBP2P_HOST_READY_APP, &result) == LIBP2P_HOST_OK);
+    assert(libp2p_host_next_event(host, &event) == LIBP2P_HOST_OK);
+    assert(event.type == LIBP2P_HOST_EVENT_CONN_CLOSED);
+    assert(event.conn == host_conn);
+    assert(event.reason == LIBP2P_HOST_ERR_CLOSED);
+    assert(event.locally_initiated == request_local_close);
+    assert(event.app_error_code == 41U);
+    assert(event.transport_error_code == 73U);
+
+    libp2p_host_deinit(host);
+    free(storage);
+}
+
+static void host_unit_test_connection_close_origin_and_codes(void)
+{
+    host_unit_check_connection_close_event(1U);
+    host_unit_check_connection_close_event(0U);
 }
 
 static void host_unit_test_closed_conn_recycles_slot_and_rejects_stale_accessors(void)
@@ -826,6 +876,8 @@ static void host_unit_test_quic_loopback(void)
     size_t client_storage_len = 0U;
     size_t server_storage_len = 0U;
     size_t round = 0U;
+    uint8_t client_closed = 0U;
+    uint8_t server_closed = 0U;
 
     (void)memset(&pair, 0, sizeof(pair));
     quic_test_load_host_key(private_key, public_key_message, &ignored_host_key);
@@ -970,6 +1022,42 @@ static void host_unit_test_quic_loopback(void)
     assert(pair.server_protocol.open_count != 0U);
     assert(pair.server_protocol.last_direction == LIBP2P_HOST_STREAM_INBOUND);
 
+    assert(libp2p_host_conn_close(pair.client, pair.client_conn, 99U) == LIBP2P_HOST_OK);
+    for (round = 0U; round < 2000U; round++)
+    {
+        libp2p_host_event_t event;
+
+        host_unit_quic_drive_pair(&pair);
+        while (libp2p_host_next_event(pair.client, &event) == LIBP2P_HOST_OK)
+        {
+            if (event.type == LIBP2P_HOST_EVENT_CONN_CLOSED)
+            {
+                assert(event.reason == LIBP2P_HOST_ERR_CLOSED);
+                assert(event.locally_initiated != 0U);
+                assert(event.app_error_code == 99U);
+                assert(event.transport_error_code == 0U);
+                client_closed = 1U;
+            }
+        }
+        while (libp2p_host_next_event(pair.server, &event) == LIBP2P_HOST_OK)
+        {
+            if (event.type == LIBP2P_HOST_EVENT_CONN_CLOSED)
+            {
+                assert(event.reason == LIBP2P_HOST_ERR_CLOSED);
+                assert(event.locally_initiated == 0U);
+                assert(event.app_error_code == 99U);
+                assert(event.transport_error_code == 0U);
+                server_closed = 1U;
+            }
+        }
+        if ((client_closed != 0U) && (server_closed != 0U))
+        {
+            break;
+        }
+    }
+    assert(client_closed != 0U);
+    assert(server_closed != 0U);
+
     libp2p_host_deinit(pair.client);
     libp2p_host_deinit(pair.server);
     free(pair.client_storage);
@@ -986,6 +1074,7 @@ int main(void)
     host_unit_test_outbound_stream_resources_reused_after_close();
     host_unit_test_inbound_stream_negotiation_and_na();
     host_unit_test_graceful_shutdown();
+    host_unit_test_connection_close_origin_and_codes();
     host_unit_test_closed_conn_recycles_slot_and_rejects_stale_accessors();
     host_unit_test_conn_for_peer_id_skips_closed_duplicate();
     host_unit_test_secp256k1_identity_round_trip();
