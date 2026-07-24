@@ -48,6 +48,7 @@ typedef struct
     size_t drive_count;
     size_t close_count;
     size_t release_count;
+    libp2p_host_err_t open_stream_result;
     uint8_t listen_multiaddr[HOST_TEST_MULTIADDR_CAP];
     size_t listen_multiaddr_len;
 } host_test_transport_fixture_t;
@@ -363,8 +364,15 @@ static inline libp2p_host_err_t host_test_open_stream(
 {
     host_test_transport_fixture_t *fixture = (host_test_transport_fixture_t *)transport;
 
-    if ((fixture == NULL) || (conn == NULL) || (out_stream == NULL) ||
-        (fixture->next_stream == NULL))
+    if ((fixture == NULL) || (conn == NULL) || (out_stream == NULL))
+    {
+        return LIBP2P_HOST_ERR_INVALID_ARG;
+    }
+    if (fixture->open_stream_result != LIBP2P_HOST_OK)
+    {
+        return fixture->open_stream_result;
+    }
+    if (fixture->next_stream == NULL)
     {
         return LIBP2P_HOST_ERR_INVALID_ARG;
     }

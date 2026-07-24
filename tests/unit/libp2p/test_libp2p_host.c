@@ -447,6 +447,87 @@ static void host_unit_test_outbound_stream_resources_reused_after_close(void)
     free(storage);
 }
 
+static void host_unit_test_outbound_stream_open_cancel(void)
+{
+    static const uint8_t ping[] = "/ipfs/ping/1.0.0";
+    libp2p_host_config_t config;
+    host_test_transport_config_t transport_config;
+    host_test_transport_fixture_t fixture;
+    host_test_conn_t conn;
+    host_test_stream_t cancelled_stream;
+    host_test_stream_t replacement_stream;
+    host_unit_protocol_state_t state;
+    libp2p_host_protocol_t protocol;
+    libp2p_host_t *host = NULL;
+    libp2p_host_conn_t *host_conn = NULL;
+    libp2p_host_stream_open_t *open = NULL;
+    void *storage = NULL;
+    int waiting_context = 0;
+    int open_context = 1;
+    int other_context = 2;
+
+    (void)memset(&state, 0, sizeof(state));
+    (void)memset(&cancelled_stream, 0, sizeof(cancelled_stream));
+    host = host_unit_init_mock(&config, &transport_config, &fixture, &conn, &storage);
+    host_unit_make_protocol(&protocol, ping, sizeof(ping) - 1U, &state);
+    assert(libp2p_host_handle(host, &protocol) == LIBP2P_HOST_OK);
+    assert(libp2p_host_start(host) == LIBP2P_HOST_OK);
+    host_unit_establish_mock_conn(host, &fixture, &conn, &host_conn);
+
+    fixture.open_stream_result = LIBP2P_HOST_ERR_WOULD_BLOCK;
+    assert(
+        libp2p_host_open_stream(
+            host,
+            host_conn,
+            ping,
+            sizeof(ping) - 1U,
+            &waiting_context,
+            &open) == LIBP2P_HOST_OK);
+    assert(open != NULL);
+    assert(
+        libp2p_host_stream_open_cancel(host, open, &waiting_context) ==
+        LIBP2P_HOST_OK);
+    assert(
+        libp2p_host_stream_open_cancel(host, open, &waiting_context) ==
+        LIBP2P_HOST_ERR_NOT_FOUND);
+
+    fixture.open_stream_result = LIBP2P_HOST_OK;
+    fixture.next_stream = &cancelled_stream;
+    assert(
+        libp2p_host_open_stream(
+            host,
+            host_conn,
+            ping,
+            sizeof(ping) - 1U,
+            &open_context,
+            &open) == LIBP2P_HOST_OK);
+    assert(open != NULL);
+    assert(
+        libp2p_host_stream_open_cancel(host, open, &other_context) ==
+        LIBP2P_HOST_ERR_NOT_FOUND);
+    assert(cancelled_stream.reset_count == 0U);
+    assert(
+        libp2p_host_stream_open_cancel(host, open, &open_context) ==
+        LIBP2P_HOST_OK);
+    assert(cancelled_stream.reset_count == 1U);
+    assert(
+        libp2p_host_stream_open_cancel(host, open, &open_context) ==
+        LIBP2P_HOST_ERR_NOT_FOUND);
+
+    assert(
+        host_unit_open_mock_stream(
+            host,
+            &fixture,
+            host_conn,
+            &replacement_stream,
+            ping,
+            sizeof(ping) - 1U) != NULL);
+    assert(state.open_count == 1U);
+
+    libp2p_host_deinit(host);
+    free(storage);
+}
+
 static void host_unit_test_inbound_stream_negotiation_and_na(void)
 {
     static const uint8_t ping[] = "/ipfs/ping/1.0.0";
@@ -1072,6 +1153,7 @@ int main(void)
     host_unit_test_dial_completion_and_conn_peer_id();
     host_unit_test_outbound_stream_negotiation_and_events();
     host_unit_test_outbound_stream_resources_reused_after_close();
+    host_unit_test_outbound_stream_open_cancel();
     host_unit_test_inbound_stream_negotiation_and_na();
     host_unit_test_graceful_shutdown();
     host_unit_test_connection_close_origin_and_codes();
