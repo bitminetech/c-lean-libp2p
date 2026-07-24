@@ -368,9 +368,12 @@ typedef struct
  *     NULL for inbound connections.
  *
  *   LIBP2P_HOST_EVENT_CONN_CLOSED:
- *     conn identifies the closed connection. The pointer is invalid after this
- *     event is consumed; callers must drop any retained copy before draining the
- *     next host event or initiating more host work.
+ *     conn identifies the closed connection. reason, locally_initiated,
+ *     app_error_code, and transport_error_code describe the closure.
+ *     locally_initiated is nonzero when libp2p_host_conn_close() or
+ *     libp2p_host_close() requested it. The pointer is invalid after this event
+ *     is consumed; callers must drop any retained copy before draining the next
+ *     host event or initiating more host work.
  *
  *   LIBP2P_HOST_EVENT_DIAL_FAILED:
  *     dial, user_data, reason, app_error_code, and transport_error_code are
@@ -397,6 +400,7 @@ typedef struct
     libp2p_host_stream_open_t *stream_open;
     void *user_data;
     libp2p_host_err_t reason;
+    uint8_t locally_initiated;
     uint64_t app_error_code;
     uint64_t transport_error_code;
 } libp2p_host_event_t;

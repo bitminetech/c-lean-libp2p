@@ -70,6 +70,7 @@ struct libp2p_host_conn
     uint8_t active;
     uint8_t closed;
     uint8_t close_event_pending;
+    uint8_t local_close_requested;
 };
 
 struct libp2p_host_stream_open

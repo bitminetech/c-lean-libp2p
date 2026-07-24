@@ -689,6 +689,10 @@ libp2p_host_err_t libp2p_host_close(libp2p_host_t *host, uint64_t app_error_code
                         host->transport,
                         host->conns[index].transport_conn,
                         app_error_code);
+                    if (result == LIBP2P_HOST_OK)
+                    {
+                        host->conns[index].local_close_requested = 1U;
+                    }
                 }
             }
         }
