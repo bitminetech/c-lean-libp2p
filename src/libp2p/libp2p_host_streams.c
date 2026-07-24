@@ -1221,6 +1221,73 @@ libp2p_host_err_t libp2p_host_open_stream_with_fallback(
     return result;
 }
 
+libp2p_host_err_t libp2p_host_stream_open_cancel(
+    libp2p_host_t *host,
+    libp2p_host_stream_open_t *open,
+    const void *expected_user_data)
+{
+    libp2p_host_err_t result = host_validate_started(host);
+
+    if (result == LIBP2P_HOST_OK)
+    {
+        if ((open == NULL) || (expected_user_data == NULL))
+        {
+            result = LIBP2P_HOST_ERR_INVALID_ARG;
+        }
+        else if ((open->host != host) || (open->user_data != expected_user_data) ||
+                 (open->state == HOST_OPEN_FREE))
+        {
+            result = LIBP2P_HOST_ERR_NOT_FOUND;
+        }
+        else if (open->state == HOST_OPEN_EVENTED)
+        {
+            result = LIBP2P_HOST_ERR_STATE;
+        }
+        else if (open->state == HOST_OPEN_WAIT_TRANSPORT)
+        {
+            libp2p_host_conn_t *conn = open->conn;
+
+            host_open_release(open);
+            (void)host_conn_try_recycle(conn);
+        }
+        else if (open->state == HOST_OPEN_NEGOTIATING)
+        {
+            libp2p_host_stream_t *stream = NULL;
+            libp2p_host_conn_t *conn = open->conn;
+            size_t index = 0U;
+
+            for (index = 0U; index < host->stream_capacity; index++)
+            {
+                if ((host->streams[index].state != HOST_STREAM_FREE) &&
+                    (host->streams[index].open_attempt == open))
+                {
+                    stream = &host->streams[index];
+                    break;
+                }
+            }
+            if (stream == NULL)
+            {
+                result = LIBP2P_HOST_ERR_STATE;
+            }
+            else
+            {
+                (void)host->config.transport
+                    ->stream_reset(host->transport, stream->transport_stream, 0U);
+                stream->open_attempt = NULL;
+                host_stream_release(stream);
+                host_open_release(open);
+                (void)host_conn_try_recycle(conn);
+            }
+        }
+        else
+        {
+            result = LIBP2P_HOST_ERR_STATE;
+        }
+    }
+
+    return result;
+}
+
 libp2p_host_err_t libp2p_host_stream_set_user_data(libp2p_host_stream_t *stream, void *user_data)
 {
     libp2p_host_err_t result = LIBP2P_HOST_OK;

@@ -589,6 +589,20 @@ libp2p_host_err_t libp2p_host_open_stream_with_fallback(
     libp2p_host_stream_open_t **out_open);
 
 /**
+ * Cancel an outbound stream open that has not completed.
+ *
+ * expected_user_data must match the value supplied to
+ * libp2p_host_open_stream(). No completion event is emitted after a successful
+ * cancellation. LIBP2P_HOST_ERR_NOT_FOUND means the handle no longer refers to
+ * that open attempt. After any other error, the caller must keep user_data
+ * valid for a possible completion event.
+ */
+libp2p_host_err_t libp2p_host_stream_open_cancel(
+    libp2p_host_t *host,
+    libp2p_host_stream_open_t *open,
+    const void *expected_user_data);
+
+/**
  * Return the local identity's peer ID.
  *
  * @param[out] written  Bytes written, or required size on
